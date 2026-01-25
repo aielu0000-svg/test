@@ -94,8 +94,9 @@ ipcMain.handle("project:create", async (_event, name: string) => {
 
 ipcMain.handle("project:open", async () => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
-    title: "プロジェクトフォルダを選択",
-    properties: ["openDirectory"]
+    title: "プロジェクトDBを選択",
+    properties: ["openFile"],
+    filters: [{ name: "SQLite", extensions: ["sqlite"] }]
   });
   if (result.canceled || result.filePaths.length === 0) {
     return null;

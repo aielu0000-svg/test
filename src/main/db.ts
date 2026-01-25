@@ -163,11 +163,21 @@ export const createProject = (folderPath: string, name: string) => {
   return { name, path: folderPath } satisfies ProjectInfo;
 };
 
-export const openProject = (folderPath: string) => {
-  const dbPath = path.join(folderPath, DB_FILE);
-  if (!fs.existsSync(dbPath)) {
-    throw new Error("指定フォルダにプロジェクトDBが見つかりません。");
+const resolveProjectPath = (inputPath: string) => {
+  if (!fs.existsSync(inputPath)) {
+    throw new Error("指定した場所が見つかりません。");
   }
+  const stats = fs.statSync(inputPath);
+  const dbPath = stats.isDirectory() ? path.join(inputPath, DB_FILE) : inputPath;
+  const folderPath = stats.isDirectory() ? inputPath : path.dirname(inputPath);
+  if (!fs.existsSync(dbPath)) {
+    throw new Error("指定したプロジェクトDBが見つかりません。");
+  }
+  return { dbPath, folderPath };
+};
+
+export const openProject = (inputPath: string) => {
+  const { dbPath, folderPath } = resolveProjectPath(inputPath);
   const database = new Database(dbPath);
   initSchema(database);
   db = database;
@@ -205,7 +215,10 @@ export const getTestCase = (id: string) => {
   const steps = database
     .prepare("SELECT * FROM test_steps WHERE case_id = ? ORDER BY position")
     .all(id);
-  return { testCase, steps };
+  const dataLinks = database
+    .prepare("SELECT data_set_id FROM data_links WHERE entity_type = ? AND entity_id = ?")
+    .all("case", id);
+  return { testCase, steps, dataLinks };
 };
 
 export const saveTestCase = (payload: {
@@ -217,55 +230,84 @@ export const saveTestCase = (payload: {
   severity?: string;
   tags?: string;
   steps: Array<{ id?: string; action: string; expected: string }>;
+  dataSetIds?: string[];
 }) => {
   const { db: database } = ensureDb();
   const id = payload.id ?? randomUUID();
   const timestamp = now();
   const existing = database.prepare("SELECT id FROM test_cases WHERE id = ?").get(id);
 
-  if (existing) {
-    database
-      .prepare(
-        "UPDATE test_cases SET title = ?, objective = ?, preconditions = ?, priority = ?, severity = ?, tags = ?, updated_at = ? WHERE id = ?"
-      )
-      .run(
-        payload.title,
-        payload.objective ?? "",
-        payload.preconditions ?? "",
-        payload.priority ?? "",
-        payload.severity ?? "",
-        payload.tags ?? "",
-        timestamp,
-        id
-      );
-  } else {
-    database
-      .prepare(
-        "INSERT INTO test_cases (id, title, objective, preconditions, priority, severity, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      )
-      .run(
-        id,
-        payload.title,
-        payload.objective ?? "",
-        payload.preconditions ?? "",
-        payload.priority ?? "",
-        payload.severity ?? "",
-        payload.tags ?? "",
-        timestamp,
-        timestamp
-      );
-  }
-
   const insertStep = database.prepare(
     "INSERT INTO test_steps (id, case_id, position, action, expected) VALUES (?, ?, ?, ?, ?)"
   );
   const deleteSteps = database.prepare("DELETE FROM test_steps WHERE case_id = ?");
+  const deleteCaseLinks = database.prepare(
+    "DELETE FROM data_links WHERE entity_type = ? AND entity_id = ?"
+  );
+  const insertCaseLink = database.prepare(
+    "INSERT OR IGNORE INTO data_links (data_set_id, entity_type, entity_id) VALUES (?, ?, ?)"
+  );
+  const insertScenario = database.prepare(
+    "INSERT INTO scenarios (id, title, objective, preconditions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+  );
+  const insertScenarioCase = database.prepare(
+    "INSERT INTO scenario_cases (scenario_id, case_id, position) VALUES (?, ?, ?)"
+  );
 
   const transaction = database.transaction(() => {
+    if (existing) {
+      database
+        .prepare(
+          "UPDATE test_cases SET title = ?, objective = ?, preconditions = ?, priority = ?, severity = ?, tags = ?, updated_at = ? WHERE id = ?"
+        )
+        .run(
+          payload.title,
+          payload.objective ?? "",
+          payload.preconditions ?? "",
+          payload.priority ?? "",
+          payload.severity ?? "",
+          payload.tags ?? "",
+          timestamp,
+          id
+        );
+    } else {
+      database
+        .prepare(
+          "INSERT INTO test_cases (id, title, objective, preconditions, priority, severity, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          id,
+          payload.title,
+          payload.objective ?? "",
+          payload.preconditions ?? "",
+          payload.priority ?? "",
+          payload.severity ?? "",
+          payload.tags ?? "",
+          timestamp,
+          timestamp
+        );
+    }
+
     deleteSteps.run(id);
     payload.steps.forEach((step, index) => {
       insertStep.run(step.id ?? randomUUID(), id, index + 1, step.action, step.expected);
     });
+    deleteCaseLinks.run("case", id);
+    (payload.dataSetIds ?? []).forEach((dataSetId) => {
+      insertCaseLink.run(dataSetId, "case", id);
+    });
+    if (!existing) {
+      const scenarioId = randomUUID();
+      insertScenario.run(
+        scenarioId,
+        payload.title,
+        payload.objective ?? "",
+        payload.preconditions ?? "",
+        timestamp,
+        timestamp
+      );
+      insertScenarioCase.run(scenarioId, id, 1);
+    }
   });
   transaction();
 
@@ -275,6 +317,7 @@ export const saveTestCase = (payload: {
 export const deleteTestCase = (id: string) => {
   const { db: database } = ensureDb();
   database.prepare("DELETE FROM test_cases WHERE id = ?").run(id);
+  database.prepare("DELETE FROM data_links WHERE entity_type = ? AND entity_id = ?").run("case", id);
 };
 
 export const listScenarios = () => {

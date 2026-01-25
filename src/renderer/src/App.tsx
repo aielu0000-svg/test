@@ -61,6 +61,10 @@ type DataLink = {
   entity_id: string;
 };
 
+type CaseDataLink = {
+  data_set_id: string;
+};
+
 type TestRun = {
   id: string;
   name: string;
@@ -102,6 +106,7 @@ type CaseDraft = {
   severity: string;
   tags: string;
   steps: TestStep[];
+  dataSetIds: string[];
 };
 
 type ScenarioDraft = {
@@ -159,7 +164,8 @@ const emptyCase = (): CaseDraft => ({
   priority: String(priorityOptions[1]),
   severity: String(severityOptions[2]),
   tags: "",
-  steps: [{ action: "", expected: "" }]
+  steps: [{ action: "", expected: "" }],
+  dataSetIds: []
 });
 
 const emptyScenario = (): ScenarioDraft => ({
@@ -199,6 +205,9 @@ export default function App() {
   const [caseQuery, setCaseQuery] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
+  const [caseDataSets, setCaseDataSets] = useState<
+    Record<string, { dataSet: DataSet; items: DataItem[] }>
+  >({});
   const [caseError, setCaseError] = useState<string | null>(null);
 
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -368,12 +377,67 @@ export default function App() {
     return runs.filter((item) => item.name.toLowerCase().includes(term));
   }, [runs, runQuery]);
 
+  const caseDataSetOptions = useMemo(
+    () => dataSets.filter((item) => item.scope === "common" || item.scope === "case"),
+    [dataSets]
+  );
+
+  const dataScopeLabel = (scope: string) =>
+    dataScopes.find((item) => item.value === scope)?.label ?? scope;
+
+  const toggleCaseDataSet = async (dataSetId: string) => {
+    if (caseDraft.dataSetIds.includes(dataSetId)) {
+      setCaseDraft({
+        ...caseDraft,
+        dataSetIds: caseDraft.dataSetIds.filter((id) => id !== dataSetId)
+      });
+      setCaseDataSets((prev) => {
+        const next = { ...prev };
+        delete next[dataSetId];
+        return next;
+      });
+      return;
+    }
+    setCaseDraft({ ...caseDraft, dataSetIds: [...caseDraft.dataSetIds, dataSetId] });
+    await loadCaseDataSetDetails([dataSetId]);
+  };
+
+  const loadCaseDataSetDetails = async (ids: string[]) => {
+    const entries = await Promise.all(
+      ids.map(async (dataSetId) => {
+        const data = (await window.api.dataSets.get(dataSetId)) as {
+          dataSet: DataSet;
+          items: DataItem[];
+        };
+        if (!data.dataSet) {
+          return null;
+        }
+        return [dataSetId, { dataSet: data.dataSet, items: data.items }] as const;
+      })
+    );
+    setCaseDataSets((prev) => {
+      const next = { ...prev };
+      entries.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        next[entry[0]] = entry[1];
+      });
+      return next;
+    });
+  };
+
   const selectCase = async (id: string) => {
     setSelectedCaseId(id);
-    const data = (await window.api.testCases.get(id)) as { testCase: TestCase; steps: TestStep[] };
+    const data = (await window.api.testCases.get(id)) as {
+      testCase: TestCase;
+      steps: TestStep[];
+      dataLinks: CaseDataLink[];
+    };
     if (!data.testCase) {
       return;
     }
+    const dataSetIds = data.dataLinks?.map((link) => link.data_set_id) ?? [];
     setCaseDraft({
       title: data.testCase.title,
       objective: data.testCase.objective ?? "",
@@ -381,8 +445,15 @@ export default function App() {
       priority: data.testCase.priority || priorityOptions[1],
       severity: data.testCase.severity || severityOptions[2],
       tags: data.testCase.tags ?? "",
-      steps: data.steps.length ? data.steps.map((step) => ({ action: step.action, expected: step.expected })) : [{ action: "", expected: "" }]
+      steps: data.steps.length
+        ? data.steps.map((step) => ({ action: step.action, expected: step.expected }))
+        : [{ action: "", expected: "" }],
+      dataSetIds
     });
+    setCaseDataSets({});
+    if (dataSetIds.length) {
+      await loadCaseDataSetDetails(dataSetIds);
+    }
   };
 
   const selectScenario = async (id: string) => {
@@ -453,6 +524,7 @@ export default function App() {
       setCaseError("タイトルは必須です。");
       return;
     }
+    const isNew = !selectedCaseId;
     const payload = {
       id: selectedCaseId ?? undefined,
       title: caseDraft.title.trim(),
@@ -461,10 +533,14 @@ export default function App() {
       priority: caseDraft.priority,
       severity: caseDraft.severity,
       tags: caseDraft.tags,
-      steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim())
+      steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
+      dataSetIds: caseDraft.dataSetIds
     };
     const id = (await window.api.testCases.save(payload)) as string;
     await loadCases();
+    if (isNew) {
+      await loadScenarios();
+    }
     setSelectedCaseId(id);
   };
 
@@ -603,6 +679,7 @@ export default function App() {
       await loadCases();
       setSelectedCaseId(null);
       setCaseDraft(emptyCase());
+      setCaseDataSets({});
     }
     if (deleteTarget.type === "scenario") {
       await window.api.scenarios.delete(deleteTarget.id);
@@ -724,6 +801,7 @@ export default function App() {
                     onClick={() => {
                       setSelectedCaseId(null);
                       setCaseDraft(emptyCase());
+                      setCaseDataSets({});
                       setCaseError(null);
                     }}
                   >
@@ -818,6 +896,166 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div
+                    className={cn(
+                      "rounded-2xl border p-4",
+                      theme === "light"
+                        ? "border-slate-200 bg-slate-50"
+                        : "border-slate-800 bg-slate-950/40"
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-balance text-sm font-semibold">初期データの選択</h3>
+                        <p className="text-pretty mt-1 text-xs text-slate-400">
+                          共通/テストケース初期データを関連付けできます。
+                        </p>
+                      </div>
+                      <button
+                        className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
+                        onClick={() => setSection("data")}
+                      >
+                        初期データを作成
+                      </button>
+                    </div>
+                    {caseDataSetOptions.length === 0 ? (
+                      <div
+                        className={cn(
+                          "mt-3 rounded-xl border px-3 py-2 text-xs text-slate-400",
+                          theme === "light" ? "border-slate-200" : "border-slate-800"
+                        )}
+                      >
+                        初期データがまだありません。右上のボタンから追加してください。
+                      </div>
+                    ) : (
+                      <div className="mt-3 grid gap-2">
+                        {caseDataSetOptions.map((dataSet) => {
+                          const checked = caseDraft.dataSetIds.includes(dataSet.id);
+                          return (
+                            <label
+                              key={dataSet.id}
+                              className={cn(
+                                "flex gap-3 rounded-xl border px-3 py-2 text-left text-sm",
+                                theme === "light"
+                                  ? checked
+                                    ? "border-sky-300 bg-sky-50"
+                                    : "border-slate-200"
+                                  : checked
+                                    ? "border-sky-500/60 bg-sky-950/30"
+                                    : "border-slate-800"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-1 size-4 accent-sky-400"
+                                checked={checked}
+                                onChange={() => {
+                                  void toggleCaseDataSet(dataSet.id);
+                                }}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-semibold">{dataSet.name}</span>
+                                  <span className="text-[11px] text-slate-500">
+                                    {dataScopeLabel(dataSet.scope)}
+                                  </span>
+                                </div>
+                                {dataSet.description && (
+                                  <p className="text-pretty mt-1 text-xs text-slate-400">
+                                    {dataSet.description}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {caseDraft.dataSetIds.length > 0 && (
+                      <div className="mt-4 grid gap-2">
+                        <p className="text-xs font-semibold uppercase text-slate-400">
+                          選択中のデータ内容
+                        </p>
+                        {caseDraft.dataSetIds.map((dataSetId) => {
+                          const details = caseDataSets[dataSetId];
+                          if (!details) {
+                            return (
+                              <div
+                                key={dataSetId}
+                                className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400"
+                              >
+                                読み込み中...
+                              </div>
+                            );
+                          }
+                          return (
+                            <details
+                              key={dataSetId}
+                              className={cn(
+                                "rounded-xl border px-3 py-2",
+                                theme === "light" ? "border-slate-200" : "border-slate-800"
+                              )}
+                            >
+                              <summary className="cursor-pointer text-sm font-semibold">
+                                {details.dataSet.name}
+                                <span className="ml-2 text-[11px] text-slate-500">
+                                  {details.items.length} 件
+                                </span>
+                              </summary>
+                              <div
+                                className={cn(
+                                  "mt-2 grid gap-2 text-xs",
+                                  theme === "light" ? "text-slate-600" : "text-slate-300"
+                                )}
+                              >
+                                {details.items.length === 0 ? (
+                                  <p className={theme === "light" ? "text-slate-500" : "text-slate-400"}>
+                                    項目がありません。
+                                  </p>
+                                ) : (
+                                  details.items.map((item, index) => (
+                                    <div
+                                      key={`${dataSetId}-${index}`}
+                                      className={cn(
+                                        "rounded-lg px-2 py-1",
+                                        theme === "light"
+                                          ? "bg-slate-100 text-slate-700"
+                                          : "bg-slate-900/60 text-slate-300"
+                                      )}
+                                    >
+                                      <div
+                                        className={cn(
+                                          "font-semibold",
+                                          theme === "light" ? "text-slate-700" : "text-slate-100"
+                                        )}
+                                      >
+                                        {item.label}
+                                      </div>
+                                      <div
+                                        className={cn(
+                                          "text-pretty",
+                                          theme === "light" ? "text-slate-600" : "text-slate-300"
+                                        )}
+                                      >
+                                        {item.value}
+                                      </div>
+                                      {item.note && (
+                                        <div className={theme === "light" ? "text-slate-500" : "text-slate-500"}>
+                                          補足: {item.note}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </details>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-semibold uppercase text-slate-400">手順</label>
@@ -835,7 +1073,7 @@ export default function App() {
                     </div>
                     <div className="mt-3 grid gap-3">
                       {caseDraft.steps.map((step, index) => (
-                        <div key={`${index}-${step.action}`} className="rounded-xl border border-slate-800 p-3">
+                        <div key={`step-${index}`} className="rounded-xl border border-slate-800 p-3">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-semibold text-slate-400">Step {index + 1}</span>
                             {caseDraft.steps.length > 1 && (
