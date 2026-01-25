@@ -40,9 +40,10 @@ app.disableHardwareAcceleration();
 
 const createWindow = () => {
   const preloadBase = path.join(__dirname, "../preload");
-  const preloadPath = fs.existsSync(path.join(preloadBase, "index.js"))
-    ? path.join(preloadBase, "index.js")
-    : path.join(preloadBase, "index.mjs");
+  const preloadCandidates = ["index.cjs", "index.js", "index.mjs"].map((file) =>
+    path.join(preloadBase, file)
+  );
+  const preloadPath = preloadCandidates.find((file) => fs.existsSync(file)) ?? preloadCandidates[0];
 
   mainWindow = new BrowserWindow({
     width: 1280,

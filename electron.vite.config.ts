@@ -9,6 +9,14 @@ export default defineConfig({
   preload: {
     input: {
       index: path.join(__dirname, "src/preload/index.ts")
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].cjs"
+        }
+      }
     }
   },
   renderer: {

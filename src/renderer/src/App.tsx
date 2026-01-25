@@ -302,16 +302,28 @@ export default function App() {
 
   const handleCreateProject = async () => {
     setProjectError(null);
-    const result = (await window.api.project.create(projectName)) as ProjectInfo | null;
-    if (!result) {
-      setProjectError("プロジェクトの作成がキャンセルされました。");
+    if (!window.api?.project?.create) {
+      setProjectError("アプリのAPIが読み込めていません。再起動してください。");
       return;
     }
-    setProject(result);
+    try {
+      const result = (await window.api.project.create(projectName)) as ProjectInfo | null;
+      if (!result) {
+        setProjectError("プロジェクトの作成がキャンセルされました。");
+        return;
+      }
+      setProject(result);
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : "プロジェクトを作成できません。");
+    }
   };
 
   const handleOpenProject = async () => {
     setProjectError(null);
+    if (!window.api?.project?.open) {
+      setProjectError("アプリのAPIが読み込めていません。再起動してください。");
+      return;
+    }
     try {
       const result = (await window.api.project.open()) as ProjectInfo | null;
       if (!result) {
