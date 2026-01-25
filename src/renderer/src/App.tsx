@@ -1716,7 +1716,7 @@ export default function App() {
                         初期データがまだありません。右上のボタンから追加してください。
                       </div>
                     ) : (
-                      <div className="mt-3 grid gap-2">
+                      <div className="mt-3 max-h-[240px] grid gap-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-900/40">
                         {caseDataSetOptions.map((dataSet) => {
                           const checked = caseDraft.dataSetIds.includes(dataSet.id);
                           return (

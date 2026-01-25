@@ -25,7 +25,9 @@ const api = {
     delete: (id: string) => ipcRenderer.invoke("scenarios:delete", id),
     details: (id: string) => ipcRenderer.invoke("scenarios:details", id),
     createFromFolder: (folderId: string, title?: string) =>
-      ipcRenderer.invoke("scenarios:createFromFolder", folderId, title)
+      ipcRenderer.invoke("scenarios:createFromFolder", folderId, title),
+    removeCase: (scenarioId: string, caseId: string) =>
+      ipcRenderer.invoke("scenarios:removeCase", scenarioId, caseId)
   },
   dataSets: {
     list: (scope?: string) => ipcRenderer.invoke("dataSets:list", scope),
