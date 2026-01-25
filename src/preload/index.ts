@@ -52,6 +52,13 @@ const api = {
     open: (id: string) => ipcRenderer.invoke("evidence:open", id),
     preview: (id: string) => ipcRenderer.invoke("evidence:preview", id)
   },
+  runCaseEvidence: {
+    list: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:list", runScenarioCaseId),
+    add: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:add", runScenarioCaseId),
+    paste: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:paste", runScenarioCaseId),
+    remove: (id: string) => ipcRenderer.invoke("runCaseEvidence:remove", id),
+    preview: (id: string) => ipcRenderer.invoke("runCaseEvidence:preview", id)
+  },
   export: {
     save: (payload: unknown) => ipcRenderer.invoke("export:save", payload)
   },

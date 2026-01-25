@@ -152,6 +152,14 @@ type EvidencePreview = {
   mimeType: string;
 };
 
+type RunCaseEvidenceRow = {
+  id: string;
+  run_scenario_case_id: string;
+  file_name: string;
+  mime_type?: string;
+  created_at: string;
+};
+
 type CaseDraft = {
   title: string;
   objective: string;
@@ -293,6 +301,7 @@ export default function App() {
   const [selectedRunScenarioId, setSelectedRunScenarioId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [evidenceList, setEvidenceList] = useState<Evidence[]>([]);
+  const [runCaseEvidenceMap, setRunCaseEvidenceMap] = useState<Record<string, EvidencePreview[]>>({});
   const [runScenarioCasesMap, setRunScenarioCasesMap] = useState<Record<string, RunScenarioCase[]>>({});
   const [evidencePreview, setEvidencePreview] = useState<EvidencePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -403,6 +412,51 @@ export default function App() {
     setRuns(list);
   };
 
+  const loadRunCaseEvidenceForIds = async (
+    caseIds: string[],
+    options?: { overwrite?: boolean }
+  ) => {
+    const uniqueIds = Array.from(new Set(caseIds));
+    if (!uniqueIds.length) {
+      if (options?.overwrite) {
+        setRunCaseEvidenceMap({});
+      }
+      return;
+    }
+    const previewSets = await Promise.all(
+      uniqueIds.map(async (caseId) => {
+        const rows = (await window.api.runCaseEvidence.list(caseId)) as RunCaseEvidenceRow[];
+        const previews: EvidencePreview[] = [];
+        for (const row of rows) {
+          try {
+            const result = (await window.api.runCaseEvidence.preview(row.id)) as
+              | { base64: string; mimeType: string }
+              | null;
+            if (!result?.base64) {
+              continue;
+            }
+            previews.push({
+              id: row.id,
+              fileName: row.file_name,
+              dataUrl: `data:${result.mimeType};base64,${result.base64}`,
+              mimeType: result.mimeType
+            });
+          } catch {
+            // ignore preview failures
+          }
+        }
+        return previews;
+      })
+    );
+    setRunCaseEvidenceMap((prev) => {
+      const next: Record<string, EvidencePreview[]> = options?.overwrite ? {} : { ...prev };
+      uniqueIds.forEach((caseId, index) => {
+        next[caseId] = previewSets[index];
+      });
+      return next;
+    });
+  };
+
   const loadRunScenarioCasesForIds = async (
     scenarioIds: string[],
     options?: { overwrite?: boolean }
@@ -415,6 +469,7 @@ export default function App() {
     }
     const uniqueIds = Array.from(new Set(scenarioIds));
     const results = await Promise.all(uniqueIds.map((id) => window.api.runs.cases(id)));
+    const caseIds = results.flatMap((batch) => batch.map((item) => item.id));
     setRunScenarioCasesMap((prev) => {
       const next: Record<string, RunScenarioCase[]> = options?.overwrite ? {} : { ...prev };
       uniqueIds.forEach((id, index) => {
@@ -422,6 +477,7 @@ export default function App() {
       });
       return next;
     });
+    await loadRunCaseEvidenceForIds(caseIds, { overwrite: options?.overwrite });
   };
 
   const fetchScenarioDetailFromApi = async (scenarioId: string) => {
@@ -452,7 +508,28 @@ export default function App() {
     });
   };
 
-  const renderCaseDetails = (detail: CaseDetail) => {
+  const refreshScenarioDetail = async (scenarioId: string) => {
+    setScenarioDetailsCache((prev) => {
+      const next = { ...prev };
+      delete next[scenarioId];
+      return next;
+    });
+    const detail = await ensureScenarioDetail(scenarioId);
+    setScenarioDetail(detail);
+    return detail;
+  };
+
+  const handleRemoveCaseFromScenario = async (caseId: string) => {
+    const scenarioId = scenarioDetail?.scenario?.id;
+    if (!scenarioId) {
+      return;
+    }
+    await window.api.scenarios.removeCase(scenarioId, caseId);
+    await loadScenarios();
+    await refreshScenarioDetail(scenarioId);
+  };
+
+  const renderCaseDetails = (detail: CaseDetail, scenarioId?: string) => {
     return (
       <details
         key={detail.case.id}
@@ -516,10 +593,10 @@ export default function App() {
             <ol className="mt-2 space-y-2 text-[12px]">
               {detail.steps.map((step, index) => (
                 <li key={`${detail.case.id}-${index}`} className="space-y-1 rounded-lg bg-slate-900/40 p-2">
-                  <p className="text-slate-300">
+                  <p className="text-slate-300 whitespace-pre-wrap">
                     <span className="font-semibold text-slate-100">操作:</span> {step.action || "なし"}
                   </p>
-                  <p className="text-slate-400">
+                  <p className="text-slate-400 whitespace-pre-wrap">
                     <span className="font-semibold text-slate-100">期待結果:</span>{" "}
                     {step.expected || "なし"}
                   </p>
@@ -527,6 +604,18 @@ export default function App() {
               ))}
             </ol>
           </div>
+          {scenarioId && (
+            <div className="mt-2 flex justify-end">
+              <button
+                className="rounded-full border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-200"
+                onClick={async () => {
+                  await handleRemoveCaseFromScenario(detail.case.id);
+                }}
+              >
+                シナリオから除外
+              </button>
+            </div>
+          )}
         </div>
       </details>
     );
@@ -1099,6 +1188,33 @@ export default function App() {
     }
     await window.api.evidence.pasteImage(selectedRunScenarioId);
     await selectRunScenario(selectedRunScenarioId);
+  };
+
+  const handleAddRunCaseEvidence = async (runCaseId: string) => {
+    if (!runCaseId) {
+      return;
+    }
+    const result = (await window.api.runCaseEvidence.add(runCaseId)) as string[] | null;
+    if (!result) {
+      return;
+    }
+    await loadRunCaseEvidenceForIds([runCaseId]);
+  };
+
+  const handlePasteRunCaseEvidence = async (runCaseId: string) => {
+    if (!runCaseId) {
+      return;
+    }
+    const result = (await window.api.runCaseEvidence.paste(runCaseId)) as string | null;
+    if (!result) {
+      return;
+    }
+    await loadRunCaseEvidenceForIds([runCaseId]);
+  };
+
+  const handleRemoveRunCaseEvidence = async (evidenceId: string, runCaseId: string) => {
+    await window.api.runCaseEvidence.remove(evidenceId);
+    await loadRunCaseEvidenceForIds([runCaseId]);
   };
 
   const handleExport = async () => {
@@ -1921,7 +2037,9 @@ export default function App() {
               <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
               {scenarioDetail ? (
                 <div className="mt-4 space-y-3">
-                  {scenarioDetail.cases.map((detail) => renderCaseDetails(detail))}
+                {scenarioDetail.cases.map((detail) =>
+                  renderCaseDetails(detail, scenarioDetail.scenario?.id)
+                )}
                 </div>
               ) : (
                 <div
@@ -1956,30 +2074,6 @@ export default function App() {
                       setScenarioDraft({ ...scenarioDraft, preconditions: event.target.value })
                     }
                   />
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">含めるテストケース</label>
-                    <div className="mt-3 grid gap-2">
-                      {testCases.map((item) => (
-                        <label key={item.id} className="flex items-center gap-2 text-sm text-slate-300">
-                          <input
-                            type="checkbox"
-                            className="accent-sky-400"
-                            checked={scenarioDraft.caseIds.includes(item.id)}
-                            onChange={(event) => {
-                              const next = new Set(scenarioDraft.caseIds);
-                              if (event.target.checked) {
-                                next.add(item.id);
-                              } else {
-                                next.delete(item.id);
-                              }
-                              setScenarioDraft({ ...scenarioDraft, caseIds: Array.from(next) });
-                            }}
-                          />
-                          {item.title}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
 
                   {scenarioError && (
                     <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
@@ -2350,20 +2444,6 @@ export default function App() {
                       </option>
                     ))}
                   </select>
-                  <label className="text-xs font-semibold uppercase text-slate-400">開始日時</label>
-                  <input
-                    className={inputClass}
-                    type="datetime-local"
-                    value={runDraft.startedAt}
-                    onChange={(event) => setRunDraft({ ...runDraft, startedAt: event.target.value })}
-                  />
-                  <label className="text-xs font-semibold uppercase text-slate-400">終了日時</label>
-                  <input
-                    className={inputClass}
-                    type="datetime-local"
-                    value={runDraft.finishedAt}
-                    onChange={(event) => setRunDraft({ ...runDraft, finishedAt: event.target.value })}
-                  />
                   <label className="text-xs font-semibold uppercase text-slate-400">メモ</label>
                   <textarea
                     className={cn(inputClass, "min-h-[90px]")}
@@ -2528,6 +2608,60 @@ export default function App() {
                             ) : (
                               <p className="text-xs text-slate-500">ケース詳細を読み込んでいます...</p>
                             )}
+                          </div>
+                          <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold uppercase text-slate-400">ケース証跡</p>
+                              <div className="flex gap-2">
+                                <button
+                                  className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200"
+                                  onClick={() => handleAddRunCaseEvidence(runCase.id)}
+                                >
+                                  ファイル追加
+                                </button>
+                                <button
+                                  className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200"
+                                  onClick={() => handlePasteRunCaseEvidence(runCase.id)}
+                                >
+                                  画像貼り付け
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid gap-2">
+                              {(runCaseEvidenceMap[runCase.id] ?? []).length ? (
+                                <div className="grid gap-2 md:grid-cols-2">
+                                  {(runCaseEvidenceMap[runCase.id] ?? []).map((preview) => (
+                                    <div
+                                      key={preview.id}
+                                      className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 p-2"
+                                    >
+                                      {preview.mimeType?.startsWith("image/") ? (
+                                        <img
+                                          src={preview.dataUrl}
+                                          alt={preview.fileName}
+                                          className="h-32 w-full rounded-lg object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-32 items-center justify-center text-xs text-slate-300">
+                                          {preview.fileName}
+                                        </div>
+                                      )}
+                                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
+                                        <span>{preview.fileName}</span>
+                                        <button
+                                          className="rounded-full border border-rose-500 px-2 py-0.5 text-[10px] font-semibold text-rose-200"
+                                          onClick={() => handleRemoveRunCaseEvidence(preview.id, runCase.id)}
+                                        >
+                                          削除
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500">このケースにスクショはありません。</p>
+                              )}
+                            </div>
                           </div>
                           <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
                             <div className="flex items-center justify-between">

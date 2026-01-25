@@ -159,6 +159,29 @@ const initSchema = (database: Database.Database) => {
       UNIQUE(run_id, scenario_id)
     );
 
+    CREATE TABLE IF NOT EXISTS run_scenario_cases (
+      id TEXT PRIMARY KEY,
+      run_scenario_id TEXT NOT NULL REFERENCES run_scenarios(id) ON DELETE CASCADE,
+      case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      actual_result TEXT,
+      notes TEXT,
+      executed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(run_scenario_id, case_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS run_case_evidence (
+      id TEXT PRIMARY KEY,
+      run_scenario_case_id TEXT NOT NULL REFERENCES run_scenario_cases(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      mime_type TEXT,
+      size INTEGER,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS evidence (
       id TEXT PRIMARY KEY,
       run_case_id TEXT NOT NULL REFERENCES run_cases(id) ON DELETE CASCADE,
@@ -188,6 +211,8 @@ const initSchema = (database: Database.Database) => {
     CREATE INDEX IF NOT EXISTS idx_case_folders_name ON case_folders(name);
     CREATE INDEX IF NOT EXISTS idx_run_scenarios ON run_scenarios(run_id);
     CREATE INDEX IF NOT EXISTS idx_scenario_evidence ON scenario_evidence(run_scenario_id);
+    CREATE INDEX IF NOT EXISTS idx_run_scenario_cases ON run_scenario_cases(run_scenario_id);
+    CREATE INDEX IF NOT EXISTS idx_run_case_evidence ON run_case_evidence(run_scenario_case_id);
   `);
 
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
@@ -523,6 +548,11 @@ export const deleteScenario = (id: string) => {
   database.prepare("DELETE FROM scenarios WHERE id = ?").run(id);
 };
 
+export const removeScenarioCase = (scenarioId: string, caseId: string) => {
+  const { db: database } = ensureDb();
+  database.prepare("DELETE FROM scenario_cases WHERE scenario_id = ? AND case_id = ?").run(scenarioId, caseId);
+};
+
 export const createScenarioFromFolder = (folderId: string, title?: string) => {
   const { db: database } = ensureDb();
   const folder = database.prepare("SELECT name FROM case_folders WHERE id = ?").get(folderId) as
@@ -757,6 +787,28 @@ export const addRunScenario = (runId: string, scenarioId: string, assignee?: str
       timestamp,
       timestamp
     );
+  const caseLinks = database
+    .prepare("SELECT case_id FROM scenario_cases WHERE scenario_id = ? ORDER BY position")
+    .all(scenarioId) as Array<{ case_id: string }>;
+  const insertCase = database.prepare(
+    "INSERT INTO run_scenario_cases (id, run_scenario_id, case_id, status, actual_result, notes, executed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const caseTransaction = database.transaction(() => {
+    caseLinks.forEach((link) => {
+      insertCase.run(
+        randomUUID(),
+        id,
+        link.case_id,
+        "not_run",
+        "",
+        "",
+        "",
+        timestamp,
+        timestamp
+      );
+    });
+  });
+  caseTransaction();
   return id;
 };
 
@@ -789,6 +841,46 @@ export const updateRunScenario = (payload: {
 export const removeRunScenario = (id: string) => {
   const { db: database } = ensureDb();
   database.prepare("DELETE FROM run_scenarios WHERE id = ?").run(id);
+};
+
+export const listRunScenarioCases = (runScenarioId: string) => {
+  const { db: database } = ensureDb();
+  return database
+    .prepare(
+      `SELECT 
+        run_scenario_cases.*,
+        test_cases.title as case_title,
+        test_cases.preconditions,
+        test_cases.tags
+      FROM run_scenario_cases
+      JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
+      WHERE run_scenario_cases.run_scenario_id = ?
+      ORDER BY run_scenario_cases.created_at`
+    )
+    .all(runScenarioId);
+};
+
+export const updateRunScenarioCase = (payload: {
+  id: string;
+  status: string;
+  actualResult?: string;
+  notes?: string;
+  executedAt?: string;
+}) => {
+  const { db: database } = ensureDb();
+  const timestamp = now();
+  database
+    .prepare(
+      "UPDATE run_scenario_cases SET status = ?, actual_result = ?, notes = ?, executed_at = ?, updated_at = ? WHERE id = ?"
+    )
+    .run(
+      payload.status,
+      payload.actualResult ?? "",
+      payload.notes ?? "",
+      payload.executedAt ?? "",
+      timestamp,
+      payload.id
+    );
 };
 
 export const listScenarioEvidence = (runScenarioId: string) => {
@@ -884,6 +976,141 @@ export const getScenarioEvidencePath = (id: string) => {
     return null;
   }
   return path.join(folderPath, row.stored_path);
+};
+
+export const previewScenarioEvidence = (id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare("SELECT stored_path, mime_type FROM scenario_evidence WHERE id = ?")
+    .get(id) as
+    | { stored_path: string; mime_type?: string }
+    | undefined;
+  if (!row?.stored_path) {
+    return null;
+  }
+  const filePath = path.join(folderPath, row.stored_path);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  const buffer = fs.readFileSync(filePath);
+  return {
+    mimeType: row.mime_type || "application/octet-stream",
+    base64: buffer.toString("base64")
+  };
+};
+
+export type RunCaseEvidenceRow = {
+  id: string;
+  run_scenario_case_id: string;
+  file_name: string;
+  mime_type?: string;
+  size?: number;
+  created_at: string;
+};
+
+export const listRunScenarioCaseEvidence = (runScenarioCaseId: string) => {
+  const { db: database } = ensureDb();
+  return database
+    .prepare(
+      "SELECT * FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at DESC"
+    )
+    .all(runScenarioCaseId) as RunCaseEvidenceRow[];
+};
+
+export const addRunScenarioCaseEvidence = (payload: EvidenceInput & { runScenarioCaseId: string }) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const id = randomUUID();
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (!fs.existsSync(attachmentsPath)) {
+    fs.mkdirSync(attachmentsPath, { recursive: true });
+  }
+  const safeName = payload.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const storedName = `${id}_${safeName}`;
+  const storedPath = path.join(ATTACHMENTS_DIR, storedName);
+  fs.copyFileSync(payload.sourcePath, path.join(folderPath, storedPath));
+
+  database
+    .prepare(
+      "INSERT INTO run_case_evidence (id, run_scenario_case_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    .run(
+      id,
+      payload.runScenarioCaseId,
+      payload.fileName,
+      storedPath,
+      payload.mimeType,
+      payload.size,
+      now()
+    );
+
+  return id;
+};
+
+export const addRunScenarioCaseEvidenceBuffer = (payload: {
+  runScenarioCaseId: string;
+  fileName: string;
+  buffer: Buffer;
+  mimeType: string;
+}) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const id = randomUUID();
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (!fs.existsSync(attachmentsPath)) {
+    fs.mkdirSync(attachmentsPath, { recursive: true });
+  }
+  const safeName = payload.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const storedName = `${id}_${safeName}`;
+  const storedPath = path.join(ATTACHMENTS_DIR, storedName);
+  fs.writeFileSync(path.join(folderPath, storedPath), payload.buffer);
+
+  database
+    .prepare(
+      "INSERT INTO run_case_evidence (id, run_scenario_case_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    .run(
+      id,
+      payload.runScenarioCaseId,
+      payload.fileName,
+      storedPath,
+      payload.mimeType,
+      payload.buffer.length,
+      now()
+    );
+
+  return id;
+};
+
+export const removeRunScenarioCaseEvidence = (id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare("SELECT stored_path FROM run_case_evidence WHERE id = ?")
+    .get(id) as { stored_path: string } | undefined;
+  if (row?.stored_path) {
+    const filePath = path.join(folderPath, row.stored_path);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+  database.prepare("DELETE FROM run_case_evidence WHERE id = ?").run(id);
+};
+
+export const previewRunScenarioCaseEvidence = (id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare("SELECT stored_path, mime_type FROM run_case_evidence WHERE id = ?")
+    .get(id) as { stored_path: string; mime_type?: string } | undefined;
+  if (!row?.stored_path) {
+    return null;
+  }
+  const filePath = path.join(folderPath, row.stored_path);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  const buffer = fs.readFileSync(filePath);
+  return {
+    mimeType: row.mime_type || "application/octet-stream",
+    base64: buffer.toString("base64")
+  };
 };
 
 const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;

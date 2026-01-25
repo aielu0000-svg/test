@@ -5,6 +5,8 @@ import {
   addScenarioEvidence,
   addScenarioEvidenceBuffer,
   addRunScenario,
+  addRunScenarioCaseEvidence,
+  addRunScenarioCaseEvidenceBuffer,
   createScenarioFromFolder,
   createProject,
   deleteCaseFolder,
@@ -20,8 +22,11 @@ import {
   getRun,
   getScenario,
   getScenarioDetails,
-  getTestCase,
   getScenarioEvidencePath,
+  listRunScenarioCaseEvidence,
+  listRunScenarioCases,
+  previewScenarioEvidence,
+  previewRunScenarioCaseEvidence,
   listCaseFolders,
   listDataSets,
   listRuns,
@@ -29,15 +34,19 @@ import {
   listScenarios,
   listTestCases,
   openProject,
-  removeScenarioEvidence,
   removeRunScenario,
+  removeRunScenarioCase,
+  removeScenarioCase,
+  removeRunScenarioCaseEvidence,
+  removeScenarioEvidence,
   saveCaseFolder,
   saveDataSet,
   saveRun,
   saveScenario,
   saveTestCase,
   updateProjectName,
-  updateRunScenario
+  updateRunScenario,
+  updateRunScenarioCase
 } from "./db";
 
 let mainWindow: BrowserWindow | null = null;
@@ -134,6 +143,9 @@ ipcMain.handle("scenarios:details", (_event, id: string) => getScenarioDetails(i
 ipcMain.handle("scenarios:createFromFolder", (_event, folderId: string, title?: string) =>
   createScenarioFromFolder(folderId, title)
 );
+ipcMain.handle("scenarios:removeCase", (_event, scenarioId: string, caseId: string) =>
+  removeScenarioCase(scenarioId, caseId)
+);
 
 ipcMain.handle("dataSets:list", (_event, scope?: string) => listDataSets(scope));
 ipcMain.handle("dataSets:get", (_event, id: string) => getDataSet(id));
@@ -149,6 +161,8 @@ ipcMain.handle("runs:addScenario", (_event, runId: string, scenarioId: string, a
 );
 ipcMain.handle("runs:updateScenario", (_event, payload) => updateRunScenario(payload));
 ipcMain.handle("runs:removeScenario", (_event, id: string) => removeRunScenario(id));
+ipcMain.handle("runs:cases", (_event, runScenarioId: string) => listRunScenarioCases(runScenarioId));
+ipcMain.handle("runs:updateScenarioCase", (_event, payload) => updateRunScenarioCase(payload));
 
 ipcMain.handle("evidence:list", (_event, runScenarioId: string) =>
   listScenarioEvidence(runScenarioId)
@@ -195,6 +209,8 @@ ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string) => {
 
 ipcMain.handle("evidence:remove", (_event, id: string) => removeScenarioEvidence(id));
 
+ipcMain.handle("evidence:preview", (_event, id: string) => previewScenarioEvidence(id));
+
 ipcMain.handle("evidence:open", (_event, id: string) => {
   const fullPath = getScenarioEvidencePath(id);
   if (!fullPath) {
@@ -203,6 +219,49 @@ ipcMain.handle("evidence:open", (_event, id: string) => {
   shell.openPath(fullPath);
   return true;
 });
+
+ipcMain.handle("runCaseEvidence:list", (_event, runScenarioCaseId: string) =>
+  listRunScenarioCaseEvidence(runScenarioCaseId)
+);
+ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string) => {
+  const result = await dialog.showOpenDialog({
+    title: "証跡ファイルを追加 (ケース)",
+    properties: ["openFile", "multiSelections"]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return [];
+  }
+  const created: string[] = [];
+  result.filePaths.forEach((filePath) => {
+    const stat = fs.statSync(filePath);
+    const fileName = path.basename(filePath);
+    created.push(
+      addRunScenarioCaseEvidence({
+        runScenarioCaseId,
+        sourcePath: filePath,
+        fileName,
+        mimeType: "",
+        size: stat.size
+      })
+    );
+  });
+  return created;
+});
+ipcMain.handle("runCaseEvidence:paste", (_event, runScenarioCaseId: string) => {
+  const image = clipboard.readImage();
+  if (image.isEmpty()) {
+    return null;
+  }
+  const buffer = image.toPNG();
+  return addRunScenarioCaseEvidenceBuffer({
+    runScenarioCaseId,
+    fileName: `clipboard_${Date.now()}.png`,
+    buffer,
+    mimeType: "image/png"
+  });
+});
+ipcMain.handle("runCaseEvidence:remove", (_event, id: string) => removeRunScenarioCaseEvidence(id));
+ipcMain.handle("runCaseEvidence:preview", (_event, id: string) => previewRunScenarioCaseEvidence(id));
 
 ipcMain.handle("export:save", async (_event, payload) => {
   const content = exportData(payload);
