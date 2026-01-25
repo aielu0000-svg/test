@@ -42,6 +42,9 @@
       "out/**",
       "package.json"
     ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
     "directories": {
       "output": "release"
     },

@@ -4,7 +4,12 @@ import path from "node:path";
 
 export default defineConfig({
   main: {
-    entry: "src/main/index.ts"
+    entry: "src/main/index.ts",
+    build: {
+      rollupOptions: {
+        external: ["better-sqlite3"]
+      }
+    }
   },
   preload: {
     input: {
