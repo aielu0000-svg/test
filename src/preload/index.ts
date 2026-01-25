@@ -23,6 +23,7 @@ const api = {
     get: (id: string) => ipcRenderer.invoke("scenarios:get", id),
     save: (payload: unknown) => ipcRenderer.invoke("scenarios:save", payload),
     delete: (id: string) => ipcRenderer.invoke("scenarios:delete", id),
+    details: (id: string) => ipcRenderer.invoke("scenarios:details", id),
     createFromFolder: (folderId: string, title?: string) =>
       ipcRenderer.invoke("scenarios:createFromFolder", folderId, title)
   },

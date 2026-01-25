@@ -69,6 +69,31 @@ type DataLink = {
   entity_id: string;
 };
 
+type DataSetDetail = {
+  id: string;
+  name: string;
+  description: string;
+  items: DataItem[];
+};
+
+type CaseDetail = {
+  case: TestCase;
+  steps: TestStep[];
+  dataSets: DataSetDetail[];
+};
+
+type ScenarioDetail = {
+  scenario: Scenario;
+  cases: CaseDetail[];
+};
+
+type CaseFolder = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type CaseDataLink = {
   data_set_id: string;
 };
@@ -230,6 +255,8 @@ export default function App() {
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [scenarioDraft, setScenarioDraft] = useState<ScenarioDraft>(emptyScenario());
   const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [scenarioDetail, setScenarioDetail] = useState<ScenarioDetail | null>(null);
+  const [scenarioDetailsCache, setScenarioDetailsCache] = useState<Record<string, ScenarioDetail>>({});
 
   const [dataSets, setDataSets] = useState<DataSet[]>([]);
   const [dataQuery, setDataQuery] = useState("");
@@ -353,6 +380,114 @@ export default function App() {
     setRuns(list);
   };
 
+  const fetchScenarioDetailFromApi = async (scenarioId: string) => {
+    return (await window.api.scenarios.details(scenarioId)) as ScenarioDetail;
+  };
+
+  const ensureScenarioDetail = async (scenarioId: string) => {
+    if (scenarioDetailsCache[scenarioId]) {
+      return scenarioDetailsCache[scenarioId];
+    }
+    const detail = await fetchScenarioDetailFromApi(scenarioId);
+    setScenarioDetailsCache((prev) => ({ ...prev, [scenarioId]: detail }));
+    return detail;
+  };
+
+  const ensureScenarioDetailsForIds = async (scenarioIds: string[]) => {
+    const missing = scenarioIds.filter((id) => !scenarioDetailsCache[id]);
+    if (!missing.length) {
+      return;
+    }
+    const details = await Promise.all(missing.map(fetchScenarioDetailFromApi));
+    setScenarioDetailsCache((prev) => {
+      const next = { ...prev };
+      missing.forEach((id, index) => {
+        next[id] = details[index];
+      });
+      return next;
+    });
+  };
+
+  const renderCaseDetails = (detail: CaseDetail) => {
+    return (
+      <details
+        key={detail.case.id}
+        className={cn(
+          "rounded-xl border px-3 py-3",
+          theme === "light" ? "border-slate-200 bg-white/70" : "border-slate-800 bg-slate-950/40"
+        )}
+      >
+        <summary className="flex gap-3 text-sm font-semibold">
+          <span className="text-slate-100">{detail.case.title}</span>
+          <span className="text-[11px] text-slate-400">{detail.steps.length} 手順</span>
+        </summary>
+        <div className="mt-3 space-y-2 text-xs text-slate-300">
+          <p className="text-slate-400">
+            <span className="font-semibold text-slate-200">前提: </span>
+            {detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"}
+          </p>
+          <div>
+            <p className="font-semibold text-slate-200">初期データ</p>
+            {detail.dataSets.length ? (
+              <div className="mt-2 space-y-2">
+                {detail.dataSets.map((dataSet) => (
+                  <details
+                    key={dataSet.id}
+                    className={cn(
+                      "rounded-lg border px-3 py-2",
+                      theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-900/50"
+                    )}
+                  >
+                    <summary className="text-sm font-semibold text-slate-200">
+                      {dataSet.name}
+                      {dataSet.items.length ? ` (${dataSet.items.length}件)` : " (項目なし)"}
+                    </summary>
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                      {dataSet.description && (
+                        <p className="text-slate-500">{dataSet.description}</p>
+                      )}
+                      {dataSet.items.length ? (
+                        dataSet.items.map((item) => (
+                          <div key={`${dataSet.id}-${item.label}`} className="flex flex-wrap gap-2">
+                            <span className="font-semibold text-slate-300">{item.label}</span>
+                            <span className="text-slate-200">{item.value}</span>
+                            {item.note && (
+                              <span className="text-slate-500">補足: {item.note}</span>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-slate-500">項目がありません。</p>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-500">初期データなし</p>
+            )}
+          </div>
+          <div>
+            <p className="font-semibold text-slate-200">手順</p>
+            <ol className="mt-2 space-y-2 text-[12px]">
+              {detail.steps.map((step, index) => (
+                <li key={`${detail.case.id}-${index}`} className="space-y-1 rounded-lg bg-slate-900/40 p-2">
+                  <p className="text-slate-300">
+                    <span className="font-semibold text-slate-100">操作:</span> {step.action || "なし"}
+                  </p>
+                  <p className="text-slate-400">
+                    <span className="font-semibold text-slate-100">期待結果:</span>{" "}
+                    {step.expected || "なし"}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </details>
+    );
+  };
+
   const handleCreateProject = async () => {
     setProjectError(null);
     if (!window.api?.project?.create) {
@@ -408,6 +543,42 @@ export default function App() {
     const term = caseQuery.toLowerCase();
     return items.filter((item) => item.title.toLowerCase().includes(term));
   }, [testCases, caseQuery, folderFilter, tagFilters]);
+
+  const caseGroups = useMemo(() => {
+    const result: Record<string, TestCase[]> = {};
+    filteredCases.forEach((item) => {
+      const key = item.folder_id ?? "none";
+      if (!result[key]) {
+        result[key] = [];
+      }
+      result[key].push(item);
+    });
+    return result;
+  }, [filteredCases]);
+
+  const folderOrder = useMemo(() => {
+    const order = caseFolders.map((folder) => folder.id);
+    if (!order.includes("none")) {
+      order.push("none");
+    }
+    return order;
+  }, [caseFolders]);
+
+  const caseFolderMap = useMemo(() => {
+    const map: Record<string, CaseFolder> = {};
+    caseFolders.forEach((folder) => {
+      map[folder.id] = folder;
+    });
+    return map;
+  }, [caseFolders]);
+
+  const displayFolderKeys = useMemo(() => {
+    return folderFilter === "all" ? folderOrder : [folderFilter];
+  }, [folderFilter, folderOrder]);
+
+  const hasCasesInView = useMemo(() => {
+    return displayFolderKeys.some((key) => (caseGroups[key]?.length ?? 0) > 0);
+  }, [displayFolderKeys, caseGroups]);
 
   const filteredScenarios = useMemo(() => {
     if (!scenarioQuery.trim()) {
@@ -559,6 +730,8 @@ export default function App() {
       preconditions: data.scenario.preconditions ?? "",
       caseIds: data.cases.map((item) => item.case_id)
     });
+    const detail = await ensureScenarioDetail(id);
+    setScenarioDetail(detail);
   };
 
   const selectDataSet = async (id: string) => {
@@ -599,6 +772,7 @@ export default function App() {
       notes: data.run.notes ?? ""
     });
     setRunScenarios(data.runScenarios);
+    void ensureScenarioDetailsForIds(data.runScenarios.map((item) => item.scenario_id));
     setSelectedRunScenarioId(null);
     setEvidenceList([]);
   };
@@ -729,14 +903,19 @@ export default function App() {
     const id = (await window.api.runs.save(payload)) as string;
     await loadRuns();
     await selectRun(id);
+    return id;
   };
 
   const handleAddRunScenario = async (scenarioId: string) => {
-    if (!selectedRunId) {
+    let runId = selectedRunId;
+    if (!runId) {
+      runId = await handleSaveRun();
+    }
+    if (!runId) {
       return;
     }
-    await window.api.runs.addScenario(selectedRunId, scenarioId, runDraft.tester.trim());
-    await selectRun(selectedRunId);
+    await window.api.runs.addScenario(runId, scenarioId, runDraft.tester.trim());
+    await selectRun(runId);
   };
 
   const handleUpdateRunScenario = async (payload: {
@@ -1064,22 +1243,96 @@ export default function App() {
                     )}
                   </div>
                 </div>
-                <div className="mt-4 grid gap-2">
-                  {filteredCases.map((item) => (
-                    <button
-                      key={item.id}
+                <div className="mt-4 space-y-3">
+                  {hasCasesInView ? (
+                    displayFolderKeys.map((folderKey) => {
+                      const cases = caseGroups[folderKey] ?? [];
+                      if (!cases.length) {
+                        if (folderFilter === "all") {
+                          return null;
+                        }
+                        return (
+                          <div
+                            key={folderKey}
+                            className={cn(
+                              "rounded-xl border px-4 py-3 text-xs text-slate-400",
+                              theme === "light" ? "border-slate-200" : "border-slate-800"
+                            )}
+                          >
+                            このフォルダにはまだケースがありません。
+                          </div>
+                        );
+                      }
+                      const folderLabel =
+                        folderKey === "none" ? "未分類" : caseFolderMap[folderKey]?.name ?? "フォルダ";
+                      return (
+                        <div
+                          key={folderKey}
+                          className={cn(
+                            "rounded-2xl border p-4",
+                            theme === "light"
+                              ? "border-slate-200 bg-white/60"
+                              : "border-slate-800 bg-slate-950/40"
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold uppercase text-slate-400">{folderLabel}</p>
+                              <p className="text-sm font-semibold text-slate-100">
+                                {cases.length} ケース
+                              </p>
+                            </div>
+                            {folderKey !== "none" && (
+                              <button
+                                className={cn(
+                                  "rounded-full border px-3 py-1 text-[11px] font-semibold",
+                                  theme === "light" ? "border-slate-300 text-slate-600" : "border-slate-800"
+                                )}
+                                onClick={() => setFolderFilter(folderKey)}
+                              >
+                                このフォルダを表示
+                              </button>
+                            )}
+                          </div>
+                          <div className="mt-3 grid gap-2">
+                            {cases.map((item) => (
+                              <button
+                                key={item.id}
+                                className={cn(
+                                  "rounded-xl border px-3 py-2 text-left text-sm",
+                                  selectedCaseId === item.id
+                                    ? "border-sky-400 bg-slate-900 text-slate-100"
+                                    : theme === "light"
+                                      ? "border-slate-200 text-slate-900"
+                                      : "border-slate-800 text-slate-300"
+                                )}
+                                onClick={() => selectCase(item.id)}
+                              >
+                                <div className="text-balance font-semibold">{item.title}</div>
+                                <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                                  <span className="text-slate-400">{item.updated_at}</span>
+                                  {item.tags && (
+                                    <span className="rounded-full border px-2 py-0.5 text-xs text-slate-400">
+                                      {item.tags}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div
                       className={cn(
-                        "rounded-xl border px-3 py-2 text-left text-sm",
-                        selectedCaseId === item.id
-                          ? "border-sky-400 bg-slate-900 text-slate-100"
-                          : "border-slate-800 text-slate-300"
+                        "rounded-xl border px-4 py-3 text-xs text-slate-400",
+                        theme === "light" ? "border-slate-200" : "border-slate-800"
                       )}
-                      onClick={() => selectCase(item.id)}
                     >
-                      <div className="text-balance font-semibold">{item.title}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.updated_at}</div>
-                    </button>
-                  ))}
+                      表示対象のケースが見つかりません。別のフォルダ/タグで検索してください。
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1427,6 +1680,7 @@ export default function App() {
                       setSelectedScenarioId(null);
                       setScenarioDraft(emptyScenario());
                       setScenarioError(null);
+                      setScenarioDetail(null);
                     }}
                   >
                     新規作成
@@ -1493,9 +1747,23 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
-                <div className="mt-4 grid gap-4">
+            <div className={panelClass}>
+              <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
+              {scenarioDetail ? (
+                <div className="mt-4 space-y-3">
+                  {scenarioDetail.cases.map((detail) => renderCaseDetails(detail))}
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    "mt-4 rounded-xl border px-3 py-2 text-xs text-slate-400",
+                    theme === "light" ? "border-slate-200" : "border-slate-800"
+                  )}
+                >
+                  シナリオを選択すると、各テストケースの前提・初期データ・手順がここに表示されます。
+                </div>
+              )}
+              <div className="mt-4 grid gap-4">
                   <label className="text-xs font-semibold uppercase text-slate-400">タイトル</label>
                   <input
                     className={inputClass}
@@ -2077,6 +2345,15 @@ export default function App() {
                                 updateRunScenarioDraft(item.id, { executed_at: event.target.value })
                               }
                             />
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {scenarioDetailsCache[item.scenario_id] ? (
+                              scenarioDetailsCache[item.scenario_id].cases.map((detail) =>
+                                renderCaseDetails(detail)
+                              )
+                            ) : (
+                              <p className="text-xs text-slate-500">ケース詳細を読み込んでいます...</p>
+                            )}
                           </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button

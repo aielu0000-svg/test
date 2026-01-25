@@ -270,6 +270,68 @@ export const getTestCase = (id: string) => {
   return { testCase, steps, dataLinks };
 };
 
+const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
+  const testCase = database.prepare("SELECT * FROM test_cases WHERE id = ?").get(caseId);
+  const steps = database
+    .prepare("SELECT * FROM test_steps WHERE case_id = ? ORDER BY position")
+    .all(caseId);
+  const dataSetRows = database
+    .prepare(
+      `
+      SELECT
+        data_sets.id as data_set_id,
+        data_sets.name,
+        data_sets.description,
+        data_items.id as item_id,
+        data_items.label,
+        data_items.value,
+        data_items.note
+      FROM data_sets
+      JOIN data_links ON data_sets.id = data_links.data_set_id AND data_links.entity_type = ?
+      LEFT JOIN data_items ON data_sets.id = data_items.data_set_id
+      WHERE data_links.entity_id = ?
+      ORDER BY data_sets.updated_at DESC, data_items.sort_order
+      `
+    )
+    .all("case", caseId);
+  const dataSetsMap = new Map<
+    string,
+    { id: string; name: string; description: string; items: DataItem[] }
+  >();
+  dataSetRows.forEach((row) => {
+    if (!row || !row.data_set_id) {
+      return;
+    }
+    if (!dataSetsMap.has(row.data_set_id)) {
+      dataSetsMap.set(row.data_set_id, {
+        id: row.data_set_id,
+        name: row.name,
+        description: row.description ?? "",
+        items: []
+      });
+    }
+    const entry = dataSetsMap.get(row.data_set_id);
+    if (entry && row.item_id) {
+      entry.items.push({
+        id: row.item_id,
+        label: row.label ?? "",
+        value: row.value ?? "",
+        note: row.note ?? ""
+      });
+    }
+  });
+  return {
+    case: testCase,
+    steps,
+    dataSets: Array.from(dataSetsMap.values())
+  };
+};
+
+export const getCaseDetail = (caseId: string) => {
+  const { db: database } = ensureDb();
+  return getCaseDetailWithDb(database, caseId);
+};
+
 export const saveTestCase = (payload: {
   id?: string;
   title: string;
@@ -398,6 +460,19 @@ export const getScenario = (id: string) => {
       "SELECT scenario_cases.case_id, scenario_cases.position, test_cases.title FROM scenario_cases JOIN test_cases ON test_cases.id = scenario_cases.case_id WHERE scenario_id = ? ORDER BY scenario_cases.position"
     )
     .all(id);
+  return { scenario, cases };
+};
+
+export const getScenarioDetails = (id: string) => {
+  const { db: database } = ensureDb();
+  const scenario = database.prepare("SELECT * FROM scenarios WHERE id = ?").get(id);
+  if (!scenario) {
+    return { scenario: null, cases: [] as ReturnType<typeof getCaseDetailWithDb>[] };
+  }
+  const links = database
+    .prepare("SELECT case_id, position FROM scenario_cases WHERE scenario_id = ? ORDER BY position")
+    .all(id);
+  const cases = links.map((link) => getCaseDetailWithDb(database, link.case_id));
   return { scenario, cases };
 };
 

@@ -19,6 +19,7 @@ import {
   getProjectInfo,
   getRun,
   getScenario,
+  getScenarioDetails,
   getTestCase,
   getScenarioEvidencePath,
   listCaseFolders,
@@ -129,6 +130,7 @@ ipcMain.handle("scenarios:list", () => listScenarios());
 ipcMain.handle("scenarios:get", (_event, id: string) => getScenario(id));
 ipcMain.handle("scenarios:save", (_event, payload) => saveScenario(payload));
 ipcMain.handle("scenarios:delete", (_event, id: string) => deleteScenario(id));
+ipcMain.handle("scenarios:details", (_event, id: string) => getScenarioDetails(id));
 ipcMain.handle("scenarios:createFromFolder", (_event, folderId: string, title?: string) =>
   createScenarioFromFolder(folderId, title)
 );
