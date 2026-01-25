@@ -524,9 +524,14 @@ export default function App() {
     if (!scenarioId) {
       return;
     }
+    setScenarioDetail(null);
     await window.api.scenarios.removeCase(scenarioId, caseId);
     await loadScenarios();
-    await refreshScenarioDetail(scenarioId);
+    await selectScenario(scenarioId);
+    setScenarioDraft((prev) => ({
+      ...prev,
+      caseIds: prev.caseIds.filter((id) => id !== caseId)
+    }));
   };
 
   const renderCaseDetails = (detail: CaseDetail, scenarioId?: string) => {
@@ -607,6 +612,7 @@ export default function App() {
           {scenarioId && (
             <div className="mt-2 flex justify-end">
               <button
+                type="button"
                 className="rounded-full border border-rose-500 px-3 py-1 text-xs font-semibold text-rose-200"
                 onClick={async () => {
                   await handleRemoveCaseFromScenario(detail.case.id);
@@ -863,8 +869,7 @@ export default function App() {
     });
   };
 
-  const selectCase = async (id: string) => {
-    setSelectedCaseId(id);
+  const loadCaseById = async (id: string) => {
     const data = (await window.api.testCases.get(id)) as {
       testCase: TestCase;
       steps: TestStep[];
@@ -892,6 +897,16 @@ export default function App() {
       await loadCaseDataSetDetails(dataSetIds);
     }
   };
+
+  const selectCase = (id: string) => {
+    setSelectedCaseId(id);
+  };
+
+  useEffect(() => {
+    if (selectedCaseId) {
+      void loadCaseById(selectedCaseId);
+    }
+  }, [selectedCaseId]);
 
   const selectScenario = async (id: string) => {
     setSelectedScenarioId(id);
@@ -931,6 +946,7 @@ export default function App() {
   };
 
   const selectRun = async (id: string) => {
+    setSection("runs");
     setSelectedRunId(id);
     const data = (await window.api.runs.get(id)) as { run: TestRun; runScenarios: RunCase[] };
     if (!data.run) {
@@ -1560,11 +1576,12 @@ export default function App() {
                             )}
                           </div>
                           <div className="mt-3 grid gap-2">
-                            {cases.map((item) => (
-                              <button
-                                key={item.id}
-                                className={cn(
-                                  "rounded-xl border px-3 py-2 text-left text-sm",
+                        {cases.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={cn(
+                              "rounded-xl border px-3 py-2 text-left text-sm",
                                   selectedCaseId === item.id
                                     ? "border-sky-400 bg-slate-900 text-slate-100"
                                     : theme === "light"
