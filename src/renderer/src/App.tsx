@@ -15,6 +15,7 @@ type TestCase = {
   priority: string;
   severity: string;
   tags: string;
+  folder_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -38,6 +39,13 @@ type ScenarioCase = {
   case_id: string;
   position: number;
   title: string;
+};
+
+type CaseFolder = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
 };
 
 type DataSet = {
@@ -82,17 +90,18 @@ type TestRun = {
 type RunCase = {
   id: string;
   run_id: string;
-  case_id: string;
+  scenario_id: string;
   title: string;
   status: string;
+  assignee: string;
   actual_result: string;
-  evidence_summary: string;
+  notes: string;
   executed_at: string;
 };
 
 type Evidence = {
   id: string;
-  run_case_id: string;
+  run_scenario_id: string;
   file_name: string;
   stored_path: string;
   created_at: string;
@@ -107,6 +116,7 @@ type CaseDraft = {
   tags: string;
   steps: TestStep[];
   dataSetIds: string[];
+  folderId: string | null;
 };
 
 type ScenarioDraft = {
@@ -165,7 +175,8 @@ const emptyCase = (): CaseDraft => ({
   severity: String(severityOptions[2]),
   tags: "",
   steps: [{ action: "", expected: "" }],
-  dataSetIds: []
+  dataSetIds: [],
+  folderId: null
 });
 
 const emptyScenario = (): ScenarioDraft => ({
@@ -203,6 +214,10 @@ export default function App() {
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [caseQuery, setCaseQuery] = useState("");
+  const [caseFolders, setCaseFolders] = useState<CaseFolder[]>([]);
+  const [folderFilter, setFolderFilter] = useState("all");
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const [newFolderName, setNewFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
   const [caseDataSets, setCaseDataSets] = useState<
@@ -218,6 +233,7 @@ export default function App() {
 
   const [dataSets, setDataSets] = useState<DataSet[]>([]);
   const [dataQuery, setDataQuery] = useState("");
+  const [dataScopeFilter, setDataScopeFilter] = useState("all");
   const [selectedDataSetId, setSelectedDataSetId] = useState<string | null>(null);
   const [dataDraft, setDataDraft] = useState<DataDraft>(emptyDataSet());
   const [dataError, setDataError] = useState<string | null>(null);
@@ -226,16 +242,19 @@ export default function App() {
   const [runQuery, setRunQuery] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDraft, setRunDraft] = useState<RunDraft>(emptyRun());
-  const [runCases, setRunCases] = useState<RunCase[]>([]);
-  const [selectedRunCaseId, setSelectedRunCaseId] = useState<string | null>(null);
+  const [runScenarios, setRunScenarios] = useState<RunCase[]>([]);
+  const [selectedRunScenarioId, setSelectedRunScenarioId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [evidenceList, setEvidenceList] = useState<Evidence[]>([]);
+  const [scenarioFolderId, setScenarioFolderId] = useState("");
+  const [scenarioFromFolderTitle, setScenarioFromFolderTitle] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "case"; id: string }
     | { type: "scenario"; id: string }
     | { type: "data"; id: string }
     | { type: "run"; id: string }
+    | { type: "folder"; id: string }
     | null
   >(null);
 
@@ -266,6 +285,19 @@ export default function App() {
       : "border-slate-800 bg-slate-950 text-slate-100"
   );
 
+  const toLocalInput = (value?: string) => {
+    if (!value) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) {
+      return value;
+    }
+    return date.toISOString().slice(0, 16);
+  };
+
+  const nowLocalInput = () => new Date().toISOString().slice(0, 16);
+
   useEffect(() => {
     const saved = window.localStorage.getItem("the-test-theme");
     if (saved === "light" || saved === "dark") {
@@ -285,13 +317,25 @@ export default function App() {
     loadAll();
   }, [project]);
 
+
   const loadAll = async () => {
-    await Promise.all([loadCases(), loadScenarios(), loadDataSets(), loadRuns()]);
+    await Promise.all([
+      loadCases(),
+      loadCaseFolders(),
+      loadScenarios(),
+      loadDataSets(),
+      loadRuns()
+    ]);
   };
 
   const loadCases = async () => {
     const list = (await window.api.testCases.list()) as TestCase[];
     setTestCases(list);
+  };
+
+  const loadCaseFolders = async () => {
+    const list = (await window.api.caseFolders.list()) as CaseFolder[];
+    setCaseFolders(list);
   };
 
   const loadScenarios = async () => {
@@ -346,12 +390,24 @@ export default function App() {
   };
 
   const filteredCases = useMemo(() => {
+    let items = testCases;
+    if (folderFilter !== "all") {
+      items = items.filter((item) => (item.folder_id ?? "none") === folderFilter);
+    }
+    if (tagFilters.length) {
+      items = items.filter((item) => {
+        const tags = item.tags
+          ? item.tags.split(",").map((tag) => tag.trim()).filter(Boolean)
+          : [];
+        return tagFilters.some((tag) => tags.includes(tag));
+      });
+    }
     if (!caseQuery.trim()) {
-      return testCases;
+      return items;
     }
     const term = caseQuery.toLowerCase();
-    return testCases.filter((item) => item.title.toLowerCase().includes(term));
-  }, [testCases, caseQuery]);
+    return items.filter((item) => item.title.toLowerCase().includes(term));
+  }, [testCases, caseQuery, folderFilter, tagFilters]);
 
   const filteredScenarios = useMemo(() => {
     if (!scenarioQuery.trim()) {
@@ -362,12 +418,16 @@ export default function App() {
   }, [scenarios, scenarioQuery]);
 
   const filteredDataSets = useMemo(() => {
+    let items = dataSets;
+    if (dataScopeFilter !== "all") {
+      items = items.filter((item) => item.scope === dataScopeFilter);
+    }
     if (!dataQuery.trim()) {
-      return dataSets;
+      return items;
     }
     const term = dataQuery.toLowerCase();
-    return dataSets.filter((item) => item.name.toLowerCase().includes(term));
-  }, [dataSets, dataQuery]);
+    return items.filter((item) => item.name.toLowerCase().includes(term));
+  }, [dataSets, dataQuery, dataScopeFilter]);
 
   const filteredRuns = useMemo(() => {
     if (!runQuery.trim()) {
@@ -376,6 +436,36 @@ export default function App() {
     const term = runQuery.toLowerCase();
     return runs.filter((item) => item.name.toLowerCase().includes(term));
   }, [runs, runQuery]);
+
+  const tagOptions = useMemo(() => {
+    const tags = new Set<string>();
+    testCases.forEach((item) => {
+      item.tags
+        ?.split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .forEach((tag) => tags.add(tag));
+    });
+    return Array.from(tags).sort((a, b) => a.localeCompare(b, "ja"));
+  }, [testCases]);
+
+  const runSummary = useMemo(() => {
+    const total = runScenarios.length;
+    const completed = runScenarios.filter((item) => item.status !== "not_run").length;
+    const counts = runScenarios.reduce(
+      (acc, item) => {
+        acc[item.status] = (acc[item.status] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+    return {
+      total,
+      completed,
+      remaining: Math.max(total - completed, 0),
+      counts
+    };
+  }, [runScenarios]);
 
   const caseDataSetOptions = useMemo(
     () => dataSets.filter((item) => item.scope === "common" || item.scope === "case"),
@@ -448,7 +538,8 @@ export default function App() {
       steps: data.steps.length
         ? data.steps.map((step) => ({ action: step.action, expected: step.expected }))
         : [{ action: "", expected: "" }],
-      dataSetIds
+      dataSetIds,
+      folderId: data.testCase.folder_id ?? null
     });
     setCaseDataSets({});
     if (dataSetIds.length) {
@@ -493,7 +584,7 @@ export default function App() {
 
   const selectRun = async (id: string) => {
     setSelectedRunId(id);
-    const data = (await window.api.runs.get(id)) as { run: TestRun; runCases: RunCase[] };
+    const data = (await window.api.runs.get(id)) as { run: TestRun; runScenarios: RunCase[] };
     if (!data.run) {
       return;
     }
@@ -503,17 +594,17 @@ export default function App() {
       buildVersion: data.run.build_version ?? "",
       tester: data.run.tester ?? "",
       status: data.run.status,
-      startedAt: data.run.started_at ?? "",
-      finishedAt: data.run.finished_at ?? "",
+      startedAt: toLocalInput(data.run.started_at ?? ""),
+      finishedAt: toLocalInput(data.run.finished_at ?? ""),
       notes: data.run.notes ?? ""
     });
-    setRunCases(data.runCases);
-    setSelectedRunCaseId(null);
+    setRunScenarios(data.runScenarios);
+    setSelectedRunScenarioId(null);
     setEvidenceList([]);
   };
 
-  const selectRunCase = async (id: string) => {
-    setSelectedRunCaseId(id);
+  const selectRunScenario = async (id: string) => {
+    setSelectedRunScenarioId(id);
     const list = (await window.api.evidence.list(id)) as Evidence[];
     setEvidenceList(list);
   };
@@ -524,7 +615,6 @@ export default function App() {
       setCaseError("タイトルは必須です。");
       return;
     }
-    const isNew = !selectedCaseId;
     const payload = {
       id: selectedCaseId ?? undefined,
       title: caseDraft.title.trim(),
@@ -534,14 +624,34 @@ export default function App() {
       severity: caseDraft.severity,
       tags: caseDraft.tags,
       steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
-      dataSetIds: caseDraft.dataSetIds
+      dataSetIds: caseDraft.dataSetIds,
+      folderId: caseDraft.folderId
     };
     const id = (await window.api.testCases.save(payload)) as string;
     await loadCases();
-    if (isNew) {
-      await loadScenarios();
-    }
     setSelectedCaseId(id);
+  };
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      return;
+    }
+    await window.api.caseFolders.save({ name });
+    setNewFolderName("");
+    await loadCaseFolders();
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    await window.api.caseFolders.delete(id);
+    await loadCaseFolders();
+    if (folderFilter === id) {
+      setFolderFilter("all");
+    }
+    if (caseDraft.folderId === id) {
+      setCaseDraft({ ...caseDraft, folderId: null });
+    }
+    await loadCases();
   };
 
   const handleSaveScenario = async () => {
@@ -560,6 +670,24 @@ export default function App() {
     const id = (await window.api.scenarios.save(payload)) as string;
     await loadScenarios();
     setSelectedScenarioId(id);
+  };
+
+  const handleCreateScenarioFromFolder = async () => {
+    setScenarioError(null);
+    if (!scenarioFolderId) {
+      setScenarioError("フォルダを選択してください。");
+      return;
+    }
+    try {
+      const title = scenarioFromFolderTitle.trim() || undefined;
+      const id = (await window.api.scenarios.createFromFolder(scenarioFolderId, title)) as string;
+      await loadScenarios();
+      await selectScenario(id);
+      setScenarioFolderId("");
+      setScenarioFromFolderTitle("");
+    } catch (err) {
+      setScenarioError(err instanceof Error ? err.message : "シナリオを作成できません。");
+    }
   };
 
   const handleSaveDataSet = async () => {
@@ -600,36 +728,49 @@ export default function App() {
     };
     const id = (await window.api.runs.save(payload)) as string;
     await loadRuns();
-    setSelectedRunId(id);
+    await selectRun(id);
   };
 
-  const handleAddRunCase = async (caseId: string) => {
+  const handleAddRunScenario = async (scenarioId: string) => {
     if (!selectedRunId) {
       return;
     }
-    await window.api.runs.addCase(selectedRunId, caseId);
+    await window.api.runs.addScenario(selectedRunId, scenarioId, runDraft.tester.trim());
     await selectRun(selectedRunId);
   };
 
-  const handleUpdateRunCase = async (payload: {
+  const handleUpdateRunScenario = async (payload: {
     id: string;
     status: string;
+    assignee: string;
     actualResult: string;
-    evidenceSummary: string;
+    notes: string;
     executedAt: string;
   }) => {
-    await window.api.runs.updateCase(payload);
+    await window.api.runs.updateScenario(payload);
     if (selectedRunId) {
       await selectRun(selectedRunId);
     }
   };
 
+  const updateRunScenarioDraft = (id: string, patch: Partial<RunCase>) => {
+    setRunScenarios((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
   const handleAddEvidence = async () => {
-    if (!selectedRunCaseId) {
+    if (!selectedRunScenarioId) {
       return;
     }
-    await window.api.evidence.add(selectedRunCaseId);
-    await selectRunCase(selectedRunCaseId);
+    await window.api.evidence.add(selectedRunScenarioId);
+    await selectRunScenario(selectedRunScenarioId);
+  };
+
+  const handlePasteEvidence = async () => {
+    if (!selectedRunScenarioId) {
+      return;
+    }
+    await window.api.evidence.pasteImage(selectedRunScenarioId);
+    await selectRunScenario(selectedRunScenarioId);
   };
 
   const handleExport = async () => {
@@ -698,7 +839,11 @@ export default function App() {
       await loadRuns();
       setSelectedRunId(null);
       setRunDraft(emptyRun());
-      setRunCases([]);
+      setRunScenarios([]);
+      setSelectedRunScenarioId(null);
+    }
+    if (deleteTarget.type === "folder") {
+      await handleDeleteFolder(deleteTarget.id);
     }
     setDeleteTarget(null);
   };
@@ -800,7 +945,9 @@ export default function App() {
                     className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
                     onClick={() => {
                       setSelectedCaseId(null);
-                      setCaseDraft(emptyCase());
+                      const draft = emptyCase();
+                      draft.folderId = folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
+                      setCaseDraft(draft);
                       setCaseDataSets({});
                       setCaseError(null);
                     }}
@@ -814,6 +961,109 @@ export default function App() {
                   value={caseQuery}
                   onChange={(event) => setCaseQuery(event.target.value)}
                 />
+                <div className="mt-3 grid gap-3">
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-400">フォルダ絞り込み</label>
+                    <select
+                      className={cn(inputClass, "mt-2")}
+                      value={folderFilter}
+                      onChange={(event) => setFolderFilter(event.target.value)}
+                    >
+                      <option value="all">すべて</option>
+                      <option value="none">未分類</option>
+                      {caseFolders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-400">タグ絞り込み</label>
+                    {tagOptions.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-400">タグはまだありません。</p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {tagOptions.map((tag) => {
+                          const checked = tagFilters.includes(tag);
+                          return (
+                            <button
+                              key={tag}
+                              className={cn(
+                                "rounded-full border px-3 py-1 text-xs",
+                                theme === "light"
+                                  ? checked
+                                    ? "border-sky-300 bg-sky-50 text-slate-800"
+                                    : "border-slate-200 text-slate-600"
+                                  : checked
+                                    ? "border-sky-400 bg-sky-950/40 text-slate-100"
+                                    : "border-slate-800 text-slate-300"
+                              )}
+                              onClick={() => {
+                                setTagFilters((prev) =>
+                                  prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+                                );
+                              }}
+                            >
+                              {tag}
+                            </button>
+                          );
+                        })}
+                        {tagFilters.length > 0 && (
+                          <button
+                            className={cn(
+                              "rounded-full border px-3 py-1 text-xs",
+                              theme === "light"
+                                ? "border-slate-200 text-slate-600"
+                                : "border-slate-700 text-slate-300"
+                            )}
+                            onClick={() => setTagFilters([])}
+                          >
+                            クリア
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-400">フォルダ管理</label>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        className={inputClass}
+                        placeholder="新しいフォルダ名"
+                        value={newFolderName}
+                        onChange={(event) => setNewFolderName(event.target.value)}
+                      />
+                      <button
+                        className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold"
+                        onClick={handleCreateFolder}
+                      >
+                        追加
+                      </button>
+                    </div>
+                    {caseFolders.length > 0 && (
+                      <div className="mt-2 grid gap-2">
+                        {caseFolders.map((folder) => (
+                          <div
+                            key={folder.id}
+                            className={cn(
+                              "flex items-center justify-between text-xs",
+                              theme === "light" ? "text-slate-600" : "text-slate-300"
+                            )}
+                          >
+                            <span>{folder.name}</span>
+                            <button
+                              className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
+                              onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
+                            >
+                              削除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div className="mt-4 grid gap-2">
                   {filteredCases.map((item) => (
                     <button
@@ -894,6 +1144,26 @@ export default function App() {
                         placeholder="例: ログイン,UI"
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-400">フォルダ</label>
+                    <select
+                      className={cn(inputClass, "mt-2")}
+                      value={caseDraft.folderId ?? "none"}
+                      onChange={(event) =>
+                        setCaseDraft({
+                          ...caseDraft,
+                          folderId: event.target.value === "none" ? null : event.target.value
+                        })
+                      }
+                    >
+                      <option value="none">未分類</option>
+                      {caseFolders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div
@@ -1168,6 +1438,42 @@ export default function App() {
                   value={scenarioQuery}
                   onChange={(event) => setScenarioQuery(event.target.value)}
                 />
+                <div
+                  className={cn(
+                    "mt-3 rounded-2xl border p-3",
+                    theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950/40"
+                  )}
+                >
+                  <p className="text-xs font-semibold uppercase text-slate-400">
+                    フォルダから自動生成
+                  </p>
+                  <div className="mt-2 grid gap-2">
+                    <select
+                      className={inputClass}
+                      value={scenarioFolderId}
+                      onChange={(event) => setScenarioFolderId(event.target.value)}
+                    >
+                      <option value="">フォルダを選択</option>
+                      {caseFolders.map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className={inputClass}
+                      placeholder="シナリオ名（省略可）"
+                      value={scenarioFromFolderTitle}
+                      onChange={(event) => setScenarioFromFolderTitle(event.target.value)}
+                    />
+                    <button
+                      className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+                      onClick={handleCreateScenarioFromFolder}
+                    >
+                      フォルダから作成
+                    </button>
+                  </div>
+                </div>
                 <div className="mt-4 grid gap-2">
                   {filteredScenarios.map((item) => (
                     <button
@@ -1286,6 +1592,21 @@ export default function App() {
                   value={dataQuery}
                   onChange={(event) => setDataQuery(event.target.value)}
                 />
+                <div className="mt-3">
+                  <label className="text-xs font-semibold uppercase text-slate-400">種別で絞り込み</label>
+                  <select
+                    className={cn(inputClass, "mt-2")}
+                    value={dataScopeFilter}
+                    onChange={(event) => setDataScopeFilter(event.target.value)}
+                  >
+                    <option value="all">すべて</option>
+                    {dataScopes.map((scope) => (
+                      <option key={`filter-${scope.value}`} value={scope.value}>
+                        {scope.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="mt-4 grid gap-2">
                   {filteredDataSets.map((item) => (
                     <button
@@ -1499,8 +1820,9 @@ export default function App() {
                     onClick={() => {
                       setSelectedRunId(null);
                       setRunDraft(emptyRun());
-                      setRunCases([]);
+                      setRunScenarios([]);
                       setRunError(null);
+                      setSelectedRunScenarioId(null);
                     }}
                   >
                     新規作成
@@ -1566,7 +1888,15 @@ export default function App() {
                       <input
                         className={cn(inputClass, "mt-2")}
                         value={runDraft.tester}
-                        onChange={(event) => setRunDraft({ ...runDraft, tester: event.target.value })}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setRunDraft({ ...runDraft, tester: value });
+                          if (value.trim()) {
+                            setRunScenarios((prev) =>
+                              prev.map((item) => (item.assignee ? item : { ...item, assignee: value }))
+                            );
+                          }
+                        }}
                       />
                     </div>
                   </div>
@@ -1627,38 +1957,70 @@ export default function App() {
                   </div>
 
                   <div className="border-t border-slate-800 pt-4">
-                    <h3 className="text-balance text-sm font-semibold">実行ケース</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h3 className="text-balance text-sm font-semibold">実行シナリオ</h3>
+                      <div className={cn("flex flex-wrap gap-2 text-[11px]", theme === "light" ? "text-slate-600" : "text-slate-400")}>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          総数 {runSummary.total}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          完了 {runSummary.completed}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          残り {runSummary.remaining}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          Pass {runSummary.counts.pass ?? 0}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          Fail {runSummary.counts.fail ?? 0}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          Blocked {runSummary.counts.blocked ?? 0}
+                        </span>
+                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+                          Skip {runSummary.counts.skip ?? 0}
+                        </span>
+                      </div>
+                    </div>
+
                     <div className="mt-3 grid gap-2">
-                      {testCases.map((item) => (
+                      {scenarios.length === 0 && (
+                        <p className="text-pretty text-xs text-slate-400">
+                          先にシナリオを作成してください。
+                        </p>
+                      )}
+                      {scenarios.map((item) => (
                         <button
                           key={item.id}
                           className="rounded-full border border-slate-800 px-3 py-1 text-xs text-slate-300"
-                          onClick={() => handleAddRunCase(item.id)}
+                          onClick={() => handleAddRunScenario(item.id)}
                         >
                           {item.title} を追加
                         </button>
                       ))}
                     </div>
+
                     <div className="mt-4 grid gap-3">
-                      {runCases.map((item) => (
+                      {runScenarios.map((item) => (
                         <div
                           key={item.id}
                           className={cn(
                             "rounded-xl border border-slate-800 p-3",
-                            selectedRunCaseId === item.id && "border-sky-400"
+                            selectedRunScenarioId === item.id && "border-sky-400"
                           )}
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <button
                               className="text-left text-sm font-semibold"
-                              onClick={() => selectRunCase(item.id)}
+                              onClick={() => selectRunScenario(item.id)}
                             >
                               {item.title}
                             </button>
                             <button
                               className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200"
                               onClick={async () => {
-                                await window.api.runs.removeCase(item.id);
+                                await window.api.runs.removeScenario(item.id);
                                 if (selectedRunId) {
                                   await selectRun(selectedRunId);
                                 }
@@ -1673,13 +2035,7 @@ export default function App() {
                               className={inputClass}
                               value={item.status}
                               onChange={(event) =>
-                                handleUpdateRunCase({
-                                  id: item.id,
-                                  status: event.target.value,
-                                  actualResult: item.actual_result ?? "",
-                                  evidenceSummary: item.evidence_summary ?? "",
-                                  executedAt: item.executed_at ?? ""
-                                })
+                                updateRunScenarioDraft(item.id, { status: event.target.value })
                               }
                             >
                               {runCaseStatusOptions.map((option) => (
@@ -1688,63 +2044,86 @@ export default function App() {
                                 </option>
                               ))}
                             </select>
-                            <label className="text-xs font-semibold uppercase text-slate-400">実際結果</label>
+                            <label className="text-xs font-semibold uppercase text-slate-400">担当者</label>
+                            <input
+                              className={inputClass}
+                              value={item.assignee ?? ""}
+                              onChange={(event) =>
+                                updateRunScenarioDraft(item.id, { assignee: event.target.value })
+                              }
+                            />
+                            <label className="text-xs font-semibold uppercase text-slate-400">結果詳細</label>
                             <textarea
                               className={cn(inputClass, "min-h-[70px]")}
                               value={item.actual_result ?? ""}
                               onChange={(event) =>
-                                handleUpdateRunCase({
-                                  id: item.id,
-                                  status: item.status,
-                                  actualResult: event.target.value,
-                                  evidenceSummary: item.evidence_summary ?? "",
-                                  executedAt: item.executed_at ?? ""
-                                })
+                                updateRunScenarioDraft(item.id, { actual_result: event.target.value })
                               }
                             />
-                            <label className="text-xs font-semibold uppercase text-slate-400">証跡サマリー</label>
+                            <label className="text-xs font-semibold uppercase text-slate-400">備考</label>
                             <textarea
                               className={cn(inputClass, "min-h-[70px]")}
-                              value={item.evidence_summary ?? ""}
+                              value={item.notes ?? ""}
                               onChange={(event) =>
-                                handleUpdateRunCase({
-                                  id: item.id,
-                                  status: item.status,
-                                  actualResult: item.actual_result ?? "",
-                                  evidenceSummary: event.target.value,
-                                  executedAt: item.executed_at ?? ""
-                                })
+                                updateRunScenarioDraft(item.id, { notes: event.target.value })
                               }
                             />
                             <label className="text-xs font-semibold uppercase text-slate-400">実行日時</label>
                             <input
                               className={inputClass}
                               type="datetime-local"
-                              value={item.executed_at ?? ""}
+                              value={toLocalInput(item.executed_at)}
                               onChange={(event) =>
-                                handleUpdateRunCase({
-                                  id: item.id,
-                                  status: item.status,
-                                  actualResult: item.actual_result ?? "",
-                                  evidenceSummary: item.evidence_summary ?? "",
-                                  executedAt: event.target.value
-                                })
+                                updateRunScenarioDraft(item.id, { executed_at: event.target.value })
                               }
                             />
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+                              onClick={() =>
+                                handleUpdateRunScenario({
+                                  id: item.id,
+                                  status: item.status,
+                                  assignee: item.assignee ?? "",
+                                  actualResult: item.actual_result ?? "",
+                                  notes: item.notes ?? "",
+                                  executedAt: item.executed_at ? item.executed_at : nowLocalInput()
+                                })
+                              }
+                            >
+                              保存
+                            </button>
+                            <button
+                              className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
+                              onClick={() => {
+                                updateRunScenarioDraft(item.id, { executed_at: nowLocalInput() });
+                              }}
+                            >
+                              実行日時を今にする
+                            </button>
                           </div>
                         </div>
                       ))}
                     </div>
-                    {selectedRunCaseId && (
+                    {selectedRunScenarioId && (
                       <div className="mt-4 rounded-xl border border-slate-800 p-4">
                         <div className="flex items-center justify-between">
                           <h4 className="text-balance text-sm font-semibold">証跡</h4>
-                          <button
-                            className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
-                            onClick={handleAddEvidence}
-                          >
-                            証跡を追加
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
+                              onClick={handleAddEvidence}
+                            >
+                              ファイルを追加
+                            </button>
+                            <button
+                              className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
+                              onClick={handlePasteEvidence}
+                            >
+                              画像を貼り付け
+                            </button>
+                          </div>
                         </div>
                         <div className="mt-3 grid gap-2">
                           {evidenceList.map((evidence) => (
@@ -1759,8 +2138,8 @@ export default function App() {
                                 className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
                                 onClick={async () => {
                                   await window.api.evidence.remove(evidence.id);
-                                  if (selectedRunCaseId) {
-                                    await selectRunCase(selectedRunCaseId);
+                                  if (selectedRunScenarioId) {
+                                    await selectRunScenario(selectedRunScenarioId);
                                   }
                                 }}
                               >

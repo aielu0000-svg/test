@@ -1,9 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import {
-  addEvidence,
+  addScenarioEvidence,
+  addScenarioEvidenceBuffer,
+  addRunScenario,
+  createScenarioFromFolder,
   createProject,
+  deleteCaseFolder,
   deleteDataSet,
   deleteRun,
   deleteScenario,
@@ -16,22 +20,23 @@ import {
   getRun,
   getScenario,
   getTestCase,
-  getEvidencePath,
+  getScenarioEvidencePath,
+  listCaseFolders,
   listDataSets,
-  listEvidence,
   listRuns,
+  listScenarioEvidence,
   listScenarios,
   listTestCases,
   openProject,
-  removeEvidence,
-  removeRunCase,
+  removeScenarioEvidence,
+  removeRunScenario,
+  saveCaseFolder,
   saveDataSet,
   saveRun,
   saveScenario,
   saveTestCase,
   updateProjectName,
-  addRunCase,
-  updateRunCase
+  updateRunScenario
 } from "./db";
 
 let mainWindow: BrowserWindow | null = null;
@@ -116,10 +121,17 @@ ipcMain.handle("testCases:get", (_event, id: string) => getTestCase(id));
 ipcMain.handle("testCases:save", (_event, payload) => saveTestCase(payload));
 ipcMain.handle("testCases:delete", (_event, id: string) => deleteTestCase(id));
 
+ipcMain.handle("caseFolders:list", () => listCaseFolders());
+ipcMain.handle("caseFolders:save", (_event, payload) => saveCaseFolder(payload));
+ipcMain.handle("caseFolders:delete", (_event, id: string) => deleteCaseFolder(id));
+
 ipcMain.handle("scenarios:list", () => listScenarios());
 ipcMain.handle("scenarios:get", (_event, id: string) => getScenario(id));
 ipcMain.handle("scenarios:save", (_event, payload) => saveScenario(payload));
 ipcMain.handle("scenarios:delete", (_event, id: string) => deleteScenario(id));
+ipcMain.handle("scenarios:createFromFolder", (_event, folderId: string, title?: string) =>
+  createScenarioFromFolder(folderId, title)
+);
 
 ipcMain.handle("dataSets:list", (_event, scope?: string) => listDataSets(scope));
 ipcMain.handle("dataSets:get", (_event, id: string) => getDataSet(id));
@@ -130,12 +142,16 @@ ipcMain.handle("runs:list", () => listRuns());
 ipcMain.handle("runs:get", (_event, id: string) => getRun(id));
 ipcMain.handle("runs:save", (_event, payload) => saveRun(payload));
 ipcMain.handle("runs:delete", (_event, id: string) => deleteRun(id));
-ipcMain.handle("runs:addCase", (_event, runId: string, caseId: string) => addRunCase(runId, caseId));
-ipcMain.handle("runs:updateCase", (_event, payload) => updateRunCase(payload));
-ipcMain.handle("runs:removeCase", (_event, id: string) => removeRunCase(id));
+ipcMain.handle("runs:addScenario", (_event, runId: string, scenarioId: string, assignee?: string) =>
+  addRunScenario(runId, scenarioId, assignee)
+);
+ipcMain.handle("runs:updateScenario", (_event, payload) => updateRunScenario(payload));
+ipcMain.handle("runs:removeScenario", (_event, id: string) => removeRunScenario(id));
 
-ipcMain.handle("evidence:list", (_event, runCaseId: string) => listEvidence(runCaseId));
-ipcMain.handle("evidence:add", async (_event, runCaseId: string) => {
+ipcMain.handle("evidence:list", (_event, runScenarioId: string) =>
+  listScenarioEvidence(runScenarioId)
+);
+ipcMain.handle("evidence:add", async (_event, runScenarioId: string) => {
   const result = await dialog.showOpenDialog({
     title: "証跡ファイルを追加",
     properties: ["openFile", "multiSelections"]
@@ -149,8 +165,8 @@ ipcMain.handle("evidence:add", async (_event, runCaseId: string) => {
     const fileName = path.basename(filePath);
     const mimeType = "";
     created.push(
-      addEvidence({
-        runCaseId,
+      addScenarioEvidence({
+        runScenarioId,
         sourcePath: filePath,
         fileName,
         mimeType,
@@ -161,10 +177,24 @@ ipcMain.handle("evidence:add", async (_event, runCaseId: string) => {
   return created;
 });
 
-ipcMain.handle("evidence:remove", (_event, id: string) => removeEvidence(id));
+ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string) => {
+  const image = clipboard.readImage();
+  if (image.isEmpty()) {
+    return null;
+  }
+  const buffer = image.toPNG();
+  return addScenarioEvidenceBuffer({
+    runScenarioId,
+    fileName: `clipboard_${Date.now()}.png`,
+    buffer,
+    mimeType: "image/png"
+  });
+});
+
+ipcMain.handle("evidence:remove", (_event, id: string) => removeScenarioEvidence(id));
 
 ipcMain.handle("evidence:open", (_event, id: string) => {
-  const fullPath = getEvidencePath(id);
+  const fullPath = getScenarioEvidencePath(id);
   if (!fullPath) {
     return false;
   }

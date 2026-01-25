@@ -13,11 +13,18 @@ const api = {
     save: (payload: unknown) => ipcRenderer.invoke("testCases:save", payload),
     delete: (id: string) => ipcRenderer.invoke("testCases:delete", id)
   },
+  caseFolders: {
+    list: () => ipcRenderer.invoke("caseFolders:list"),
+    save: (payload: unknown) => ipcRenderer.invoke("caseFolders:save", payload),
+    delete: (id: string) => ipcRenderer.invoke("caseFolders:delete", id)
+  },
   scenarios: {
     list: () => ipcRenderer.invoke("scenarios:list"),
     get: (id: string) => ipcRenderer.invoke("scenarios:get", id),
     save: (payload: unknown) => ipcRenderer.invoke("scenarios:save", payload),
-    delete: (id: string) => ipcRenderer.invoke("scenarios:delete", id)
+    delete: (id: string) => ipcRenderer.invoke("scenarios:delete", id),
+    createFromFolder: (folderId: string, title?: string) =>
+      ipcRenderer.invoke("scenarios:createFromFolder", folderId, title)
   },
   dataSets: {
     list: (scope?: string) => ipcRenderer.invoke("dataSets:list", scope),
@@ -31,13 +38,15 @@ const api = {
     get: (id: string) => ipcRenderer.invoke("runs:get", id),
     save: (payload: unknown) => ipcRenderer.invoke("runs:save", payload),
     delete: (id: string) => ipcRenderer.invoke("runs:delete", id),
-    addCase: (runId: string, caseId: string) => ipcRenderer.invoke("runs:addCase", runId, caseId),
-    updateCase: (payload: unknown) => ipcRenderer.invoke("runs:updateCase", payload),
-    removeCase: (id: string) => ipcRenderer.invoke("runs:removeCase", id)
+    addScenario: (runId: string, scenarioId: string, assignee?: string) =>
+      ipcRenderer.invoke("runs:addScenario", runId, scenarioId, assignee),
+    updateScenario: (payload: unknown) => ipcRenderer.invoke("runs:updateScenario", payload),
+    removeScenario: (id: string) => ipcRenderer.invoke("runs:removeScenario", id)
   },
   evidence: {
-    list: (runCaseId: string) => ipcRenderer.invoke("evidence:list", runCaseId),
-    add: (runCaseId: string) => ipcRenderer.invoke("evidence:add", runCaseId),
+    list: (runScenarioId: string) => ipcRenderer.invoke("evidence:list", runScenarioId),
+    add: (runScenarioId: string) => ipcRenderer.invoke("evidence:add", runScenarioId),
+    pasteImage: (runScenarioId: string) => ipcRenderer.invoke("evidence:pasteImage", runScenarioId),
     remove: (id: string) => ipcRenderer.invoke("evidence:remove", id),
     open: (id: string) => ipcRenderer.invoke("evidence:open", id)
   },

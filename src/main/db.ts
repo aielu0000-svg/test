@@ -9,7 +9,6 @@ export type ProjectInfo = {
 };
 
 export type EvidenceInput = {
-  runCaseId: string;
   sourcePath: string;
   fileName: string;
   mimeType: string;
@@ -23,6 +22,18 @@ const DB_FILE = "the-test.sqlite";
 const ATTACHMENTS_DIR = "attachments";
 
 const now = () => new Date().toISOString();
+
+const ensureColumn = (
+  database: Database.Database,
+  table: string,
+  column: string,
+  definition: string
+) => {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+};
 
 const ensureDb = () => {
   if (!db || !projectPath) {
@@ -48,6 +59,7 @@ const initSchema = (database: Database.Database) => {
       priority TEXT,
       severity TEXT,
       tags TEXT,
+      folder_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -65,6 +77,13 @@ const initSchema = (database: Database.Database) => {
       title TEXT NOT NULL,
       objective TEXT,
       preconditions TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS case_folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -125,9 +144,34 @@ const initSchema = (database: Database.Database) => {
       executed_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS run_scenarios (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES test_runs(id) ON DELETE CASCADE,
+      scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL,
+      assignee TEXT,
+      actual_result TEXT,
+      notes TEXT,
+      executed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(run_id, scenario_id)
+    );
+
     CREATE TABLE IF NOT EXISTS evidence (
       id TEXT PRIMARY KEY,
       run_case_id TEXT NOT NULL REFERENCES run_cases(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      mime_type TEXT,
+      size INTEGER,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS scenario_evidence (
+      id TEXT PRIMARY KEY,
+      run_scenario_id TEXT NOT NULL REFERENCES run_scenarios(id) ON DELETE CASCADE,
       file_name TEXT NOT NULL,
       stored_path TEXT NOT NULL,
       mime_type TEXT,
@@ -141,7 +185,12 @@ const initSchema = (database: Database.Database) => {
     CREATE INDEX IF NOT EXISTS idx_data_links ON data_links(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_run_cases ON run_cases(run_id);
     CREATE INDEX IF NOT EXISTS idx_evidence_run_case ON evidence(run_case_id);
+    CREATE INDEX IF NOT EXISTS idx_case_folders_name ON case_folders(name);
+    CREATE INDEX IF NOT EXISTS idx_run_scenarios ON run_scenarios(run_id);
+    CREATE INDEX IF NOT EXISTS idx_scenario_evidence ON scenario_evidence(run_scenario_id);
   `);
+
+  ensureColumn(database, "test_cases", "folder_id", "TEXT");
 };
 
 export const createProject = (folderPath: string, name: string) => {
@@ -231,6 +280,7 @@ export const saveTestCase = (payload: {
   tags?: string;
   steps: Array<{ id?: string; action: string; expected: string }>;
   dataSetIds?: string[];
+  folderId?: string | null;
 }) => {
   const { db: database } = ensureDb();
   const id = payload.id ?? randomUUID();
@@ -247,18 +297,11 @@ export const saveTestCase = (payload: {
   const insertCaseLink = database.prepare(
     "INSERT OR IGNORE INTO data_links (data_set_id, entity_type, entity_id) VALUES (?, ?, ?)"
   );
-  const insertScenario = database.prepare(
-    "INSERT INTO scenarios (id, title, objective, preconditions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-  );
-  const insertScenarioCase = database.prepare(
-    "INSERT INTO scenario_cases (scenario_id, case_id, position) VALUES (?, ?, ?)"
-  );
-
   const transaction = database.transaction(() => {
     if (existing) {
       database
         .prepare(
-          "UPDATE test_cases SET title = ?, objective = ?, preconditions = ?, priority = ?, severity = ?, tags = ?, updated_at = ? WHERE id = ?"
+          "UPDATE test_cases SET title = ?, objective = ?, preconditions = ?, priority = ?, severity = ?, tags = ?, folder_id = ?, updated_at = ? WHERE id = ?"
         )
         .run(
           payload.title,
@@ -267,13 +310,14 @@ export const saveTestCase = (payload: {
           payload.priority ?? "",
           payload.severity ?? "",
           payload.tags ?? "",
+          payload.folderId ?? null,
           timestamp,
           id
         );
     } else {
       database
         .prepare(
-          "INSERT INTO test_cases (id, title, objective, preconditions, priority, severity, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO test_cases (id, title, objective, preconditions, priority, severity, tags, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .run(
           id,
@@ -283,6 +327,7 @@ export const saveTestCase = (payload: {
           payload.priority ?? "",
           payload.severity ?? "",
           payload.tags ?? "",
+          payload.folderId ?? null,
           timestamp,
           timestamp
         );
@@ -296,18 +341,6 @@ export const saveTestCase = (payload: {
     (payload.dataSetIds ?? []).forEach((dataSetId) => {
       insertCaseLink.run(dataSetId, "case", id);
     });
-    if (!existing) {
-      const scenarioId = randomUUID();
-      insertScenario.run(
-        scenarioId,
-        payload.title,
-        payload.objective ?? "",
-        payload.preconditions ?? "",
-        timestamp,
-        timestamp
-      );
-      insertScenarioCase.run(scenarioId, id, 1);
-    }
   });
   transaction();
 
@@ -318,6 +351,36 @@ export const deleteTestCase = (id: string) => {
   const { db: database } = ensureDb();
   database.prepare("DELETE FROM test_cases WHERE id = ?").run(id);
   database.prepare("DELETE FROM data_links WHERE entity_type = ? AND entity_id = ?").run("case", id);
+};
+
+export const listCaseFolders = () => {
+  const { db: database } = ensureDb();
+  return database.prepare("SELECT * FROM case_folders ORDER BY updated_at DESC").all();
+};
+
+export const saveCaseFolder = (payload: { id?: string; name: string }) => {
+  const { db: database } = ensureDb();
+  const id = payload.id ?? randomUUID();
+  const timestamp = now();
+  const existing = database.prepare("SELECT id FROM case_folders WHERE id = ?").get(id);
+
+  if (existing) {
+    database
+      .prepare("UPDATE case_folders SET name = ?, updated_at = ? WHERE id = ?")
+      .run(payload.name, timestamp, id);
+  } else {
+    database
+      .prepare("INSERT INTO case_folders (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+      .run(id, payload.name, timestamp, timestamp);
+  }
+
+  return id;
+};
+
+export const deleteCaseFolder = (id: string) => {
+  const { db: database } = ensureDb();
+  database.prepare("UPDATE test_cases SET folder_id = NULL WHERE folder_id = ?").run(id);
+  database.prepare("DELETE FROM case_folders WHERE id = ?").run(id);
 };
 
 export const listScenarios = () => {
@@ -383,6 +446,41 @@ export const saveScenario = (payload: {
 export const deleteScenario = (id: string) => {
   const { db: database } = ensureDb();
   database.prepare("DELETE FROM scenarios WHERE id = ?").run(id);
+};
+
+export const createScenarioFromFolder = (folderId: string, title?: string) => {
+  const { db: database } = ensureDb();
+  const folder = database.prepare("SELECT name FROM case_folders WHERE id = ?").get(folderId) as
+    | { name: string }
+    | undefined;
+  if (!folder) {
+    throw new Error("フォルダが見つかりません。");
+  }
+  const cases = database
+    .prepare("SELECT id FROM test_cases WHERE folder_id = ? ORDER BY updated_at DESC")
+    .all(folderId) as Array<{ id: string }>;
+  if (!cases.length) {
+    throw new Error("フォルダ内にテストケースがありません。");
+  }
+  const id = randomUUID();
+  const timestamp = now();
+  database
+    .prepare(
+      "INSERT INTO scenarios (id, title, objective, preconditions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .run(id, title ?? `${folder.name} シナリオ`, "", "", timestamp, timestamp);
+
+  const insertLink = database.prepare(
+    "INSERT INTO scenario_cases (scenario_id, case_id, position) VALUES (?, ?, ?)"
+  );
+  const transaction = database.transaction(() => {
+    cases.forEach((item, index) => {
+      insertLink.run(id, item.id, index + 1);
+    });
+  });
+  transaction();
+
+  return id;
 };
 
 export const listDataSets = (scope?: string) => {
@@ -475,12 +573,12 @@ export const listRuns = () => {
 export const getRun = (id: string) => {
   const { db: database } = ensureDb();
   const run = database.prepare("SELECT * FROM test_runs WHERE id = ?").get(id);
-  const runCases = database
+  const runScenarios = database
     .prepare(
-      "SELECT run_cases.*, test_cases.title FROM run_cases JOIN test_cases ON test_cases.id = run_cases.case_id WHERE run_id = ? ORDER BY run_cases.executed_at DESC"
+      "SELECT run_scenarios.*, scenarios.title as scenario_title FROM run_scenarios JOIN scenarios ON scenarios.id = run_scenarios.scenario_id WHERE run_id = ? ORDER BY run_scenarios.updated_at DESC"
     )
     .all(id);
-  return { run, runCases };
+  return { run, runScenarios };
 };
 
 export const saveRun = (payload: {
@@ -498,6 +596,9 @@ export const saveRun = (payload: {
   const id = payload.id ?? randomUUID();
   const timestamp = now();
   const existing = database.prepare("SELECT id FROM test_runs WHERE id = ?").get(id);
+  const updateAssignees = database.prepare(
+    "UPDATE run_scenarios SET assignee = ?, updated_at = ? WHERE run_id = ? AND (assignee IS NULL OR assignee = '')"
+  );
 
   if (existing) {
     database
@@ -536,6 +637,10 @@ export const saveRun = (payload: {
       );
   }
 
+  if (payload.tester?.trim()) {
+    updateAssignees.run(payload.tester.trim(), timestamp, id);
+  }
+
   return id;
 };
 
@@ -544,51 +649,81 @@ export const deleteRun = (id: string) => {
   database.prepare("DELETE FROM test_runs WHERE id = ?").run(id);
 };
 
-export const addRunCase = (runId: string, caseId: string) => {
+export const addRunScenario = (runId: string, scenarioId: string, assignee?: string) => {
   const { db: database } = ensureDb();
+  const existing = database
+    .prepare("SELECT id FROM run_scenarios WHERE run_id = ? AND scenario_id = ?")
+    .get(runId, scenarioId) as { id: string } | undefined;
+  if (existing) {
+    return existing.id;
+  }
+  const scenario = database.prepare("SELECT title FROM scenarios WHERE id = ?").get(scenarioId) as
+    | { title: string }
+    | undefined;
+  if (!scenario) {
+    throw new Error("シナリオが見つかりません。");
+  }
   const id = randomUUID();
+  const timestamp = now();
   database
     .prepare(
-      "INSERT INTO run_cases (id, run_id, case_id, status, actual_result, evidence_summary, executed_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO run_scenarios (id, run_id, scenario_id, title, status, assignee, actual_result, notes, executed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .run(id, runId, caseId, "not_run", "", "", "");
+    .run(
+      id,
+      runId,
+      scenarioId,
+      scenario.title,
+      "not_run",
+      assignee ?? "",
+      "",
+      "",
+      "",
+      timestamp,
+      timestamp
+    );
   return id;
 };
 
-export const updateRunCase = (payload: {
+export const updateRunScenario = (payload: {
   id: string;
   status: string;
+  assignee?: string;
   actualResult?: string;
-  evidenceSummary?: string;
+  notes?: string;
   executedAt?: string;
 }) => {
   const { db: database } = ensureDb();
+  const timestamp = now();
+  const executedAt = payload.executedAt?.trim() ? payload.executedAt : timestamp;
   database
     .prepare(
-      "UPDATE run_cases SET status = ?, actual_result = ?, evidence_summary = ?, executed_at = ? WHERE id = ?"
+      "UPDATE run_scenarios SET status = ?, assignee = ?, actual_result = ?, notes = ?, executed_at = ?, updated_at = ? WHERE id = ?"
     )
     .run(
       payload.status,
+      payload.assignee ?? "",
       payload.actualResult ?? "",
-      payload.evidenceSummary ?? "",
-      payload.executedAt ?? "",
+      payload.notes ?? "",
+      executedAt,
+      timestamp,
       payload.id
     );
 };
 
-export const removeRunCase = (id: string) => {
+export const removeRunScenario = (id: string) => {
   const { db: database } = ensureDb();
-  database.prepare("DELETE FROM run_cases WHERE id = ?").run(id);
+  database.prepare("DELETE FROM run_scenarios WHERE id = ?").run(id);
 };
 
-export const listEvidence = (runCaseId: string) => {
+export const listScenarioEvidence = (runScenarioId: string) => {
   const { db: database } = ensureDb();
   return database
-    .prepare("SELECT * FROM evidence WHERE run_case_id = ? ORDER BY created_at DESC")
-    .all(runCaseId);
+    .prepare("SELECT * FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at DESC")
+    .all(runScenarioId);
 };
 
-export const addEvidence = (payload: EvidenceInput) => {
+export const addScenarioEvidence = (payload: EvidenceInput & { runScenarioId: string }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
   const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
@@ -602,16 +737,58 @@ export const addEvidence = (payload: EvidenceInput) => {
 
   database
     .prepare(
-      "INSERT INTO evidence (id, run_case_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO scenario_evidence (id, run_scenario_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
-    .run(id, payload.runCaseId, payload.fileName, storedPath, payload.mimeType, payload.size, now());
+    .run(
+      id,
+      payload.runScenarioId,
+      payload.fileName,
+      storedPath,
+      payload.mimeType,
+      payload.size,
+      now()
+    );
 
   return id;
 };
 
-export const removeEvidence = (id: string) => {
+export const addScenarioEvidenceBuffer = (payload: {
+  runScenarioId: string;
+  fileName: string;
+  buffer: Buffer;
+  mimeType: string;
+}) => {
   const { db: database, projectPath: folderPath } = ensureDb();
-  const row = database.prepare("SELECT stored_path FROM evidence WHERE id = ?").get(id) as
+  const id = randomUUID();
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (!fs.existsSync(attachmentsPath)) {
+    fs.mkdirSync(attachmentsPath, { recursive: true });
+  }
+  const safeName = payload.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const storedName = `${id}_${safeName}`;
+  const storedPath = path.join(ATTACHMENTS_DIR, storedName);
+  fs.writeFileSync(path.join(folderPath, storedPath), payload.buffer);
+
+  database
+    .prepare(
+      "INSERT INTO scenario_evidence (id, run_scenario_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    .run(
+      id,
+      payload.runScenarioId,
+      payload.fileName,
+      storedPath,
+      payload.mimeType,
+      payload.buffer.length,
+      now()
+    );
+
+  return id;
+};
+
+export const removeScenarioEvidence = (id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database.prepare("SELECT stored_path FROM scenario_evidence WHERE id = ?").get(id) as
     | { stored_path: string }
     | undefined;
   if (row?.stored_path) {
@@ -620,12 +797,12 @@ export const removeEvidence = (id: string) => {
       fs.unlinkSync(filePath);
     }
   }
-  database.prepare("DELETE FROM evidence WHERE id = ?").run(id);
+  database.prepare("DELETE FROM scenario_evidence WHERE id = ?").run(id);
 };
 
-export const getEvidencePath = (id: string) => {
+export const getScenarioEvidencePath = (id: string) => {
   const { db: database, projectPath: folderPath } = ensureDb();
-  const row = database.prepare("SELECT stored_path FROM evidence WHERE id = ?").get(id) as
+  const row = database.prepare("SELECT stored_path FROM scenario_evidence WHERE id = ?").get(id) as
     | { stored_path: string }
     | undefined;
   if (!row?.stored_path) {
@@ -784,14 +961,15 @@ export const exportData = (payload: {
           test_runs.tester,
           test_runs.started_at,
           test_runs.finished_at,
-          run_cases.status as case_status,
-          run_cases.actual_result,
-          run_cases.evidence_summary,
-          run_cases.executed_at,
-          test_cases.title as case_title
+          run_scenarios.status as scenario_status,
+          run_scenarios.assignee,
+          run_scenarios.actual_result,
+          run_scenarios.notes,
+          run_scenarios.executed_at,
+          scenarios.title as scenario_title
         FROM test_runs
-        LEFT JOIN run_cases ON run_cases.run_id = test_runs.id
-        LEFT JOIN test_cases ON test_cases.id = run_cases.case_id
+        LEFT JOIN run_scenarios ON run_scenarios.run_id = test_runs.id
+        LEFT JOIN scenarios ON scenarios.id = run_scenarios.scenario_id
         ORDER BY test_runs.updated_at DESC`
       )
       .all()) as Array<Record<string, any>>;
