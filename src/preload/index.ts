@@ -49,7 +49,8 @@ const api = {
     add: (runScenarioId: string) => ipcRenderer.invoke("evidence:add", runScenarioId),
     pasteImage: (runScenarioId: string) => ipcRenderer.invoke("evidence:pasteImage", runScenarioId),
     remove: (id: string) => ipcRenderer.invoke("evidence:remove", id),
-    open: (id: string) => ipcRenderer.invoke("evidence:open", id)
+    open: (id: string) => ipcRenderer.invoke("evidence:open", id),
+    preview: (id: string) => ipcRenderer.invoke("evidence:preview", id)
   },
   export: {
     save: (payload: unknown) => ipcRenderer.invoke("export:save", payload)

@@ -132,6 +132,26 @@ type Evidence = {
   created_at: string;
 };
 
+type RunScenarioCase = {
+  id: string;
+  run_scenario_id: string;
+  case_id: string;
+  case_title: string;
+  preconditions: string;
+  tags: string;
+  status: string;
+  actual_result: string;
+  notes: string;
+  executed_at: string;
+};
+
+type EvidencePreview = {
+  id: string;
+  fileName: string;
+  dataUrl: string;
+  mimeType: string;
+};
+
 type CaseDraft = {
   title: string;
   objective: string;
@@ -273,6 +293,9 @@ export default function App() {
   const [selectedRunScenarioId, setSelectedRunScenarioId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [evidenceList, setEvidenceList] = useState<Evidence[]>([]);
+  const [runScenarioCasesMap, setRunScenarioCasesMap] = useState<Record<string, RunScenarioCase[]>>({});
+  const [evidencePreview, setEvidencePreview] = useState<EvidencePreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [scenarioFolderId, setScenarioFolderId] = useState("");
   const [scenarioFromFolderTitle, setScenarioFromFolderTitle] = useState("");
 
@@ -378,6 +401,27 @@ export default function App() {
   const loadRuns = async () => {
     const list = (await window.api.runs.list()) as TestRun[];
     setRuns(list);
+  };
+
+  const loadRunScenarioCasesForIds = async (
+    scenarioIds: string[],
+    options?: { overwrite?: boolean }
+  ) => {
+    if (!scenarioIds.length) {
+      if (options?.overwrite) {
+        setRunScenarioCasesMap({});
+      }
+      return;
+    }
+    const uniqueIds = Array.from(new Set(scenarioIds));
+    const results = await Promise.all(uniqueIds.map((id) => window.api.runs.cases(id)));
+    setRunScenarioCasesMap((prev) => {
+      const next: Record<string, RunScenarioCase[]> = options?.overwrite ? {} : { ...prev };
+      uniqueIds.forEach((id, index) => {
+        next[id] = results[index];
+      });
+      return next;
+    });
   };
 
   const fetchScenarioDetailFromApi = async (scenarioId: string) => {
@@ -621,9 +665,10 @@ export default function App() {
   }, [testCases]);
 
   const runSummary = useMemo(() => {
-    const total = runScenarios.length;
-    const completed = runScenarios.filter((item) => item.status !== "not_run").length;
-    const counts = runScenarios.reduce(
+    const cases = Object.values(runScenarioCasesMap).flat();
+    const total = cases.length;
+    const completed = cases.filter((item) => item.status !== "not_run").length;
+    const counts = cases.reduce(
       (acc, item) => {
         acc[item.status] = (acc[item.status] ?? 0) + 1;
         return acc;
@@ -636,7 +681,48 @@ export default function App() {
       remaining: Math.max(total - completed, 0),
       counts
     };
-  }, [runScenarios]);
+  }, [runScenarioCasesMap]);
+
+  const summaryBadges = [
+    {
+      label: "総数",
+      value: runSummary.total,
+      classes:
+        theme === "light"
+          ? "text-slate-900 border-slate-200 bg-slate-50"
+          : "text-slate-100 border-slate-600 bg-slate-900/50"
+    },
+    {
+      label: "完了",
+      value: runSummary.completed,
+      classes:
+        theme === "light"
+          ? "text-emerald-700 border-emerald-300 bg-emerald-100"
+          : "text-emerald-200 border-emerald-500 bg-emerald-900/50"
+    },
+    {
+      label: "残り",
+      value: runSummary.remaining,
+      classes:
+        theme === "light"
+          ? "text-amber-700 border-amber-300 bg-amber-100"
+          : "text-amber-200 border-amber-500 bg-amber-900/50"
+    }
+  ];
+
+  const statusBadgeClasses: Record<string, string> = {
+    pass: "text-emerald-200 border-emerald-500 bg-emerald-900/40",
+    fail: "text-rose-200 border-rose-500 bg-rose-900/40",
+    blocked: "text-amber-200 border-amber-500 bg-amber-900/40",
+    skip: "text-slate-100 border-slate-600 bg-slate-900/40"
+  };
+
+  const statusDisplayNames: Record<string, string> = {
+    pass: "Pass",
+    fail: "Fail",
+    blocked: "Blocked",
+    skip: "Skip"
+  };
 
   const caseDataSetOptions = useMemo(
     () => dataSets.filter((item) => item.scope === "common" || item.scope === "case"),
@@ -772,6 +858,10 @@ export default function App() {
       notes: data.run.notes ?? ""
     });
     setRunScenarios(data.runScenarios);
+    await loadRunScenarioCasesForIds(
+      data.runScenarios.map((item) => item.id),
+      { overwrite: true }
+    );
     void ensureScenarioDetailsForIds(data.runScenarios.map((item) => item.scenario_id));
     setSelectedRunScenarioId(null);
     setEvidenceList([]);
@@ -781,6 +871,7 @@ export default function App() {
     setSelectedRunScenarioId(id);
     const list = (await window.api.evidence.list(id)) as Evidence[];
     setEvidenceList(list);
+    void loadRunScenarioCasesForIds([id]);
   };
 
   const handleSaveCase = async () => {
@@ -930,6 +1021,64 @@ export default function App() {
     if (selectedRunId) {
       await selectRun(selectedRunId);
     }
+  };
+
+  const updateRunScenarioCaseDraft = (
+    runScenarioId: string,
+    caseId: string,
+    patch: Partial<RunScenarioCase>
+  ) => {
+    setRunScenarioCasesMap((prev) => {
+      const cases = prev[runScenarioId] ?? [];
+      if (!cases.length) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [runScenarioId]: cases.map((entry) =>
+          entry.id === caseId ? { ...entry, ...patch } : entry
+        )
+      };
+    });
+  };
+
+  const handleSaveRunScenarioCase = async (runScenarioId: string, runCase: RunScenarioCase) => {
+    await window.api.runs.updateScenarioCase({
+      id: runCase.id,
+      status: runCase.status,
+      actualResult: runCase.actual_result ?? "",
+      notes: runCase.notes ?? "",
+      executedAt: runCase.executed_at ?? ""
+    });
+    if (selectedRunId) {
+      await selectRun(selectedRunId);
+    }
+  };
+
+  const handlePreviewEvidence = async (id: string, fileName: string) => {
+    try {
+      const result = (await window.api.evidence.preview(id)) as
+        | { base64: string; mimeType: string }
+        | null;
+      if (!result?.base64) {
+        setPreviewError("プレビューを読み込めませんでした。");
+        return;
+      }
+      setPreviewError(null);
+      setEvidencePreview({
+        id,
+        fileName,
+        dataUrl: `data:${result.mimeType};base64,${result.base64}`,
+        mimeType: result.mimeType
+      });
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "プレビューに失敗しました。");
+    }
+  };
+
+  const closeEvidencePreview = () => {
+    setEvidencePreview(null);
+    setPreviewError(null);
   };
 
   const updateRunScenarioDraft = (id: string, patch: Partial<RunCase>) => {
@@ -1729,21 +1878,42 @@ export default function App() {
                   </div>
                 </div>
                 <div className="mt-4 grid gap-2">
-                  {filteredScenarios.map((item) => (
-                    <button
-                      key={item.id}
-                      className={cn(
-                        "rounded-xl border px-3 py-2 text-left text-sm",
-                        selectedScenarioId === item.id
-                          ? "border-sky-400 bg-slate-900 text-slate-100"
-                          : "border-slate-800 text-slate-300"
-                      )}
-                      onClick={() => selectScenario(item.id)}
-                    >
-                      <div className="text-balance font-semibold">{item.title}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.updated_at}</div>
-                    </button>
-                  ))}
+                      {filteredScenarios.map((item) => (
+                        <div
+                          key={item.id}
+                          role="button"
+                          tabIndex={0}
+                          className={cn(
+                            "rounded-xl border px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400",
+                            selectedScenarioId === item.id
+                              ? "border-sky-400 bg-slate-900 text-slate-100"
+                              : "border-slate-800 text-slate-300"
+                          )}
+                          onClick={() => selectScenario(item.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              selectScenario(item.id);
+                            }
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-balance font-semibold">{item.title}</div>
+                              <div className="mt-1 text-xs text-slate-400">{item.updated_at}</div>
+                            </div>
+                            <button
+                              className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setDeleteTarget({ type: "scenario", id: item.id });
+                              }}
+                            >
+                              削除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                 </div>
               </div>
 
@@ -2227,28 +2397,26 @@ export default function App() {
                   <div className="border-t border-slate-800 pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h3 className="text-balance text-sm font-semibold">実行シナリオ</h3>
-                      <div className={cn("flex flex-wrap gap-2 text-[11px]", theme === "light" ? "text-slate-600" : "text-slate-400")}>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          総数 {runSummary.total}
-                        </span>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          完了 {runSummary.completed}
-                        </span>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          残り {runSummary.remaining}
-                        </span>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          Pass {runSummary.counts.pass ?? 0}
-                        </span>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          Fail {runSummary.counts.fail ?? 0}
-                        </span>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          Blocked {runSummary.counts.blocked ?? 0}
-                        </span>
-                        <span className={cn("rounded-full border px-2 py-1", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-                          Skip {runSummary.counts.skip ?? 0}
-                        </span>
+                      <div className={cn("flex flex-wrap gap-2 text-[11px]", theme === "light" ? "text-slate-900" : "text-slate-300")}>
+                        {summaryBadges.map((badge) => (
+                          <span
+                            key={badge.label}
+                            className={cn("rounded-full border px-2 py-1 font-semibold", badge.classes)}
+                          >
+                            {badge.label} {badge.value}
+                          </span>
+                        ))}
+                        {(["pass", "fail", "blocked", "skip"] as Array<keyof typeof statusBadgeClasses>).map((status) => (
+                          <span
+                            key={status}
+                            className={cn(
+                              "rounded-full border px-2 py-1 font-semibold",
+                              statusBadgeClasses[status] ?? "border-slate-600 bg-slate-900/40 text-slate-100"
+                            )}
+                          >
+                            {statusDisplayNames[status]} {runSummary.counts[status] ?? 0}
+                          </span>
+                        ))}
                       </div>
                     </div>
 
@@ -2270,7 +2438,13 @@ export default function App() {
                     </div>
 
                     <div className="mt-4 grid gap-3">
-                      {runScenarios.map((item) => (
+                      {runScenarios.map((item) => {
+                        const scenarioCases = runScenarioCasesMap[item.id] ?? [];
+                        const scenarioCompleted = scenarioCases.filter(
+                          (runCase) => runCase.status !== "not_run"
+                        ).length;
+                        const scenarioRemaining = Math.max(scenarioCases.length - scenarioCompleted, 0);
+                        return (
                         <div
                           key={item.id}
                           className={cn(
@@ -2355,6 +2529,152 @@ export default function App() {
                               <p className="text-xs text-slate-500">ケース詳細を読み込んでいます...</p>
                             )}
                           </div>
+                          <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold uppercase text-slate-400">ケース結果</p>
+                              <div className="flex gap-2 text-[11px] text-slate-400">
+                                <span className="rounded-full border border-slate-700 px-2 py-1">
+                                  総数 {scenarioCases.length}
+                                </span>
+                                <span className="rounded-full border border-emerald-500 px-2 py-1 text-emerald-200">
+                                  完了 {scenarioCompleted}
+                                </span>
+                                <span className="rounded-full border border-amber-500 px-2 py-1 text-amber-200">
+                                  残り {scenarioRemaining}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="mt-3 space-y-3">
+                              {scenarioCases.length === 0 ? (
+                                <p className="text-xs text-slate-500">
+                                  {runScenarioCasesMap[item.id]
+                                    ? "このシナリオに含まれるケースはありません。"
+                                    : "ケース情報を読み込んでいます..."}
+                                </p>
+                              ) : (
+                                scenarioCases.map((runCase) => {
+                                  const caseDetail =
+                                    scenarioDetailsCache[item.scenario_id]?.cases.find(
+                                      (detail) => detail.case.id === runCase.case_id
+                                    );
+                                  return (
+                                    <details
+                                      key={runCase.id}
+                                      className={cn(
+                                        "rounded-xl border px-3 py-3",
+                                        theme === "light"
+                                          ? "border-slate-200 bg-slate-50"
+                                          : "border-slate-800 bg-slate-950/40"
+                                      )}
+                                    >
+                                      <summary className="flex items-center justify-between text-sm font-semibold">
+                                        <div className="space-y-1 text-slate-100">
+                                          <span>{runCase.case_title}</span>
+                                          <p className="text-[11px] text-slate-400">
+                                            前提:{" "}
+                                            {runCase.preconditions?.trim()
+                                              ? runCase.preconditions
+                                              : "なし"}
+                                          </p>
+                                          <p className="text-[11px] text-slate-400">
+                                            初期データ:{" "}
+                                            {caseDetail?.dataSets.length
+                                              ? caseDetail.dataSets
+                                                  .map((dataSet) => dataSet.name)
+                                                  .join(" / ")
+                                              : "初期データなし"}
+                                          </p>
+                                          {runCase.tags?.trim() && (
+                                            <p className="text-[11px] text-slate-400">
+                                              タグ: {runCase.tags}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold text-slate-100">
+                                          {runCase.status}
+                                        </span>
+                                      </summary>
+                                      <div className="mt-3 grid gap-2 text-xs text-slate-300">
+                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                          結果
+                                        </label>
+                                        <select
+                                          className={inputClass}
+                                          value={runCase.status}
+                                          onChange={(event) =>
+                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
+                                              status: event.target.value
+                                            })
+                                          }
+                                        >
+                                          {runCaseStatusOptions.map((option) => (
+                                            <option key={option} value={option}>
+                                              {option}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                          実行日時
+                                        </label>
+                                        <input
+                                          className={inputClass}
+                                          type="datetime-local"
+                                          value={toLocalInput(runCase.executed_at)}
+                                          onChange={(event) =>
+                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
+                                              executed_at: event.target.value
+                                            })
+                                          }
+                                        />
+                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                          結果詳細
+                                        </label>
+                                        <textarea
+                                          className={cn(inputClass, "min-h-[70px]")}
+                                          value={runCase.actual_result ?? ""}
+                                          onChange={(event) =>
+                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
+                                              actual_result: event.target.value
+                                            })
+                                          }
+                                        />
+                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                          備考
+                                        </label>
+                                        <textarea
+                                          className={cn(inputClass, "min-h-[70px]")}
+                                          value={runCase.notes ?? ""}
+                                          onChange={(event) =>
+                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
+                                              notes: event.target.value
+                                            })
+                                          }
+                                        />
+                                        <div className="flex flex-wrap gap-2">
+                                          <button
+                                            className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+                                            onClick={() => handleSaveRunScenarioCase(item.id, runCase)}
+                                          >
+                                            セーブ
+                                          </button>
+                                          <button
+                                            className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
+                                            onClick={() =>
+                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
+                                                executed_at: nowLocalInput()
+                                              })
+                                            }
+                                          >
+                                            実行日時を今
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </details>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
                               className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
@@ -2381,7 +2701,8 @@ export default function App() {
                             </button>
                           </div>
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                     {selectedRunScenarioId && (
                       <div className="mt-4 rounded-xl border border-slate-800 p-4">
@@ -2404,13 +2725,21 @@ export default function App() {
                         </div>
                         <div className="mt-3 grid gap-2">
                           {evidenceList.map((evidence) => (
-                            <div key={evidence.id} className="flex items-center justify-between text-sm">
-                              <button
-                                className="text-left text-sky-300"
-                                onClick={() => window.api.evidence.open(evidence.id)}
-                              >
-                                {evidence.file_name}
-                              </button>
+                            <div key={evidence.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  className="text-left text-sky-300"
+                                  onClick={() => window.api.evidence.open(evidence.id)}
+                                >
+                                  {evidence.file_name}
+                                </button>
+                                <button
+                                  className="rounded-full border border-slate-600 px-2 py-1 text-[10px] font-semibold text-slate-200"
+                                  onClick={() => handlePreviewEvidence(evidence.id, evidence.file_name)}
+                                >
+                                  プレビュー
+                                </button>
+                              </div>
                               <button
                                 className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
                                 onClick={async () => {
@@ -2582,6 +2911,32 @@ export default function App() {
         </section>
       </div>
 
+      {evidencePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="relative w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-950/90 p-5 shadow-2xl">
+            <div className="flex items-center justify-between text-sm font-semibold text-slate-100">
+              <span>{evidencePreview.fileName}</span>
+              <button
+                className="text-xs font-semibold uppercase text-slate-400"
+                onClick={closeEvidencePreview}
+              >
+                閉じる
+              </button>
+            </div>
+            {previewError ? (
+              <p className="mt-4 text-sm text-rose-200">{previewError}</p>
+            ) : evidencePreview.mimeType.startsWith("image/") ? (
+              <img
+                src={evidencePreview.dataUrl}
+                alt={evidencePreview.fileName}
+                className="mt-4 h-[70vh] w-full max-w-full rounded-xl object-contain"
+              />
+            ) : (
+              <p className="mt-4 text-sm text-slate-300">このファイルはプレビューできません。</p>
+            )}
+          </div>
+        </div>
+      )}
       <ConfirmDialog
         open={!!deleteTarget}
         title="削除してもよいですか？"
