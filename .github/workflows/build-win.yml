@@ -24,7 +24,7 @@ jobs:
         run: npm ci
 
       - name: Package Windows
-        run: npm run package:win
+        run: npm run package:win -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
