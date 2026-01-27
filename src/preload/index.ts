@@ -44,7 +44,9 @@ const api = {
     addScenario: (runId: string, scenarioId: string, assignee?: string) =>
       ipcRenderer.invoke("runs:addScenario", runId, scenarioId, assignee),
     updateScenario: (payload: unknown) => ipcRenderer.invoke("runs:updateScenario", payload),
-    removeScenario: (id: string) => ipcRenderer.invoke("runs:removeScenario", id)
+    removeScenario: (id: string) => ipcRenderer.invoke("runs:removeScenario", id),
+    cases: (runScenarioId: string) => ipcRenderer.invoke("runs:cases", runScenarioId),
+    updateScenarioCase: (payload: unknown) => ipcRenderer.invoke("runs:updateScenarioCase", payload)
   },
   evidence: {
     list: (runScenarioId: string) => ipcRenderer.invoke("evidence:list", runScenarioId),

@@ -87,13 +87,6 @@ type ScenarioDetail = {
   cases: CaseDetail[];
 };
 
-type CaseFolder = {
-  id: string;
-  name: string;
-  created_at: string;
-  updated_at: string;
-};
-
 type CaseDataLink = {
   data_set_id: string;
 };
@@ -264,6 +257,7 @@ export default function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [section, setSection] = useState<SectionKey>("cases");
+  const [isLoading, setIsLoading] = useState(false);
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [caseQuery, setCaseQuery] = useState("");
@@ -330,6 +324,12 @@ export default function App() {
   const [importScope, setImportScope] = useState("common");
   const [importNotice, setImportNotice] = useState<string | null>(null);
 
+  const caseTitleError = caseError === "タイトルは必須です。";
+  const scenarioTitleError = scenarioError === "タイトルは必須です。";
+  const scenarioFolderError = scenarioError === "フォルダを選択してください。";
+  const dataNameError = dataError === "データセット名は必須です。";
+  const runNameError = runError === "テスト実行名は必須です。";
+
   const panelClass = cn(
     "rounded-2xl border p-5 shadow-sm",
     theme === "light"
@@ -352,10 +352,35 @@ export default function App() {
     if (Number.isNaN(date.valueOf())) {
       return value;
     }
-    return date.toISOString().slice(0, 16);
+    // datetime-local expects local time without timezone.
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 16);
   };
 
-  const nowLocalInput = () => new Date().toISOString().slice(0, 16);
+  const nowLocalInput = () => {
+    const date = new Date();
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const toIsoString = (value?: string) => {
+    const trimmed = value?.trim() ?? "";
+    if (!trimmed) {
+      return "";
+    }
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.valueOf())) {
+      return trimmed;
+    }
+    return date.toISOString();
+  };
+
+  const isImageLike = (fileName: string, mimeType?: string) => {
+    if (mimeType?.startsWith("image/")) {
+      return true;
+    }
+    return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName);
+  };
 
   useEffect(() => {
     const saved = window.localStorage.getItem("the-test-theme");
@@ -428,22 +453,29 @@ export default function App() {
         const rows = (await window.api.runCaseEvidence.list(caseId)) as RunCaseEvidenceRow[];
         const previews: EvidencePreview[] = [];
         for (const row of rows) {
-          try {
-            const result = (await window.api.runCaseEvidence.preview(row.id)) as
-              | { base64: string; mimeType: string }
-              | null;
-            if (!result?.base64) {
-              continue;
+          const preview: EvidencePreview = {
+            id: row.id,
+            fileName: row.file_name,
+            dataUrl: "",
+            mimeType: row.mime_type ?? ""
+          };
+
+          // Only fetch base64 thumbnails for likely images; otherwise show filename card.
+          if (isImageLike(row.file_name, row.mime_type)) {
+            try {
+              const result = (await window.api.runCaseEvidence.preview(row.id)) as
+                | { base64: string; mimeType: string; tooLarge?: boolean; size?: number }
+                | null;
+              if (result?.base64) {
+                preview.dataUrl = `data:${result.mimeType};base64,${result.base64}`;
+                preview.mimeType = result.mimeType;
+              }
+            } catch {
+              // ignore preview failures
             }
-            previews.push({
-              id: row.id,
-              fileName: row.file_name,
-              dataUrl: `data:${result.mimeType};base64,${result.base64}`,
-              mimeType: result.mimeType
-            });
-          } catch {
-            // ignore preview failures
           }
+
+          previews.push(preview);
         }
         return previews;
       })
@@ -468,8 +500,10 @@ export default function App() {
       return;
     }
     const uniqueIds = Array.from(new Set(scenarioIds));
-    const results = await Promise.all(uniqueIds.map((id) => window.api.runs.cases(id)));
-    const caseIds = results.flatMap((batch) => batch.map((item) => item.id));
+    const results = (await Promise.all(
+      uniqueIds.map((id) => window.api.runs.cases(id))
+    )) as RunScenarioCase[][];
+    const caseIds = results.flatMap((batch) => batch.map((entry) => entry.id));
     setRunScenarioCasesMap((prev) => {
       const next: Record<string, RunScenarioCase[]> = options?.overwrite ? {} : { ...prev };
       uniqueIds.forEach((id, index) => {
@@ -900,6 +934,9 @@ export default function App() {
 
   const selectCase = (id: string) => {
     setSelectedCaseId(id);
+    if (id === selectedCaseId) {
+      void loadCaseById(id);
+    }
   };
 
   useEffect(() => {
@@ -920,7 +957,7 @@ export default function App() {
       preconditions: data.scenario.preconditions ?? "",
       caseIds: data.cases.map((item) => item.case_id)
     });
-    const detail = await ensureScenarioDetail(id);
+    const detail = await refreshScenarioDetail(id);
     setScenarioDetail(detail);
   };
 
@@ -985,21 +1022,26 @@ export default function App() {
       setCaseError("タイトルは必須です。");
       return;
     }
-    const payload = {
-      id: selectedCaseId ?? undefined,
-      title: caseDraft.title.trim(),
-      objective: caseDraft.objective,
-      preconditions: caseDraft.preconditions,
-      priority: caseDraft.priority,
-      severity: caseDraft.severity,
-      tags: caseDraft.tags,
-      steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
-      dataSetIds: caseDraft.dataSetIds,
-      folderId: caseDraft.folderId
-    };
-    const id = (await window.api.testCases.save(payload)) as string;
-    await loadCases();
-    setSelectedCaseId(id);
+    setIsLoading(true);
+    try {
+      const payload = {
+        id: selectedCaseId ?? undefined,
+        title: caseDraft.title.trim(),
+        objective: caseDraft.objective,
+        preconditions: caseDraft.preconditions,
+        priority: caseDraft.priority,
+        severity: caseDraft.severity,
+        tags: caseDraft.tags,
+        steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
+        dataSetIds: caseDraft.dataSetIds,
+        folderId: caseDraft.folderId
+      };
+      const id = (await window.api.testCases.save(payload)) as string;
+      await loadCases();
+      setSelectedCaseId(id);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCreateFolder = async () => {
@@ -1030,16 +1072,21 @@ export default function App() {
       setScenarioError("タイトルは必須です。");
       return;
     }
-    const payload = {
-      id: selectedScenarioId ?? undefined,
-      title: scenarioDraft.title.trim(),
-      objective: scenarioDraft.objective,
-      preconditions: scenarioDraft.preconditions,
-      caseIds: scenarioDraft.caseIds
-    };
-    const id = (await window.api.scenarios.save(payload)) as string;
-    await loadScenarios();
-    setSelectedScenarioId(id);
+    setIsLoading(true);
+    try {
+      const payload = {
+        id: selectedScenarioId ?? undefined,
+        title: scenarioDraft.title.trim(),
+        objective: scenarioDraft.objective,
+        preconditions: scenarioDraft.preconditions,
+        caseIds: scenarioDraft.caseIds
+      };
+      const id = (await window.api.scenarios.save(payload)) as string;
+      await loadScenarios();
+      setSelectedScenarioId(id);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCreateScenarioFromFolder = async () => {
@@ -1066,40 +1113,50 @@ export default function App() {
       setDataError("データセット名は必須です。");
       return;
     }
-    const payload = {
-      id: selectedDataSetId ?? undefined,
-      name: dataDraft.name.trim(),
-      scope: dataDraft.scope,
-      description: dataDraft.description,
-      items: dataDraft.items.filter((item) => item.label.trim() || item.value.trim()),
-      links: dataDraft.links
-    };
-    const id = (await window.api.dataSets.save(payload)) as string;
-    await loadDataSets();
-    setSelectedDataSetId(id);
+    setIsLoading(true);
+    try {
+      const payload = {
+        id: selectedDataSetId ?? undefined,
+        name: dataDraft.name.trim(),
+        scope: dataDraft.scope,
+        description: dataDraft.description,
+        items: dataDraft.items.filter((item) => item.label.trim() || item.value.trim()),
+        links: dataDraft.links
+      };
+      const id = (await window.api.dataSets.save(payload)) as string;
+      await loadDataSets();
+      setSelectedDataSetId(id);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSaveRun = async () => {
+  const handleSaveRun = async (): Promise<string | null> => {
     setRunError(null);
     if (!runDraft.name.trim()) {
       setRunError("テスト実行名は必須です。");
-      return;
+      return null;
     }
-    const payload = {
-      id: selectedRunId ?? undefined,
-      name: runDraft.name.trim(),
-      environment: runDraft.environment,
-      buildVersion: runDraft.buildVersion,
-      tester: runDraft.tester,
-      status: runDraft.status,
-      startedAt: runDraft.startedAt,
-      finishedAt: runDraft.finishedAt,
-      notes: runDraft.notes
-    };
-    const id = (await window.api.runs.save(payload)) as string;
-    await loadRuns();
-    await selectRun(id);
-    return id;
+    setIsLoading(true);
+    try {
+      const payload = {
+        id: selectedRunId ?? undefined,
+        name: runDraft.name.trim(),
+        environment: runDraft.environment,
+        buildVersion: runDraft.buildVersion,
+        tester: runDraft.tester,
+        status: runDraft.status,
+        startedAt: toIsoString(runDraft.startedAt),
+        finishedAt: toIsoString(runDraft.finishedAt),
+        notes: runDraft.notes
+      };
+      const id = (await window.api.runs.save(payload)) as string;
+      await loadRuns();
+      await selectRun(id);
+      return id;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddRunScenario = async (scenarioId: string) => {
@@ -1122,9 +1179,17 @@ export default function App() {
     notes: string;
     executedAt: string;
   }) => {
-    await window.api.runs.updateScenario(payload);
-    if (selectedRunId) {
-      await selectRun(selectedRunId);
+    setRunError(null);
+    try {
+      await window.api.runs.updateScenario({
+        ...payload,
+        executedAt: toIsoString(payload.executedAt)
+      });
+      if (selectedRunId) {
+        await selectRun(selectedRunId);
+      }
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "シナリオの更新に失敗しました。");
     }
   };
 
@@ -1148,32 +1213,58 @@ export default function App() {
   };
 
   const handleSaveRunScenarioCase = async (runScenarioId: string, runCase: RunScenarioCase) => {
-    await window.api.runs.updateScenarioCase({
-      id: runCase.id,
-      status: runCase.status,
-      actualResult: runCase.actual_result ?? "",
-      notes: runCase.notes ?? "",
-      executedAt: runCase.executed_at ?? ""
-    });
-    if (selectedRunId) {
-      await selectRun(selectedRunId);
+    setRunError(null);
+    try {
+      await window.api.runs.updateScenarioCase({
+        id: runCase.id,
+        status: runCase.status,
+        actualResult: runCase.actual_result ?? "",
+        notes: runCase.notes ?? "",
+        executedAt: toIsoString(runCase.executed_at ?? "")
+      });
+      if (selectedRunId) {
+        await selectRun(selectedRunId);
+      }
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "テストケースの更新に失敗しました。");
     }
   };
 
   const handlePreviewEvidence = async (id: string, fileName: string) => {
     try {
       const result = (await window.api.evidence.preview(id)) as
-        | { base64: string; mimeType: string }
+        | { base64: string; mimeType: string; tooLarge?: boolean; size?: number }
         | null;
-      if (!result?.base64) {
+      if (!result) {
         setPreviewError("プレビューを読み込めませんでした。");
+        setEvidencePreview({
+          id,
+          fileName,
+          dataUrl: "",
+          mimeType: "application/octet-stream"
+        });
         return;
       }
+
+      if (result.tooLarge) {
+        const mb = result.size ? (result.size / 1024 / 1024).toFixed(1) : "";
+        setPreviewError(
+          `ファイルサイズ${mb ? ` (${mb}MB)` : ""}が大きすぎるためプレビューできません。`
+        );
+        setEvidencePreview({
+          id,
+          fileName,
+          dataUrl: "",
+          mimeType: result.mimeType ?? "application/octet-stream"
+        });
+        return;
+      }
+
       setPreviewError(null);
       setEvidencePreview({
         id,
         fileName,
-        dataUrl: `data:${result.mimeType};base64,${result.base64}`,
+        dataUrl: result.base64 ? `data:${result.mimeType};base64,${result.base64}` : "",
         mimeType: result.mimeType
       });
     } catch (err) {
@@ -1194,76 +1285,109 @@ export default function App() {
     if (!selectedRunScenarioId) {
       return;
     }
-    await window.api.evidence.add(selectedRunScenarioId);
-    await selectRunScenario(selectedRunScenarioId);
+    setRunError(null);
+    try {
+      await window.api.evidence.add(selectedRunScenarioId);
+      await selectRunScenario(selectedRunScenarioId);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "エビデンスを追加できませんでした。");
+    }
   };
 
   const handlePasteEvidence = async () => {
     if (!selectedRunScenarioId) {
       return;
     }
-    await window.api.evidence.pasteImage(selectedRunScenarioId);
-    await selectRunScenario(selectedRunScenarioId);
+    setRunError(null);
+    try {
+      await window.api.evidence.pasteImage(selectedRunScenarioId);
+      await selectRunScenario(selectedRunScenarioId);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "エビデンスの貼り付けに失敗しました。");
+    }
   };
 
   const handleAddRunCaseEvidence = async (runCaseId: string) => {
     if (!runCaseId) {
       return;
     }
-    const result = (await window.api.runCaseEvidence.add(runCaseId)) as string[] | null;
-    if (!result) {
-      return;
+    setRunError(null);
+    try {
+      const result = (await window.api.runCaseEvidence.add(runCaseId)) as string[] | null;
+      if (!result) {
+        return;
+      }
+      await loadRunCaseEvidenceForIds([runCaseId]);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "テストケースのエビデンス追加に失敗しました。");
     }
-    await loadRunCaseEvidenceForIds([runCaseId]);
   };
 
   const handlePasteRunCaseEvidence = async (runCaseId: string) => {
     if (!runCaseId) {
       return;
     }
-    const result = (await window.api.runCaseEvidence.paste(runCaseId)) as string | null;
-    if (!result) {
-      return;
+    setRunError(null);
+    try {
+      const result = (await window.api.runCaseEvidence.paste(runCaseId)) as string | null;
+      if (!result) {
+        return;
+      }
+      await loadRunCaseEvidenceForIds([runCaseId]);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "テストケースのエビデンス貼り付けに失敗しました。");
     }
-    await loadRunCaseEvidenceForIds([runCaseId]);
   };
 
   const handleRemoveRunCaseEvidence = async (evidenceId: string, runCaseId: string) => {
-    await window.api.runCaseEvidence.remove(evidenceId);
-    await loadRunCaseEvidenceForIds([runCaseId]);
+    setRunError(null);
+    try {
+      await window.api.runCaseEvidence.remove(evidenceId);
+      await loadRunCaseEvidenceForIds([runCaseId]);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "テストケースのエビデンス削除に失敗しました。");
+    }
   };
 
   const handleExport = async () => {
     setExportNotice(null);
-    const payload = {
-      entity: exportType,
-      format: exportFormat,
-      scope: exportType === "data_sets" ? exportScope : undefined
-    };
-    const result = (await window.api.export.save(payload)) as string | null;
-    if (!result) {
-      setExportNotice("エクスポートがキャンセルされました。");
-      return;
+    try {
+      const payload = {
+        entity: exportType,
+        format: exportFormat,
+        scope: exportType === "data_sets" ? exportScope : undefined
+      };
+      const result = (await window.api.export.save(payload)) as string | null;
+      if (!result) {
+        setExportNotice("エクスポートがキャンセルされました。");
+        return;
+      }
+      setExportNotice(`保存しました: ${result}`);
+    } catch (err) {
+      setExportNotice(err instanceof Error ? err.message : "エクスポートに失敗しました。");
     }
-    setExportNotice(`保存しました: ${result}`);
   };
 
   const handleImport = async () => {
     setImportNotice(null);
-    const payload = {
-      entity: importType,
-      format: importFormat,
-      scopeOverride: importType === "data_sets" ? importScope : undefined
-    };
-    const result = (await window.api.import.run(payload)) as
-      | { imported: number; filePath: string }
-      | null;
-    if (!result) {
-      setImportNotice("インポートがキャンセルされました。");
-      return;
+    try {
+      const payload = {
+        entity: importType,
+        format: importFormat,
+        scopeOverride: importType === "data_sets" ? importScope : undefined
+      };
+      const result = (await window.api.import.run(payload)) as
+        | { imported: number; filePath: string }
+        | null;
+      if (!result) {
+        setImportNotice("インポートがキャンセルされました。");
+        return;
+      }
+      setImportNotice(`取り込み完了: ${result.imported} 件 (${result.filePath})`);
+      await loadAll();
+    } catch (err) {
+      setImportNotice(err instanceof Error ? err.message : "インポートに失敗しました。");
     }
-    setImportNotice(`取り込み完了: ${result.imported} 件 (${result.filePath})`);
-    await loadAll();
   };
 
   const handleCreateTemplate = async (scope: string) => {
@@ -1287,6 +1411,12 @@ export default function App() {
       await loadScenarios();
       setSelectedScenarioId(null);
       setScenarioDraft(emptyScenario());
+      setScenarioDetail(null);
+      setScenarioDetailsCache((prev) => {
+        const next = { ...prev };
+        delete next[deleteTarget.id];
+        return next;
+      });
     }
     if (deleteTarget.type === "data") {
       await window.api.dataSets.delete(deleteTarget.id);
@@ -1317,8 +1447,11 @@ export default function App() {
             ローカルで完結するテスト管理アプリ。SQLite と証跡フォルダで持ち運びできます。
           </p>
           <div className="mt-6 grid gap-4">
-            <label className="text-xs font-semibold uppercase text-slate-400">プロジェクト名</label>
+            <label htmlFor="project-name" className="text-xs font-semibold uppercase text-slate-400">
+              プロジェクト名
+            </label>
             <input
+              id="project-name"
               className={inputClass}
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
@@ -1384,8 +1517,11 @@ export default function App() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold uppercase text-slate-400">テーマ</label>
+              <label htmlFor="theme-select" className="text-xs font-semibold uppercase text-slate-400">
+                テーマ
+              </label>
               <select
+                id="theme-select"
                 className={inputClass}
                 value={theme}
                 onChange={(event) => setTheme(event.target.value as "dark" | "light")}
@@ -1423,8 +1559,14 @@ export default function App() {
                 />
                 <div className="mt-3 grid gap-3">
                   <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">フォルダ絞り込み</label>
+                    <label
+                      htmlFor="case-folder-filter"
+                      className="text-xs font-semibold uppercase text-slate-400"
+                    >
+                      フォルダ絞り込み
+                    </label>
                     <select
+                      id="case-folder-filter"
                       className={cn(inputClass, "mt-2")}
                       value={folderFilter}
                       onChange={(event) => setFolderFilter(event.target.value)}
@@ -1439,7 +1581,7 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">タグ絞り込み</label>
+                    <p className="text-xs font-semibold uppercase text-slate-400">タグ絞り込み</p>
                     {tagOptions.length === 0 ? (
                       <p className="mt-2 text-xs text-slate-400">タグはまだありません。</p>
                     ) : (
@@ -1486,9 +1628,15 @@ export default function App() {
                     )}
                   </div>
                   <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">フォルダ管理</label>
+                    <label
+                      htmlFor="case-folder-name"
+                      className="text-xs font-semibold uppercase text-slate-400"
+                    >
+                      フォルダ管理
+                    </label>
                     <div className="mt-2 flex gap-2">
                       <input
+                        id="case-folder-name"
                         className={inputClass}
                         placeholder="新しいフォルダ名"
                         value={newFolderName}
@@ -1620,21 +1768,40 @@ export default function App() {
 
               <div className={panelClass}>
                 <h2 className="text-balance text-lg font-semibold">テストケース詳細</h2>
-                <div className="mt-4 grid gap-4">
-                  <label className="text-xs font-semibold uppercase text-slate-400">タイトル</label>
+                <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
+                  <label htmlFor="case-title" className="text-xs font-semibold uppercase text-slate-400">
+                    タイトル
+                  </label>
                   <input
+                    id="case-title"
                     className={inputClass}
                     value={caseDraft.title}
+                    aria-invalid={caseTitleError || undefined}
+                    aria-describedby={caseTitleError ? "case-title-error" : undefined}
                     onChange={(event) => setCaseDraft({ ...caseDraft, title: event.target.value })}
                   />
-                  <label className="text-xs font-semibold uppercase text-slate-400">目的</label>
+                  {caseTitleError && (
+                    <p id="case-title-error" className="text-xs text-rose-200">
+                      {caseError}
+                    </p>
+                  )}
+                  <label htmlFor="case-objective" className="text-xs font-semibold uppercase text-slate-400">
+                    目的
+                  </label>
                   <textarea
+                    id="case-objective"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={caseDraft.objective}
                     onChange={(event) => setCaseDraft({ ...caseDraft, objective: event.target.value })}
                   />
-                  <label className="text-xs font-semibold uppercase text-slate-400">前提条件</label>
+                  <label
+                    htmlFor="case-preconditions"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    前提条件
+                  </label>
                   <textarea
+                    id="case-preconditions"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={caseDraft.preconditions}
                     onChange={(event) =>
@@ -1643,8 +1810,14 @@ export default function App() {
                   />
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">優先度</label>
+                      <label
+                        htmlFor="case-priority"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        優先度
+                      </label>
                       <select
+                        id="case-priority"
                         className={cn(inputClass, "mt-2")}
                         value={caseDraft.priority}
                         onChange={(event) => setCaseDraft({ ...caseDraft, priority: event.target.value })}
@@ -1657,8 +1830,14 @@ export default function App() {
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">重大度</label>
+                      <label
+                        htmlFor="case-severity"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        重大度
+                      </label>
                       <select
+                        id="case-severity"
                         className={cn(inputClass, "mt-2")}
                         value={caseDraft.severity}
                         onChange={(event) => setCaseDraft({ ...caseDraft, severity: event.target.value })}
@@ -1671,8 +1850,11 @@ export default function App() {
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">タグ</label>
+                      <label htmlFor="case-tags" className="text-xs font-semibold uppercase text-slate-400">
+                        タグ
+                      </label>
                       <input
+                        id="case-tags"
                         className={cn(inputClass, "mt-2")}
                         value={caseDraft.tags}
                         onChange={(event) => setCaseDraft({ ...caseDraft, tags: event.target.value })}
@@ -1681,8 +1863,11 @@ export default function App() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">フォルダ</label>
+                    <label htmlFor="case-folder" className="text-xs font-semibold uppercase text-slate-400">
+                      フォルダ
+                    </label>
                     <select
+                      id="case-folder"
                       className={cn(inputClass, "mt-2")}
                       value={caseDraft.folderId ?? "none"}
                       onChange={(event) =>
@@ -1703,7 +1888,7 @@ export default function App() {
 
                   <div
                     className={cn(
-                      "rounded-2xl border p-4",
+                      "min-h-0 rounded-2xl border p-4",
                       theme === "light"
                         ? "border-slate-200 bg-slate-50"
                         : "border-slate-800 bg-slate-950/40"
@@ -1733,12 +1918,14 @@ export default function App() {
                         初期データがまだありません。右上のボタンから追加してください。
                       </div>
                     ) : (
-                      <div className="mt-3 max-h-[240px] grid gap-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-900/40">
+                      <div className="mt-3 min-h-0 max-h-[240px] grid gap-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-900/40">
                         {caseDataSetOptions.map((dataSet) => {
                           const checked = caseDraft.dataSetIds.includes(dataSet.id);
+                          const inputId = `case-data-set-${dataSet.id}`;
                           return (
                             <label
                               key={dataSet.id}
+                              htmlFor={inputId}
                               className={cn(
                                 "flex gap-3 rounded-xl border px-3 py-2 text-left text-sm",
                                 theme === "light"
@@ -1751,6 +1938,7 @@ export default function App() {
                               )}
                             >
                               <input
+                                id={inputId}
                                 type="checkbox"
                                 className="mt-1 size-4 accent-sky-400"
                                 checked={checked}
@@ -1863,7 +2051,7 @@ export default function App() {
 
                   <div>
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold uppercase text-slate-400">手順</label>
+                      <p className="text-xs font-semibold uppercase text-slate-400">手順</p>
                       <button
                         className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
                         onClick={() =>
@@ -1895,10 +2083,14 @@ export default function App() {
                               </button>
                             )}
                           </div>
-                          <label className="mt-2 block text-xs font-semibold uppercase text-slate-400">
+                          <label
+                            htmlFor={`case-step-action-${index}`}
+                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
+                          >
                             操作
                           </label>
                           <textarea
+                            id={`case-step-action-${index}`}
                             className={cn(inputClass, "mt-2 min-h-[70px]")}
                             value={step.action}
                             onChange={(event) => {
@@ -1907,10 +2099,14 @@ export default function App() {
                               setCaseDraft({ ...caseDraft, steps: next });
                             }}
                           />
-                          <label className="mt-2 block text-xs font-semibold uppercase text-slate-400">
+                          <label
+                            htmlFor={`case-step-expected-${index}`}
+                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
+                          >
                             期待結果
                           </label>
                           <textarea
+                            id={`case-step-expected-${index}`}
                             className={cn(inputClass, "mt-2 min-h-[70px]")}
                             value={step.expected}
                             onChange={(event) => {
@@ -1930,10 +2126,13 @@ export default function App() {
                     </div>
                   )}
 
+                  {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
+
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveCase}
+                      disabled={isLoading}
                     >
                       保存
                     </button>
@@ -1983,24 +2182,31 @@ export default function App() {
                   <p className="text-xs font-semibold uppercase text-slate-400">
                     フォルダから自動生成
                   </p>
-                  <div className="mt-2 grid gap-2">
-                    <select
-                      className={inputClass}
-                      value={scenarioFolderId}
-                      onChange={(event) => setScenarioFolderId(event.target.value)}
-                    >
-                      <option value="">フォルダを選択</option>
-                      {caseFolders.map((folder) => (
-                        <option key={folder.id} value={folder.id}>
-                          {folder.name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className={inputClass}
-                      placeholder="シナリオ名（省略可）"
-                      value={scenarioFromFolderTitle}
-                      onChange={(event) => setScenarioFromFolderTitle(event.target.value)}
+                <div className="mt-2 grid gap-2">
+                  <select
+                    className={inputClass}
+                    value={scenarioFolderId}
+                    aria-invalid={scenarioFolderError || undefined}
+                    aria-describedby={scenarioFolderError ? "scenario-folder-error" : undefined}
+                    onChange={(event) => setScenarioFolderId(event.target.value)}
+                  >
+                    <option value="">フォルダを選択</option>
+                    {caseFolders.map((folder) => (
+                      <option key={folder.id} value={folder.id}>
+                        {folder.name}
+                      </option>
+                    ))}
+                  </select>
+                  {scenarioFolderError && (
+                    <p id="scenario-folder-error" className="text-xs text-rose-200">
+                      {scenarioError}
+                    </p>
+                  )}
+                  <input
+                    className={inputClass}
+                    placeholder="シナリオ名（省略可）"
+                    value={scenarioFromFolderTitle}
+                    onChange={(event) => setScenarioFromFolderTitle(event.target.value)}
                     />
                     <button
                       className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
@@ -2012,46 +2218,38 @@ export default function App() {
                 </div>
                 <div className="mt-4 grid gap-2">
                       {filteredScenarios.map((item) => (
-                        <div
-                          key={item.id}
-                          role="button"
-                          tabIndex={0}
-                          className={cn(
-                            "rounded-xl border px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400",
-                            selectedScenarioId === item.id
-                              ? "border-sky-400 bg-slate-900 text-slate-100"
-                              : "border-slate-800 text-slate-300"
-                          )}
-                          onClick={() => selectScenario(item.id)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              selectScenario(item.id);
-                            }
-                          }}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="text-balance font-semibold">{item.title}</div>
-                              <div className="mt-1 text-xs text-slate-400">{item.updated_at}</div>
+                        <div key={item.id} className="relative">
+                          <button
+                            type="button"
+                            className={cn(
+                              "w-full rounded-xl border px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400",
+                              selectedScenarioId === item.id
+                                ? "border-sky-400 bg-slate-900 text-slate-100"
+                                : "border-slate-800 text-slate-300"
+                            )}
+                            onClick={() => selectScenario(item.id)}
+                          >
+                            <div className="flex items-start justify-between gap-2 pr-12">
+                              <div>
+                                <div className="text-balance font-semibold">{item.title}</div>
+                                <div className="mt-1 text-xs text-slate-400">{item.updated_at}</div>
+                              </div>
                             </div>
-                            <button
-                              className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setDeleteTarget({ type: "scenario", id: item.id });
-                              }}
-                            >
-                              削除
-                            </button>
-                          </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="absolute right-2 top-2 rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
+                            onClick={() => setDeleteTarget({ type: "scenario", id: item.id })}
+                          >
+                            削除
+                          </button>
                         </div>
                       ))}
                 </div>
               </div>
 
-            <div className={panelClass}>
-              <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
+              <div className={panelClass}>
+                <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
               {scenarioDetail ? (
                 <div className="mt-4 space-y-3">
                 {scenarioDetail.cases.map((detail) =>
@@ -2068,23 +2266,48 @@ export default function App() {
                   シナリオを選択すると、各テストケースの前提・初期データ・手順がここに表示されます。
                 </div>
               )}
-              <div className="mt-4 grid gap-4">
-                  <label className="text-xs font-semibold uppercase text-slate-400">タイトル</label>
+              <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
+                  <label
+                    htmlFor="scenario-title"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    タイトル
+                  </label>
                   <input
+                    id="scenario-title"
                     className={inputClass}
                     value={scenarioDraft.title}
+                    aria-invalid={scenarioTitleError || undefined}
+                    aria-describedby={scenarioTitleError ? "scenario-title-error" : undefined}
                     onChange={(event) => setScenarioDraft({ ...scenarioDraft, title: event.target.value })}
                   />
-                  <label className="text-xs font-semibold uppercase text-slate-400">目的</label>
+                  {scenarioTitleError && (
+                    <p id="scenario-title-error" className="text-xs text-rose-200">
+                      {scenarioError}
+                    </p>
+                  )}
+                  <label
+                    htmlFor="scenario-objective"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    目的
+                  </label>
                   <textarea
+                    id="scenario-objective"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={scenarioDraft.objective}
                     onChange={(event) =>
                       setScenarioDraft({ ...scenarioDraft, objective: event.target.value })
                     }
                   />
-                  <label className="text-xs font-semibold uppercase text-slate-400">前提条件</label>
+                  <label
+                    htmlFor="scenario-preconditions"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    前提条件
+                  </label>
                   <textarea
+                    id="scenario-preconditions"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={scenarioDraft.preconditions}
                     onChange={(event) =>
@@ -2098,10 +2321,13 @@ export default function App() {
                     </div>
                   )}
 
+                  {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
+
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveScenario}
+                      disabled={isLoading}
                     >
                       保存
                     </button>
@@ -2142,8 +2368,14 @@ export default function App() {
                   onChange={(event) => setDataQuery(event.target.value)}
                 />
                 <div className="mt-3">
-                  <label className="text-xs font-semibold uppercase text-slate-400">種別で絞り込み</label>
+                  <label
+                    htmlFor="data-scope-filter"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    種別で絞り込み
+                  </label>
                   <select
+                    id="data-scope-filter"
                     className={cn(inputClass, "mt-2")}
                     value={dataScopeFilter}
                     onChange={(event) => setDataScopeFilter(event.target.value)}
@@ -2177,15 +2409,28 @@ export default function App() {
 
               <div className={panelClass}>
                 <h2 className="text-balance text-lg font-semibold">初期データ詳細</h2>
-                <div className="mt-4 grid gap-4">
-                  <label className="text-xs font-semibold uppercase text-slate-400">名称</label>
+                <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
+                  <label htmlFor="data-name" className="text-xs font-semibold uppercase text-slate-400">
+                    名称
+                  </label>
                   <input
+                    id="data-name"
                     className={inputClass}
                     value={dataDraft.name}
+                    aria-invalid={dataNameError || undefined}
+                    aria-describedby={dataNameError ? "data-name-error" : undefined}
                     onChange={(event) => setDataDraft({ ...dataDraft, name: event.target.value })}
                   />
-                  <label className="text-xs font-semibold uppercase text-slate-400">種別</label>
+                  {dataNameError && (
+                    <p id="data-name-error" className="text-xs text-rose-200">
+                      {dataError}
+                    </p>
+                  )}
+                  <label htmlFor="data-scope" className="text-xs font-semibold uppercase text-slate-400">
+                    種別
+                  </label>
                   <select
+                    id="data-scope"
                     className={inputClass}
                     value={dataDraft.scope}
                     onChange={(event) =>
@@ -2198,8 +2443,14 @@ export default function App() {
                       </option>
                     ))}
                   </select>
-                  <label className="text-xs font-semibold uppercase text-slate-400">説明</label>
+                  <label
+                    htmlFor="data-description"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    説明
+                  </label>
                   <textarea
+                    id="data-description"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={dataDraft.description}
                     onChange={(event) =>
@@ -2209,9 +2460,7 @@ export default function App() {
 
                   {dataDraft.scope !== "common" && (
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">
-                        紐づけ対象
-                      </label>
+                      <p className="text-xs font-semibold uppercase text-slate-400">紐づけ対象</p>
                       <div className="mt-3 grid gap-2">
                         {(dataDraft.scope === "case" ? testCases : dataDraft.scope === "scenario" ? scenarios : runs).map(
                           (item) => {
@@ -2220,9 +2469,15 @@ export default function App() {
                             const checked = dataDraft.links.some(
                               (link) => link.entity_type === entityType && link.entity_id === entityId
                             );
+                            const inputId = `data-link-${entityType}-${entityId}`;
                             return (
-                              <label key={item.id} className="flex items-center gap-2 text-sm text-slate-300">
+                              <label
+                                key={item.id}
+                                htmlFor={inputId}
+                                className="flex items-center gap-2 text-sm text-slate-300"
+                              >
                                 <input
+                                  id={inputId}
                                   type="checkbox"
                                   className="accent-sky-400"
                                   checked={checked}
@@ -2247,7 +2502,7 @@ export default function App() {
 
                   <div>
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold uppercase text-slate-400">項目</label>
+                      <p className="text-xs font-semibold uppercase text-slate-400">項目</p>
                       <button
                         className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
                         onClick={() =>
@@ -2279,8 +2534,14 @@ export default function App() {
                               </button>
                             )}
                           </div>
-                          <label className="mt-2 block text-xs font-semibold uppercase text-slate-400">キー</label>
+                          <label
+                            htmlFor={`data-item-label-${index}`}
+                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
+                          >
+                            キー
+                          </label>
                           <input
+                            id={`data-item-label-${index}`}
                             className={cn(inputClass, "mt-2")}
                             value={item.label}
                             onChange={(event) => {
@@ -2289,8 +2550,14 @@ export default function App() {
                               setDataDraft({ ...dataDraft, items: next });
                             }}
                           />
-                          <label className="mt-2 block text-xs font-semibold uppercase text-slate-400">値</label>
+                          <label
+                            htmlFor={`data-item-value-${index}`}
+                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
+                          >
+                            値
+                          </label>
                           <input
+                            id={`data-item-value-${index}`}
                             className={cn(inputClass, "mt-2")}
                             value={item.value}
                             onChange={(event) => {
@@ -2299,8 +2566,14 @@ export default function App() {
                               setDataDraft({ ...dataDraft, items: next });
                             }}
                           />
-                          <label className="mt-2 block text-xs font-semibold uppercase text-slate-400">メモ</label>
+                          <label
+                            htmlFor={`data-item-note-${index}`}
+                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
+                          >
+                            メモ
+                          </label>
                           <input
+                            id={`data-item-note-${index}`}
                             className={cn(inputClass, "mt-2")}
                             value={item.note ?? ""}
                             onChange={(event) => {
@@ -2320,10 +2593,13 @@ export default function App() {
                     </div>
                   )}
 
+                  {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
+
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveDataSet}
+                      disabled={isLoading}
                     >
                       保存
                     </button>
@@ -2404,17 +2680,33 @@ export default function App() {
 
               <div className={panelClass}>
                 <h2 className="text-balance text-lg font-semibold">テスト実行詳細</h2>
-                <div className="mt-4 grid gap-4">
-                  <label className="text-xs font-semibold uppercase text-slate-400">実行名</label>
+                <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
+                  <label htmlFor="run-name" className="text-xs font-semibold uppercase text-slate-400">
+                    実行名
+                  </label>
                   <input
+                    id="run-name"
                     className={inputClass}
                     value={runDraft.name}
+                    aria-invalid={runNameError || undefined}
+                    aria-describedby={runNameError ? "run-name-error" : undefined}
                     onChange={(event) => setRunDraft({ ...runDraft, name: event.target.value })}
                   />
+                  {runNameError && (
+                    <p id="run-name-error" className="text-xs text-rose-200">
+                      {runError}
+                    </p>
+                  )}
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">環境</label>
+                      <label
+                        htmlFor="run-environment"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        環境
+                      </label>
                       <input
+                        id="run-environment"
                         className={cn(inputClass, "mt-2")}
                         value={runDraft.environment}
                         onChange={(event) =>
@@ -2423,8 +2715,14 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">ビルド</label>
+                      <label
+                        htmlFor="run-build"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        ビルド
+                      </label>
                       <input
+                        id="run-build"
                         className={cn(inputClass, "mt-2")}
                         value={runDraft.buildVersion}
                         onChange={(event) =>
@@ -2433,8 +2731,14 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">担当者</label>
+                      <label
+                        htmlFor="run-tester"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        担当者
+                      </label>
                       <input
+                        id="run-tester"
                         className={cn(inputClass, "mt-2")}
                         value={runDraft.tester}
                         onChange={(event) => {
@@ -2449,8 +2753,11 @@ export default function App() {
                       />
                     </div>
                   </div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">ステータス</label>
+                  <label htmlFor="run-status" className="text-xs font-semibold uppercase text-slate-400">
+                    ステータス
+                  </label>
                   <select
+                    id="run-status"
                     className={inputClass}
                     value={runDraft.status}
                     onChange={(event) => setRunDraft({ ...runDraft, status: event.target.value })}
@@ -2461,8 +2768,11 @@ export default function App() {
                       </option>
                     ))}
                   </select>
-                  <label className="text-xs font-semibold uppercase text-slate-400">メモ</label>
+                  <label htmlFor="run-notes" className="text-xs font-semibold uppercase text-slate-400">
+                    メモ
+                  </label>
                   <textarea
+                    id="run-notes"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={runDraft.notes}
                     onChange={(event) => setRunDraft({ ...runDraft, notes: event.target.value })}
@@ -2474,10 +2784,13 @@ export default function App() {
                     </div>
                   )}
 
+                  {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
+
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveRun}
+                      disabled={isLoading}
                     >
                       保存
                     </button>
@@ -2569,8 +2882,14 @@ export default function App() {
                             </button>
                           </div>
                           <div className="mt-3 grid gap-2">
-                            <label className="text-xs font-semibold uppercase text-slate-400">結果</label>
+                            <label
+                              htmlFor={`run-scenario-status-${item.id}`}
+                              className="text-xs font-semibold uppercase text-slate-400"
+                            >
+                              結果
+                            </label>
                             <select
+                              id={`run-scenario-status-${item.id}`}
                               className={inputClass}
                               value={item.status}
                               onChange={(event) =>
@@ -2583,32 +2902,56 @@ export default function App() {
                                 </option>
                               ))}
                             </select>
-                            <label className="text-xs font-semibold uppercase text-slate-400">担当者</label>
+                            <label
+                              htmlFor={`run-scenario-assignee-${item.id}`}
+                              className="text-xs font-semibold uppercase text-slate-400"
+                            >
+                              担当者
+                            </label>
                             <input
+                              id={`run-scenario-assignee-${item.id}`}
                               className={inputClass}
                               value={item.assignee ?? ""}
                               onChange={(event) =>
                                 updateRunScenarioDraft(item.id, { assignee: event.target.value })
                               }
                             />
-                            <label className="text-xs font-semibold uppercase text-slate-400">結果詳細</label>
+                            <label
+                              htmlFor={`run-scenario-actual-${item.id}`}
+                              className="text-xs font-semibold uppercase text-slate-400"
+                            >
+                              結果詳細
+                            </label>
                             <textarea
+                              id={`run-scenario-actual-${item.id}`}
                               className={cn(inputClass, "min-h-[70px]")}
                               value={item.actual_result ?? ""}
                               onChange={(event) =>
                                 updateRunScenarioDraft(item.id, { actual_result: event.target.value })
                               }
                             />
-                            <label className="text-xs font-semibold uppercase text-slate-400">備考</label>
+                            <label
+                              htmlFor={`run-scenario-notes-${item.id}`}
+                              className="text-xs font-semibold uppercase text-slate-400"
+                            >
+                              備考
+                            </label>
                             <textarea
+                              id={`run-scenario-notes-${item.id}`}
                               className={cn(inputClass, "min-h-[70px]")}
                               value={item.notes ?? ""}
                               onChange={(event) =>
                                 updateRunScenarioDraft(item.id, { notes: event.target.value })
                               }
                             />
-                            <label className="text-xs font-semibold uppercase text-slate-400">実行日時</label>
+                            <label
+                              htmlFor={`run-scenario-executed-${item.id}`}
+                              className="text-xs font-semibold uppercase text-slate-400"
+                            >
+                              実行日時
+                            </label>
                             <input
+                              id={`run-scenario-executed-${item.id}`}
                               className={inputClass}
                               type="datetime-local"
                               value={toLocalInput(item.executed_at)}
@@ -2625,60 +2968,6 @@ export default function App() {
                             ) : (
                               <p className="text-xs text-slate-500">ケース詳細を読み込んでいます...</p>
                             )}
-                          </div>
-                          <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs font-semibold uppercase text-slate-400">ケース証跡</p>
-                              <div className="flex gap-2">
-                                <button
-                                  className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200"
-                                  onClick={() => handleAddRunCaseEvidence(runCase.id)}
-                                >
-                                  ファイル追加
-                                </button>
-                                <button
-                                  className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200"
-                                  onClick={() => handlePasteRunCaseEvidence(runCase.id)}
-                                >
-                                  画像貼り付け
-                                </button>
-                              </div>
-                            </div>
-                            <div className="mt-3 grid gap-2">
-                              {(runCaseEvidenceMap[runCase.id] ?? []).length ? (
-                                <div className="grid gap-2 md:grid-cols-2">
-                                  {(runCaseEvidenceMap[runCase.id] ?? []).map((preview) => (
-                                    <div
-                                      key={preview.id}
-                                      className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 p-2"
-                                    >
-                                      {preview.mimeType?.startsWith("image/") ? (
-                                        <img
-                                          src={preview.dataUrl}
-                                          alt={preview.fileName}
-                                          className="h-32 w-full rounded-lg object-cover"
-                                        />
-                                      ) : (
-                                        <div className="flex h-32 items-center justify-center text-xs text-slate-300">
-                                          {preview.fileName}
-                                        </div>
-                                      )}
-                                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
-                                        <span>{preview.fileName}</span>
-                                        <button
-                                          className="rounded-full border border-rose-500 px-2 py-0.5 text-[10px] font-semibold text-rose-200"
-                                          onClick={() => handleRemoveRunCaseEvidence(preview.id, runCase.id)}
-                                        >
-                                          削除
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-slate-500">このケースにスクショはありません。</p>
-                              )}
-                            </div>
                           </div>
                           <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
                             <div className="flex items-center justify-between">
@@ -2708,6 +2997,7 @@ export default function App() {
                                     scenarioDetailsCache[item.scenario_id]?.cases.find(
                                       (detail) => detail.case.id === runCase.case_id
                                     );
+                                  const caseEvidence = runCaseEvidenceMap[runCase.id] ?? [];
                                   return (
                                     <details
                                       key={runCase.id}
@@ -2746,10 +3036,14 @@ export default function App() {
                                         </span>
                                       </summary>
                                       <div className="mt-3 grid gap-2 text-xs text-slate-300">
-                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                        <label
+                                          htmlFor={`run-case-status-${runCase.id}`}
+                                          className="text-[11px] font-semibold uppercase text-slate-400"
+                                        >
                                           結果
                                         </label>
                                         <select
+                                          id={`run-case-status-${runCase.id}`}
                                           className={inputClass}
                                           value={runCase.status}
                                           onChange={(event) =>
@@ -2764,10 +3058,14 @@ export default function App() {
                                             </option>
                                           ))}
                                         </select>
-                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                        <label
+                                          htmlFor={`run-case-executed-${runCase.id}`}
+                                          className="text-[11px] font-semibold uppercase text-slate-400"
+                                        >
                                           実行日時
                                         </label>
                                         <input
+                                          id={`run-case-executed-${runCase.id}`}
                                           className={inputClass}
                                           type="datetime-local"
                                           value={toLocalInput(runCase.executed_at)}
@@ -2777,10 +3075,14 @@ export default function App() {
                                             })
                                           }
                                         />
-                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                        <label
+                                          htmlFor={`run-case-actual-${runCase.id}`}
+                                          className="text-[11px] font-semibold uppercase text-slate-400"
+                                        >
                                           結果詳細
                                         </label>
                                         <textarea
+                                          id={`run-case-actual-${runCase.id}`}
                                           className={cn(inputClass, "min-h-[70px]")}
                                           value={runCase.actual_result ?? ""}
                                           onChange={(event) =>
@@ -2789,10 +3091,14 @@ export default function App() {
                                             })
                                           }
                                         />
-                                        <label className="text-[11px] font-semibold uppercase text-slate-400">
+                                        <label
+                                          htmlFor={`run-case-notes-${runCase.id}`}
+                                          className="text-[11px] font-semibold uppercase text-slate-400"
+                                        >
                                           備考
                                         </label>
                                         <textarea
+                                          id={`run-case-notes-${runCase.id}`}
                                           className={cn(inputClass, "min-h-[70px]")}
                                           value={runCase.notes ?? ""}
                                           onChange={(event) =>
@@ -2801,6 +3107,70 @@ export default function App() {
                                             })
                                           }
                                         />
+                                        <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-950/20 p-3">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <p className="text-[11px] font-semibold uppercase text-slate-400">
+                                              証跡
+                                            </p>
+                                            <div className="flex flex-wrap gap-2">
+                                              <button
+                                                className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
+                                                onClick={() => handleAddRunCaseEvidence(runCase.id)}
+                                              >
+                                                ファイル追加
+                                              </button>
+                                              <button
+                                                className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
+                                                onClick={() => handlePasteRunCaseEvidence(runCase.id)}
+                                              >
+                                                画像貼り付け
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <div className="mt-3 grid gap-2">
+                                            {caseEvidence.length ? (
+                                              <div className="grid gap-2 md:grid-cols-2">
+                                                {caseEvidence.map((preview) => (
+                                                  <div
+                                                    key={preview.id}
+                                                    className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 p-2"
+                                                  >
+                                                    {preview.dataUrl &&
+                                                    preview.mimeType?.startsWith("image/") ? (
+                                                      <img
+                                                        src={preview.dataUrl}
+                                                        alt={preview.fileName}
+                                                        className="h-32 w-full rounded-lg object-cover"
+                                                      />
+                                                    ) : (
+                                                      <div className="flex h-32 items-center justify-center text-xs text-slate-300">
+                                                        {preview.fileName}
+                                                      </div>
+                                                    )}
+                                                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
+                                                      <span>{preview.fileName}</span>
+                                                      <button
+                                                        className="rounded-full border border-rose-500 px-2 py-0.5 text-[10px] font-semibold text-rose-200"
+                                                        onClick={() =>
+                                                          handleRemoveRunCaseEvidence(
+                                                            preview.id,
+                                                            runCase.id
+                                                          )
+                                                        }
+                                                      >
+                                                        削除
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ) : (
+                                              <p className="text-xs text-slate-500">
+                                                このケースに証跡はありません。
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
                                         <div className="flex flex-wrap gap-2">
                                           <button
                                             className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
@@ -2923,8 +3293,11 @@ export default function App() {
                 テストケース / シナリオ / 初期データを用途に合わせて出力できます。
               </p>
               <div className="mt-4 grid gap-4">
-                <label className="text-xs font-semibold uppercase text-slate-400">対象</label>
+                <label htmlFor="export-type" className="text-xs font-semibold uppercase text-slate-400">
+                  対象
+                </label>
                 <select
+                  id="export-type"
                   className={inputClass}
                   value={exportType}
                   onChange={(event) => setExportType(event.target.value as typeof exportType)}
@@ -2937,8 +3310,14 @@ export default function App() {
 
                 {exportType === "data_sets" && (
                   <>
-                    <label className="text-xs font-semibold uppercase text-slate-400">初期データ種別</label>
+                    <label
+                      htmlFor="export-scope"
+                      className="text-xs font-semibold uppercase text-slate-400"
+                    >
+                      初期データ種別
+                    </label>
                     <select
+                      id="export-scope"
                       className={inputClass}
                       value={exportScope}
                       onChange={(event) => setExportScope(event.target.value)}
@@ -2952,8 +3331,11 @@ export default function App() {
                   </>
                 )}
 
-                <label className="text-xs font-semibold uppercase text-slate-400">形式</label>
+                <label htmlFor="export-format" className="text-xs font-semibold uppercase text-slate-400">
+                  形式
+                </label>
                 <select
+                  id="export-format"
                   className={inputClass}
                   value={exportFormat}
                   onChange={(event) => setExportFormat(event.target.value as typeof exportFormat)}
@@ -2981,8 +3363,11 @@ export default function App() {
                   CSV / JSON / Markdown からデータを追加できます。
                 </p>
                 <div className="mt-4 grid gap-4">
-                  <label className="text-xs font-semibold uppercase text-slate-400">対象</label>
+                  <label htmlFor="import-type" className="text-xs font-semibold uppercase text-slate-400">
+                    対象
+                  </label>
                   <select
+                    id="import-type"
                     className={inputClass}
                     value={importType}
                     onChange={(event) => setImportType(event.target.value as typeof importType)}
@@ -2994,8 +3379,14 @@ export default function App() {
 
                   {importType === "data_sets" && (
                     <>
-                      <label className="text-xs font-semibold uppercase text-slate-400">初期データ種別</label>
+                      <label
+                        htmlFor="import-scope"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        初期データ種別
+                      </label>
                       <select
+                        id="import-scope"
                         className={inputClass}
                         value={importScope}
                         onChange={(event) => setImportScope(event.target.value)}
@@ -3009,8 +3400,11 @@ export default function App() {
                     </>
                   )}
 
-                  <label className="text-xs font-semibold uppercase text-slate-400">形式</label>
+                  <label htmlFor="import-format" className="text-xs font-semibold uppercase text-slate-400">
+                    形式
+                  </label>
                   <select
+                    id="import-format"
                     className={inputClass}
                     value={importFormat}
                     onChange={(event) => setImportFormat(event.target.value as typeof importFormat)}
@@ -3039,8 +3433,14 @@ export default function App() {
             <div className={panelClass}>
               <h2 className="text-balance text-lg font-semibold">設定</h2>
               <div className="mt-4 grid gap-4">
-                <label className="text-xs font-semibold uppercase text-slate-400">プロジェクト名</label>
+                <label
+                  htmlFor="settings-project-name"
+                  className="text-xs font-semibold uppercase text-slate-400"
+                >
+                  プロジェクト名
+                </label>
                 <input
+                  id="settings-project-name"
                   className={inputClass}
                   value={project.name}
                   onChange={(event) => setProject({ ...project, name: event.target.value })}
@@ -3076,7 +3476,7 @@ export default function App() {
             </div>
             {previewError ? (
               <p className="mt-4 text-sm text-rose-200">{previewError}</p>
-            ) : evidencePreview.mimeType.startsWith("image/") ? (
+            ) : evidencePreview.dataUrl && evidencePreview.mimeType.startsWith("image/") ? (
               <img
                 src={evidencePreview.dataUrl}
                 alt={evidencePreview.fileName}

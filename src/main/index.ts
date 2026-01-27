@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -23,6 +23,7 @@ import {
   getScenario,
   getScenarioDetails,
   getScenarioEvidencePath,
+  getTestCase,
   listRunScenarioCaseEvidence,
   listRunScenarioCases,
   previewScenarioEvidence,
@@ -35,7 +36,6 @@ import {
   listTestCases,
   openProject,
   removeRunScenario,
-  removeRunScenarioCase,
   removeScenarioCase,
   removeRunScenarioCaseEvidence,
   removeScenarioEvidence,
@@ -52,6 +52,41 @@ import {
 let mainWindow: BrowserWindow | null = null;
 
 app.disableHardwareAcceleration();
+
+const showOpenDialogForMainWindow = (options: OpenDialogOptions) => {
+  return mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options);
+};
+
+const inferMimeType = (fileName: string) => {
+  const ext = path.extname(fileName).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".bmp":
+      return "image/bmp";
+    case ".svg":
+      return "image/svg+xml";
+    case ".pdf":
+      return "application/pdf";
+    case ".txt":
+      return "text/plain";
+    case ".csv":
+      return "text/csv";
+    case ".md":
+      return "text/markdown";
+    case ".json":
+      return "application/json";
+    default:
+      return "application/octet-stream";
+  }
+};
 
 const createWindow = () => {
   const preloadBase = path.join(__dirname, "../preload");
@@ -97,7 +132,7 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.handle("project:create", async (_event, name: string) => {
-  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+  const result = await showOpenDialogForMainWindow({
     title: "プロジェクト保存先を選択",
     properties: ["openDirectory", "createDirectory"]
   });
@@ -108,7 +143,7 @@ ipcMain.handle("project:create", async (_event, name: string) => {
 });
 
 ipcMain.handle("project:open", async () => {
-  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+  const result = await showOpenDialogForMainWindow({
     title: "プロジェクトDBを選択",
     properties: ["openFile"],
     filters: [{ name: "SQLite", extensions: ["sqlite"] }]
@@ -179,7 +214,7 @@ ipcMain.handle("evidence:add", async (_event, runScenarioId: string) => {
   result.filePaths.forEach((filePath) => {
     const stat = fs.statSync(filePath);
     const fileName = path.basename(filePath);
-    const mimeType = "";
+    const mimeType = inferMimeType(fileName);
     created.push(
       addScenarioEvidence({
         runScenarioId,
@@ -240,7 +275,7 @@ ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string) 
         runScenarioCaseId,
         sourcePath: filePath,
         fileName,
-        mimeType: "",
+        mimeType: inferMimeType(fileName),
         size: stat.size
       })
     );
