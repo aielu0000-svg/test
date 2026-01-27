@@ -15,13 +15,55 @@ export type EvidenceInput = {
   size: number;
 };
 
+type DataItem = {
+  id: string;
+  label: string;
+  value: string;
+  note: string;
+};
+
 let db: Database.Database | null = null;
 let projectPath: string | null = null;
 
 const DB_FILE = "the-test.sqlite";
 const ATTACHMENTS_DIR = "attachments";
+const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
 
 const now = () => new Date().toISOString();
+
+const inferMimeTypeFromName = (fileName: string) => {
+  const ext = path.extname(fileName).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    case ".bmp":
+      return "image/bmp";
+    case ".svg":
+      return "image/svg+xml";
+    default:
+      return "application/octet-stream";
+  }
+};
+
+const resolveAttachmentPath = (folderPath: string, storedPath: string) => {
+  if (!storedPath) {
+    return null;
+  }
+  const attachmentsRoot = path.resolve(folderPath, ATTACHMENTS_DIR);
+  const resolved = path.resolve(folderPath, storedPath);
+  const relative = path.relative(attachmentsRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return resolved;
+};
 
 const ensureColumn = (
   database: Database.Database,
@@ -40,6 +82,18 @@ const ensureDb = () => {
     throw new Error("プロジェクトが開かれていません。");
   }
   return { db, projectPath };
+};
+
+const closeCurrentProject = () => {
+  if (db) {
+    try {
+      db.close();
+    } catch {
+      // ignore close failures; next open/create will replace handles anyway
+    }
+  }
+  db = null;
+  projectPath = null;
 };
 
 const initSchema = (database: Database.Database) => {
@@ -219,6 +273,7 @@ const initSchema = (database: Database.Database) => {
 };
 
 export const createProject = (folderPath: string, name: string) => {
+  closeCurrentProject();
   if (!fs.existsSync(folderPath)) {
     fs.mkdirSync(folderPath, { recursive: true });
   }
@@ -251,6 +306,7 @@ const resolveProjectPath = (inputPath: string) => {
 };
 
 export const openProject = (inputPath: string) => {
+  closeCurrentProject();
   const { dbPath, folderPath } = resolveProjectPath(inputPath);
   const database = new Database(dbPath);
   initSchema(database);
@@ -318,7 +374,15 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
       ORDER BY data_sets.updated_at DESC, data_items.sort_order
       `
     )
-    .all("case", caseId);
+    .all("case", caseId) as Array<{
+    data_set_id: string;
+    name: string;
+    description?: string;
+    item_id?: string;
+    label?: string;
+    value?: string;
+    note?: string;
+  }>;
   const dataSetsMap = new Map<
     string,
     { id: string; name: string; description: string; items: DataItem[] }
@@ -496,7 +560,7 @@ export const getScenarioDetails = (id: string) => {
   }
   const links = database
     .prepare("SELECT case_id, position FROM scenario_cases WHERE scenario_id = ? ORDER BY position")
-    .all(id);
+    .all(id) as Array<{ case_id: string; position: number }>;
   const cases = links.map((link) => getCaseDetailWithDb(database, link.case_id));
   return { scenario, cases };
 };
@@ -959,8 +1023,8 @@ export const removeScenarioEvidence = (id: string) => {
     | { stored_path: string }
     | undefined;
   if (row?.stored_path) {
-    const filePath = path.join(folderPath, row.stored_path);
-    if (fs.existsSync(filePath)) {
+    const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+    if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
   }
@@ -975,7 +1039,7 @@ export const getScenarioEvidencePath = (id: string) => {
   if (!row?.stored_path) {
     return null;
   }
-  return path.join(folderPath, row.stored_path);
+  return resolveAttachmentPath(folderPath, row.stored_path);
 };
 
 export const previewScenarioEvidence = (id: string) => {
@@ -988,13 +1052,21 @@ export const previewScenarioEvidence = (id: string) => {
   if (!row?.stored_path) {
     return null;
   }
-  const filePath = path.join(folderPath, row.stored_path);
-  if (!fs.existsSync(filePath)) {
+  const mimeType = row.mime_type || inferMimeTypeFromName(row.stored_path) || "application/octet-stream";
+  if (!mimeType.startsWith("image/")) {
+    return { mimeType, base64: "" };
+  }
+  const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+  if (!filePath || !fs.existsSync(filePath)) {
     return null;
+  }
+  const stats = fs.statSync(filePath);
+  if (stats.size > MAX_PREVIEW_BYTES) {
+    return { mimeType, base64: "", tooLarge: true, size: stats.size };
   }
   const buffer = fs.readFileSync(filePath);
   return {
-    mimeType: row.mime_type || "application/octet-stream",
+    mimeType,
     base64: buffer.toString("base64")
   };
 };
@@ -1086,8 +1158,8 @@ export const removeRunScenarioCaseEvidence = (id: string) => {
     .prepare("SELECT stored_path FROM run_case_evidence WHERE id = ?")
     .get(id) as { stored_path: string } | undefined;
   if (row?.stored_path) {
-    const filePath = path.join(folderPath, row.stored_path);
-    if (fs.existsSync(filePath)) {
+    const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+    if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
   }
@@ -1102,18 +1174,34 @@ export const previewRunScenarioCaseEvidence = (id: string) => {
   if (!row?.stored_path) {
     return null;
   }
-  const filePath = path.join(folderPath, row.stored_path);
-  if (!fs.existsSync(filePath)) {
+  const mimeType = row.mime_type || inferMimeTypeFromName(row.stored_path) || "application/octet-stream";
+  if (!mimeType.startsWith("image/")) {
+    return { mimeType, base64: "" };
+  }
+  const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+  if (!filePath || !fs.existsSync(filePath)) {
     return null;
+  }
+  const stats = fs.statSync(filePath);
+  if (stats.size > MAX_PREVIEW_BYTES) {
+    return { mimeType, base64: "", tooLarge: true, size: stats.size };
   }
   const buffer = fs.readFileSync(filePath);
   return {
-    mimeType: row.mime_type || "application/octet-stream",
+    mimeType,
     base64: buffer.toString("base64")
   };
 };
 
-const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
+const escapeCsv = (value: string) => {
+  const raw = value ?? "";
+  const trimmed = raw.trimStart();
+  const guarded = /^[=+\-@]/.test(trimmed) ? `'${raw}` : raw;
+  return `"${guarded.replace(/"/g, '""')}"`;
+};
+
+const escapeMarkdownCell = (value: string) =>
+  value.replace(/\|/g, "\\|").replace(/\n/g, "<br>");
 
 const buildCsv = (headers: string[], rows: string[][]) => {
   const lines = [headers.map(escapeCsv).join(",")];
@@ -1124,9 +1212,11 @@ const buildCsv = (headers: string[], rows: string[][]) => {
 };
 
 const buildMarkdownTable = (headers: string[], rows: string[][]) => {
-  const headerLine = `| ${headers.join(" | ")} |`;
+  const headerLine = `| ${headers.map(escapeMarkdownCell).join(" | ")} |`;
   const separator = `| ${headers.map(() => "---").join(" | ")} |`;
-  const body = rows.map((row) => `| ${row.join(" | ")} |`).join("\n");
+  const body = rows
+    .map((row) => `| ${row.map((cell) => escapeMarkdownCell(cell ?? "")).join(" | ")} |`)
+    .join("\n");
   return [headerLine, separator, body].join("\n");
 };
 
