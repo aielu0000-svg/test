@@ -576,19 +576,33 @@ export const saveScenario = (payload: {
   const id = payload.id ?? randomUUID();
   const timestamp = now();
   const existing = database.prepare("SELECT id FROM scenarios WHERE id = ?").get(id);
+  const hasPreconditions = Object.prototype.hasOwnProperty.call(payload, "preconditions");
 
   if (existing) {
-    database
-      .prepare(
-        "UPDATE scenarios SET title = ?, objective = ?, preconditions = ?, updated_at = ? WHERE id = ?"
-      )
-      .run(payload.title, payload.objective ?? "", payload.preconditions ?? "", timestamp, id);
+    if (hasPreconditions) {
+      database
+        .prepare(
+          "UPDATE scenarios SET title = ?, objective = ?, preconditions = ?, updated_at = ? WHERE id = ?"
+        )
+        .run(payload.title, payload.objective ?? "", payload.preconditions ?? "", timestamp, id);
+    } else {
+      database
+        .prepare("UPDATE scenarios SET title = ?, objective = ?, updated_at = ? WHERE id = ?")
+        .run(payload.title, payload.objective ?? "", timestamp, id);
+    }
   } else {
     database
       .prepare(
         "INSERT INTO scenarios (id, title, objective, preconditions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
       )
-      .run(id, payload.title, payload.objective ?? "", payload.preconditions ?? "", timestamp, timestamp);
+      .run(
+        id,
+        payload.title,
+        payload.objective ?? "",
+        hasPreconditions ? payload.preconditions ?? "" : "",
+        timestamp,
+        timestamp
+      );
   }
 
   const insertLink = database.prepare(
@@ -1315,6 +1329,170 @@ export const exportData = (payload: {
   scope?: string;
 }) => {
   const { db: database } = ensureDb();
+  if (payload.entity === "test_runs" && payload.format === "md") {
+    const runs = database
+      .prepare("SELECT * FROM test_runs ORDER BY updated_at DESC")
+      .all() as Array<Record<string, any>>;
+    if (!runs.length) {
+      return "# テスト実行\n\nデータがありません。";
+    }
+
+    const scenarioQuery = database.prepare(
+      `SELECT
+        run_scenarios.*,
+        scenarios.title as scenario_title
+      FROM run_scenarios
+      JOIN scenarios ON scenarios.id = run_scenarios.scenario_id
+      WHERE run_scenarios.run_id = ?
+      ORDER BY run_scenarios.created_at`
+    );
+    const scenarioEvidenceQuery = database.prepare(
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+    );
+    const caseQuery = database.prepare(
+      `SELECT
+        run_scenario_cases.*,
+        test_cases.title as case_title,
+        test_cases.preconditions,
+        test_cases.tags
+      FROM run_scenario_cases
+      JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
+      WHERE run_scenario_cases.run_scenario_id = ?
+      ORDER BY run_scenario_cases.created_at`
+    );
+    const caseEvidenceQuery = database.prepare(
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at"
+    );
+
+    const formatOptional = (value: unknown) => {
+      const text = typeof value === "string" ? value.trim() : "";
+      return text.length ? text : null;
+    };
+
+    const lines: string[] = ["# テスト実行", ""];
+
+    runs.forEach((run) => {
+      lines.push(`## ${run.name ?? ""}`.trimEnd());
+      if (formatOptional(run.status)) {
+        lines.push(`- ステータス: ${String(run.status)}`);
+      }
+      if (formatOptional(run.environment)) {
+        lines.push(`- 環境: ${String(run.environment)}`);
+      }
+      if (formatOptional(run.build_version)) {
+        lines.push(`- ビルド: ${String(run.build_version)}`);
+      }
+      if (formatOptional(run.tester)) {
+        lines.push(`- 担当者: ${String(run.tester)}`);
+      }
+      if (formatOptional(run.started_at)) {
+        lines.push(`- 開始日時: ${String(run.started_at)}`);
+      }
+      if (formatOptional(run.finished_at)) {
+        lines.push(`- 終了日時: ${String(run.finished_at)}`);
+      }
+      if (formatOptional(run.notes)) {
+        lines.push("- メモ:");
+        lines.push("```");
+        lines.push(String(run.notes).trimEnd());
+        lines.push("```");
+      }
+
+      const runScenarios = scenarioQuery.all(run.id) as Array<Record<string, any>>;
+      if (!runScenarios.length) {
+        lines.push("");
+        lines.push("_実行シナリオなし_");
+        lines.push("");
+        return;
+      }
+
+      lines.push("");
+      runScenarios.forEach((runScenario, scenarioIndex) => {
+        const title = formatOptional(runScenario.scenario_title) ?? formatOptional(runScenario.title) ?? "";
+        lines.push(`### ${scenarioIndex + 1}. ${title}`.trimEnd());
+        if (formatOptional(runScenario.status)) {
+          lines.push(`- 結果: ${String(runScenario.status)}`);
+        }
+        if (formatOptional(runScenario.assignee)) {
+          lines.push(`- 担当者: ${String(runScenario.assignee)}`);
+        }
+        if (formatOptional(runScenario.executed_at)) {
+          lines.push(`- 実行日時: ${String(runScenario.executed_at)}`);
+        }
+        if (formatOptional(runScenario.actual_result)) {
+          lines.push("- 検証結果:");
+          lines.push("```");
+          lines.push(String(runScenario.actual_result).trimEnd());
+          lines.push("```");
+        }
+        if (formatOptional(runScenario.notes)) {
+          lines.push("- 備考:");
+          lines.push("```");
+          lines.push(String(runScenario.notes).trimEnd());
+          lines.push("```");
+        }
+
+        const scenarioEvidence = scenarioEvidenceQuery.all(runScenario.id) as Array<Record<string, any>>;
+        if (scenarioEvidence.length) {
+          lines.push("- 証跡:");
+          scenarioEvidence.forEach((item) => {
+            const storedPath = formatOptional(item.stored_path);
+            lines.push(`  - ${item.file_name}${storedPath ? ` (${storedPath})` : ""}`);
+          });
+        }
+
+        const runScenarioCases = caseQuery.all(runScenario.id) as Array<Record<string, any>>;
+        if (!runScenarioCases.length) {
+          lines.push("");
+          lines.push("_ケースなし_");
+          lines.push("");
+          return;
+        }
+
+        lines.push("");
+        runScenarioCases.forEach((runCase, caseIndex) => {
+          lines.push(`#### ${scenarioIndex + 1}.${caseIndex + 1}. ${String(runCase.case_title ?? "")}`.trimEnd());
+          lines.push(`- 結果: ${String(runCase.status ?? "")}`);
+          if (formatOptional(runCase.executed_at)) {
+            lines.push(`- 実行日時: ${String(runCase.executed_at)}`);
+          }
+          if (formatOptional(runCase.preconditions)) {
+            lines.push("- 前提条件:");
+            lines.push("```");
+            lines.push(String(runCase.preconditions).trimEnd());
+            lines.push("```");
+          }
+          if (formatOptional(runCase.tags)) {
+            lines.push(`- タグ: ${String(runCase.tags)}`);
+          }
+          if (formatOptional(runCase.actual_result)) {
+            lines.push("- 検証結果:");
+            lines.push("```");
+            lines.push(String(runCase.actual_result).trimEnd());
+            lines.push("```");
+          }
+          if (formatOptional(runCase.notes)) {
+            lines.push("- 備考:");
+            lines.push("```");
+            lines.push(String(runCase.notes).trimEnd());
+            lines.push("```");
+          }
+          const caseEvidence = caseEvidenceQuery.all(runCase.id) as Array<Record<string, any>>;
+          if (caseEvidence.length) {
+            lines.push("- 証跡:");
+            caseEvidence.forEach((item) => {
+              const storedPath = formatOptional(item.stored_path);
+              lines.push(`  - ${item.file_name}${storedPath ? ` (${storedPath})` : ""}`);
+            });
+          }
+          lines.push("");
+        });
+      });
+    });
+
+    return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+  }
+
   let rows: Array<Record<string, any>> = [];
 
   if (payload.entity === "test_cases") {
@@ -1353,16 +1531,25 @@ export const exportData = (payload: {
           test_runs.tester,
           test_runs.started_at,
           test_runs.finished_at,
+          run_scenarios.id as run_scenario_id,
+          run_scenarios.scenario_id,
+          scenarios.title as scenario_title,
           run_scenarios.status as scenario_status,
-          run_scenarios.assignee,
-          run_scenarios.actual_result,
-          run_scenarios.notes,
-          run_scenarios.executed_at,
-          scenarios.title as scenario_title
+          run_scenarios.assignee as scenario_assignee,
+          run_scenarios.notes as scenario_notes,
+          run_scenarios.executed_at as scenario_executed_at,
+          run_scenario_cases.id as run_scenario_case_id,
+          run_scenario_cases.case_id,
+          test_cases.title as case_title,
+          run_scenario_cases.status as case_status,
+          run_scenario_cases.notes as case_notes,
+          run_scenario_cases.executed_at as case_executed_at
         FROM test_runs
         LEFT JOIN run_scenarios ON run_scenarios.run_id = test_runs.id
         LEFT JOIN scenarios ON scenarios.id = run_scenarios.scenario_id
-        ORDER BY test_runs.updated_at DESC`
+        LEFT JOIN run_scenario_cases ON run_scenario_cases.run_scenario_id = run_scenarios.id
+        LEFT JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
+        ORDER BY test_runs.updated_at DESC, run_scenarios.created_at, run_scenario_cases.created_at`
       )
       .all()) as Array<Record<string, any>>;
   }

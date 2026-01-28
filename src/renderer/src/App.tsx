@@ -168,7 +168,6 @@ type CaseDraft = {
 type ScenarioDraft = {
   title: string;
   objective: string;
-  preconditions: string;
   caseIds: string[];
 };
 
@@ -197,6 +196,14 @@ const priorityOptions = ["高", "中", "低"] as const;
 const severityOptions = ["致命的", "高", "中", "低"] as const;
 const runStatusOptions = ["draft", "in_progress", "completed"] as const;
 const runCaseStatusOptions = ["not_run", "pass", "fail", "blocked", "skip"] as const;
+type RunCaseStatus = (typeof runCaseStatusOptions)[number];
+const runCaseStatusLabels: Record<RunCaseStatus, string> = {
+  not_run: "未実行",
+  pass: "✅ pass",
+  fail: "❌ fail",
+  blocked: "⚠️ blocked",
+  skip: "skip"
+};
 const dataScopes = [
   { value: "common", label: "共通初期データ" },
   { value: "case", label: "テストケース初期データ" },
@@ -228,7 +235,6 @@ const emptyCase = (): CaseDraft => ({
 const emptyScenario = (): ScenarioDraft => ({
   title: "",
   objective: "",
-  preconditions: "",
   caseIds: [] as string[]
 });
 
@@ -293,6 +299,8 @@ export default function App() {
   const [runDraft, setRunDraft] = useState<RunDraft>(emptyRun());
   const [runScenarios, setRunScenarios] = useState<RunCase[]>([]);
   const [selectedRunScenarioId, setSelectedRunScenarioId] = useState<string | null>(null);
+  const [runScenarioAddQuery, setRunScenarioAddQuery] = useState("");
+  const [runScenarioAddId, setRunScenarioAddId] = useState("");
   const [runError, setRunError] = useState<string | null>(null);
   const [evidenceList, setEvidenceList] = useState<Evidence[]>([]);
   const [runCaseEvidenceMap, setRunCaseEvidenceMap] = useState<Record<string, EvidencePreview[]>>({});
@@ -543,12 +551,8 @@ export default function App() {
   };
 
   const refreshScenarioDetail = async (scenarioId: string) => {
-    setScenarioDetailsCache((prev) => {
-      const next = { ...prev };
-      delete next[scenarioId];
-      return next;
-    });
-    const detail = await ensureScenarioDetail(scenarioId);
+    const detail = await fetchScenarioDetailFromApi(scenarioId);
+    setScenarioDetailsCache((prev) => ({ ...prev, [scenarioId]: detail }));
     setScenarioDetail(detail);
     return detail;
   };
@@ -558,14 +562,34 @@ export default function App() {
     if (!scenarioId) {
       return;
     }
-    setScenarioDetail(null);
-    await window.api.scenarios.removeCase(scenarioId, caseId);
-    await loadScenarios();
-    await selectScenario(scenarioId);
     setScenarioDraft((prev) => ({
       ...prev,
       caseIds: prev.caseIds.filter((id) => id !== caseId)
     }));
+    setScenarioDetail((prev) =>
+      prev ? { ...prev, cases: prev.cases.filter((detail) => detail.case.id !== caseId) } : prev
+    );
+    setScenarioDetailsCache((prev) => {
+      const cached = prev[scenarioId];
+      if (!cached) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [scenarioId]: {
+          ...cached,
+          cases: cached.cases.filter((detail) => detail.case.id !== caseId)
+        }
+      };
+    });
+    try {
+      await window.api.scenarios.removeCase(scenarioId, caseId);
+      await loadScenarios();
+      await refreshScenarioDetail(scenarioId);
+    } catch (err) {
+      setScenarioError(err instanceof Error ? err.message : "シナリオから除外できませんでした。");
+      await refreshScenarioDetail(scenarioId);
+    }
   };
 
   const renderCaseDetails = (detail: CaseDetail, scenarioId?: string) => {
@@ -781,6 +805,16 @@ export default function App() {
     return runs.filter((item) => item.name.toLowerCase().includes(term));
   }, [runs, runQuery]);
 
+  const addableRunScenarios = useMemo(() => {
+    const added = new Set(runScenarios.map((item) => item.scenario_id));
+    const candidates = scenarios.filter((item) => !added.has(item.id));
+    if (!runScenarioAddQuery.trim()) {
+      return candidates;
+    }
+    const term = runScenarioAddQuery.toLowerCase();
+    return candidates.filter((item) => item.title.toLowerCase().includes(term));
+  }, [runScenarios, scenarios, runScenarioAddQuery]);
+
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
     testCases.forEach((item) => {
@@ -793,68 +827,15 @@ export default function App() {
     return Array.from(tags).sort((a, b) => a.localeCompare(b, "ja"));
   }, [testCases]);
 
-  const runSummary = useMemo(() => {
-    const cases = Object.values(runScenarioCasesMap).flat();
-    const total = cases.length;
-    const completed = cases.filter((item) => item.status !== "not_run").length;
-    const counts = cases.reduce(
-      (acc, item) => {
-        acc[item.status] = (acc[item.status] ?? 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-    return {
-      total,
-      completed,
-      remaining: Math.max(total - completed, 0),
-      counts
-    };
-  }, [runScenarioCasesMap]);
-
-  const summaryBadges = [
-    {
-      label: "総数",
-      value: runSummary.total,
-      classes:
-        theme === "light"
-          ? "text-slate-900 border-slate-200 bg-slate-50"
-          : "text-slate-100 border-slate-600 bg-slate-900/50"
-    },
-    {
-      label: "完了",
-      value: runSummary.completed,
-      classes:
-        theme === "light"
-          ? "text-emerald-700 border-emerald-300 bg-emerald-100"
-          : "text-emerald-200 border-emerald-500 bg-emerald-900/50"
-    },
-    {
-      label: "残り",
-      value: runSummary.remaining,
-      classes:
-        theme === "light"
-          ? "text-amber-700 border-amber-300 bg-amber-100"
-          : "text-amber-200 border-amber-500 bg-amber-900/50"
-    }
-  ];
-
-  const statusBadgeClasses: Record<string, string> = {
-    pass: "text-emerald-200 border-emerald-500 bg-emerald-900/40",
-    fail: "text-rose-200 border-rose-500 bg-rose-900/40",
-    blocked: "text-amber-200 border-amber-500 bg-amber-900/40",
-    skip: "text-slate-100 border-slate-600 bg-slate-900/40"
-  };
-
-  const statusDisplayNames: Record<string, string> = {
-    pass: "Pass",
-    fail: "Fail",
-    blocked: "Blocked",
-    skip: "Skip"
-  };
-
   const caseDataSetOptions = useMemo(
-    () => dataSets.filter((item) => item.scope === "common" || item.scope === "case"),
+    () =>
+      dataSets.filter(
+        (item) =>
+          item.scope === "common" ||
+          item.scope === "case" ||
+          item.scope === "scenario" ||
+          item.scope === "run"
+      ),
     [dataSets]
   );
 
@@ -954,7 +935,6 @@ export default function App() {
     setScenarioDraft({
       title: data.scenario.title,
       objective: data.scenario.objective ?? "",
-      preconditions: data.scenario.preconditions ?? "",
       caseIds: data.cases.map((item) => item.case_id)
     });
     const detail = await refreshScenarioDetail(id);
@@ -1006,6 +986,8 @@ export default function App() {
     );
     void ensureScenarioDetailsForIds(data.runScenarios.map((item) => item.scenario_id));
     setSelectedRunScenarioId(null);
+    setRunScenarioAddQuery("");
+    setRunScenarioAddId("");
     setEvidenceList([]);
   };
 
@@ -1078,7 +1060,6 @@ export default function App() {
         id: selectedScenarioId ?? undefined,
         title: scenarioDraft.title.trim(),
         objective: scenarioDraft.objective,
-        preconditions: scenarioDraft.preconditions,
         caseIds: scenarioDraft.caseIds
       };
       const id = (await window.api.scenarios.save(payload)) as string;
@@ -1898,7 +1879,7 @@ export default function App() {
                       <div>
                         <h3 className="text-balance text-sm font-semibold">初期データの選択</h3>
                         <p className="text-pretty mt-1 text-xs text-slate-400">
-                          共通/テストケース初期データを関連付けできます。
+                          初期データをテストケースに関連付けできます。
                         </p>
                       </div>
                       <button
@@ -2300,20 +2281,6 @@ export default function App() {
                       setScenarioDraft({ ...scenarioDraft, objective: event.target.value })
                     }
                   />
-                  <label
-                    htmlFor="scenario-preconditions"
-                    className="text-xs font-semibold uppercase text-slate-400"
-                  >
-                    前提条件
-                  </label>
-                  <textarea
-                    id="scenario-preconditions"
-                    className={cn(inputClass, "min-h-[90px]")}
-                    value={scenarioDraft.preconditions}
-                    onChange={(event) =>
-                      setScenarioDraft({ ...scenarioDraft, preconditions: event.target.value })
-                    }
-                  />
 
                   {scenarioError && (
                     <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
@@ -2640,18 +2607,20 @@ export default function App() {
               <div className={panelClass}>
                 <div className="flex items-center justify-between">
                   <h2 className="text-balance text-lg font-semibold">テスト実行一覧</h2>
-                  <button
-                    className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
-                    onClick={() => {
-                      setSelectedRunId(null);
-                      setRunDraft(emptyRun());
-                      setRunScenarios([]);
-                      setRunError(null);
-                      setSelectedRunScenarioId(null);
-                    }}
-                  >
-                    新規作成
-                  </button>
+	                  <button
+	                    className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
+	                    onClick={() => {
+	                      setSelectedRunId(null);
+	                      setRunDraft(emptyRun());
+	                      setRunScenarios([]);
+	                      setRunError(null);
+	                      setSelectedRunScenarioId(null);
+	                      setRunScenarioAddQuery("");
+	                      setRunScenarioAddId("");
+	                    }}
+	                  >
+	                    新規作成
+	                  </button>
                 </div>
                 <input
                   className={cn(inputClass, "mt-4")}
@@ -2804,56 +2773,87 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="border-t border-slate-800 pt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="text-balance text-sm font-semibold">実行シナリオ</h3>
-                      <div className={cn("flex flex-wrap gap-2 text-[11px]", theme === "light" ? "text-slate-900" : "text-slate-300")}>
-                        {summaryBadges.map((badge) => (
-                          <span
-                            key={badge.label}
-                            className={cn("rounded-full border px-2 py-1 font-semibold", badge.classes)}
-                          >
-                            {badge.label} {badge.value}
-                          </span>
-                        ))}
-                        {(["pass", "fail", "blocked", "skip"] as Array<keyof typeof statusBadgeClasses>).map((status) => (
-                          <span
-                            key={status}
-                            className={cn(
-                              "rounded-full border px-2 py-1 font-semibold",
-                              statusBadgeClasses[status] ?? "border-slate-600 bg-slate-900/40 text-slate-100"
-                            )}
-                          >
-                            {statusDisplayNames[status]} {runSummary.counts[status] ?? 0}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+	                  <div className="border-t border-slate-800 pt-4">
+	                    <div className="flex flex-wrap items-center justify-between gap-3">
+	                      <h3 className="text-balance text-sm font-semibold">実行シナリオ</h3>
+	                    </div>
 
-                    <div className="mt-3 grid gap-2">
+                    <div
+                      className={cn(
+                        "mt-3 rounded-2xl border p-3",
+                        theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950/30"
+                      )}
+                    >
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+                        <div>
+                          <label
+                            htmlFor="run-scenario-add-query"
+                            className="text-xs font-semibold uppercase text-slate-400"
+                          >
+                            追加するシナリオを検索
+                          </label>
+                          <input
+                            id="run-scenario-add-query"
+                            className={cn(inputClass, "mt-2")}
+                            placeholder="検索"
+                            value={runScenarioAddQuery}
+                            onChange={(event) => setRunScenarioAddQuery(event.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="run-scenario-add-select"
+                            className="text-xs font-semibold uppercase text-slate-400"
+                          >
+                            追加候補
+                          </label>
+                          <select
+                            id="run-scenario-add-select"
+                            className={cn(inputClass, "mt-2")}
+                            value={runScenarioAddId}
+                            onChange={(event) => setRunScenarioAddId(event.target.value)}
+                            disabled={scenarios.length === 0}
+                          >
+                            <option value="">選択してください</option>
+                            {addableRunScenarios.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.title}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex lg:justify-end">
+                          <button
+                            type="button"
+                            className="w-full rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
+                            onClick={() => {
+                              if (!runScenarioAddId) {
+                                return;
+                              }
+                              void handleAddRunScenario(runScenarioAddId);
+                              setRunScenarioAddId("");
+                            }}
+                            disabled={!runScenarioAddId}
+                          >
+                            シナリオを追加
+                          </button>
+                        </div>
+                      </div>
                       {scenarios.length === 0 && (
-                        <p className="text-pretty text-xs text-slate-400">
+                        <p className="text-pretty mt-2 text-xs text-slate-400">
                           先にシナリオを作成してください。
                         </p>
-                      )}
-                      {scenarios.map((item) => (
-                        <button
-                          key={item.id}
-                          className="rounded-full border border-slate-800 px-3 py-1 text-xs text-slate-300"
-                          onClick={() => handleAddRunScenario(item.id)}
-                        >
-                          {item.title} を追加
-                        </button>
-                      ))}
-                    </div>
+	                      )}
+	                      {scenarios.length > 0 && addableRunScenarios.length === 0 && (
+	                        <p className="text-pretty mt-2 text-xs text-slate-400">
+	                          追加できるシナリオがありません。
+	                        </p>
+	                      )}
+	                    </div>
 
                     <div className="mt-4 grid gap-3">
                       {runScenarios.map((item) => {
                         const scenarioCases = runScenarioCasesMap[item.id] ?? [];
-                        const scenarioCompleted = scenarioCases.filter(
-                          (runCase) => runCase.status !== "not_run"
-                        ).length;
-                        const scenarioRemaining = Math.max(scenarioCases.length - scenarioCompleted, 0);
                         return (
                         <div
                           key={item.id}
@@ -2888,20 +2888,20 @@ export default function App() {
                             >
                               結果
                             </label>
-                            <select
-                              id={`run-scenario-status-${item.id}`}
-                              className={inputClass}
-                              value={item.status}
-                              onChange={(event) =>
-                                updateRunScenarioDraft(item.id, { status: event.target.value })
-                              }
-                            >
-                              {runCaseStatusOptions.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
+	                            <select
+	                              id={`run-scenario-status-${item.id}`}
+	                              className={inputClass}
+	                              value={item.status}
+	                              onChange={(event) =>
+	                                updateRunScenarioDraft(item.id, { status: event.target.value })
+	                              }
+	                            >
+	                              {runCaseStatusOptions.map((option) => (
+	                                <option key={option} value={option}>
+	                                  {runCaseStatusLabels[option]}
+	                                </option>
+	                              ))}
+	                            </select>
                             <label
                               htmlFor={`run-scenario-assignee-${item.id}`}
                               className="text-xs font-semibold uppercase text-slate-400"
@@ -2916,25 +2916,11 @@ export default function App() {
                                 updateRunScenarioDraft(item.id, { assignee: event.target.value })
                               }
                             />
-                            <label
-                              htmlFor={`run-scenario-actual-${item.id}`}
-                              className="text-xs font-semibold uppercase text-slate-400"
-                            >
-                              結果詳細
-                            </label>
-                            <textarea
-                              id={`run-scenario-actual-${item.id}`}
-                              className={cn(inputClass, "min-h-[70px]")}
-                              value={item.actual_result ?? ""}
-                              onChange={(event) =>
-                                updateRunScenarioDraft(item.id, { actual_result: event.target.value })
-                              }
-                            />
-                            <label
-                              htmlFor={`run-scenario-notes-${item.id}`}
-                              className="text-xs font-semibold uppercase text-slate-400"
-                            >
-                              備考
+	                            <label
+	                              htmlFor={`run-scenario-notes-${item.id}`}
+	                              className="text-xs font-semibold uppercase text-slate-400"
+	                            >
+	                              備考
                             </label>
                             <textarea
                               id={`run-scenario-notes-${item.id}`}
@@ -2956,35 +2942,15 @@ export default function App() {
                               type="datetime-local"
                               value={toLocalInput(item.executed_at)}
                               onChange={(event) =>
-                                updateRunScenarioDraft(item.id, { executed_at: event.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="mt-3 space-y-2">
-                            {scenarioDetailsCache[item.scenario_id] ? (
-                              scenarioDetailsCache[item.scenario_id].cases.map((detail) =>
-                                renderCaseDetails(detail)
-                              )
-                            ) : (
-                              <p className="text-xs text-slate-500">ケース詳細を読み込んでいます...</p>
-                            )}
-                          </div>
-                          <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs font-semibold uppercase text-slate-400">ケース結果</p>
-                              <div className="flex gap-2 text-[11px] text-slate-400">
-                                <span className="rounded-full border border-slate-700 px-2 py-1">
-                                  総数 {scenarioCases.length}
-                                </span>
-                                <span className="rounded-full border border-emerald-500 px-2 py-1 text-emerald-200">
-                                  完了 {scenarioCompleted}
-                                </span>
-                                <span className="rounded-full border border-amber-500 px-2 py-1 text-amber-200">
-                                  残り {scenarioRemaining}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="mt-3 space-y-3">
+	                                updateRunScenarioDraft(item.id, { executed_at: event.target.value })
+	                              }
+	                            />
+		                          </div>
+		                          <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
+		                            <div className="flex items-center justify-between">
+		                              <p className="text-xs font-semibold uppercase text-slate-400">ケース結果</p>
+		                            </div>
+		                            <div className="mt-3 space-y-3">
                               {scenarioCases.length === 0 ? (
                                 <p className="text-xs text-slate-500">
                                   {runScenarioCasesMap[item.id]
@@ -3008,9 +2974,9 @@ export default function App() {
                                           : "border-slate-800 bg-slate-950/40"
                                       )}
                                     >
-                                      <summary className="flex items-center justify-between text-sm font-semibold">
-                                        <div className="space-y-1 text-slate-100">
-                                          <span>{runCase.case_title}</span>
+	                                      <summary className="flex items-center justify-between text-sm font-semibold">
+	                                        <div className="space-y-1 text-slate-100">
+	                                          <span>{runCase.case_title}</span>
                                           <p className="text-[11px] text-slate-400">
                                             前提:{" "}
                                             {runCase.preconditions?.trim()
@@ -3030,166 +2996,248 @@ export default function App() {
                                               タグ: {runCase.tags}
                                             </p>
                                           )}
-                                        </div>
-                                        <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold text-slate-100">
-                                          {runCase.status}
-                                        </span>
-                                      </summary>
-                                      <div className="mt-3 grid gap-2 text-xs text-slate-300">
-                                        <label
-                                          htmlFor={`run-case-status-${runCase.id}`}
-                                          className="text-[11px] font-semibold uppercase text-slate-400"
-                                        >
-                                          結果
-                                        </label>
-                                        <select
-                                          id={`run-case-status-${runCase.id}`}
-                                          className={inputClass}
-                                          value={runCase.status}
-                                          onChange={(event) =>
-                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
-                                              status: event.target.value
-                                            })
-                                          }
-                                        >
-                                          {runCaseStatusOptions.map((option) => (
-                                            <option key={option} value={option}>
-                                              {option}
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <label
-                                          htmlFor={`run-case-executed-${runCase.id}`}
-                                          className="text-[11px] font-semibold uppercase text-slate-400"
-                                        >
-                                          実行日時
-                                        </label>
-                                        <input
-                                          id={`run-case-executed-${runCase.id}`}
-                                          className={inputClass}
-                                          type="datetime-local"
-                                          value={toLocalInput(runCase.executed_at)}
-                                          onChange={(event) =>
-                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
-                                              executed_at: event.target.value
-                                            })
-                                          }
-                                        />
-                                        <label
-                                          htmlFor={`run-case-actual-${runCase.id}`}
-                                          className="text-[11px] font-semibold uppercase text-slate-400"
-                                        >
-                                          結果詳細
-                                        </label>
-                                        <textarea
-                                          id={`run-case-actual-${runCase.id}`}
-                                          className={cn(inputClass, "min-h-[70px]")}
-                                          value={runCase.actual_result ?? ""}
-                                          onChange={(event) =>
-                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
-                                              actual_result: event.target.value
-                                            })
-                                          }
-                                        />
-                                        <label
-                                          htmlFor={`run-case-notes-${runCase.id}`}
-                                          className="text-[11px] font-semibold uppercase text-slate-400"
-                                        >
-                                          備考
-                                        </label>
-                                        <textarea
-                                          id={`run-case-notes-${runCase.id}`}
-                                          className={cn(inputClass, "min-h-[70px]")}
-                                          value={runCase.notes ?? ""}
-                                          onChange={(event) =>
-                                            updateRunScenarioCaseDraft(item.id, runCase.id, {
-                                              notes: event.target.value
-                                            })
-                                          }
-                                        />
-                                        <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-950/20 p-3">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <p className="text-[11px] font-semibold uppercase text-slate-400">
-                                              証跡
-                                            </p>
-                                            <div className="flex flex-wrap gap-2">
-                                              <button
-                                                className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
-                                                onClick={() => handleAddRunCaseEvidence(runCase.id)}
-                                              >
-                                                ファイル追加
-                                              </button>
-                                              <button
-                                                className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
-                                                onClick={() => handlePasteRunCaseEvidence(runCase.id)}
-                                              >
-                                                画像貼り付け
-                                              </button>
-                                            </div>
-                                          </div>
-                                          <div className="mt-3 grid gap-2">
-                                            {caseEvidence.length ? (
-                                              <div className="grid gap-2 md:grid-cols-2">
-                                                {caseEvidence.map((preview) => (
-                                                  <div
-                                                    key={preview.id}
-                                                    className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 p-2"
-                                                  >
-                                                    {preview.dataUrl &&
-                                                    preview.mimeType?.startsWith("image/") ? (
-                                                      <img
-                                                        src={preview.dataUrl}
-                                                        alt={preview.fileName}
-                                                        className="h-32 w-full rounded-lg object-cover"
-                                                      />
-                                                    ) : (
-                                                      <div className="flex h-32 items-center justify-center text-xs text-slate-300">
-                                                        {preview.fileName}
-                                                      </div>
-                                                    )}
-                                                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
-                                                      <span>{preview.fileName}</span>
-                                                      <button
-                                                        className="rounded-full border border-rose-500 px-2 py-0.5 text-[10px] font-semibold text-rose-200"
-                                                        onClick={() =>
-                                                          handleRemoveRunCaseEvidence(
-                                                            preview.id,
-                                                            runCase.id
-                                                          )
-                                                        }
-                                                      >
-                                                        削除
-                                                      </button>
-                                                    </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            ) : (
-                                              <p className="text-xs text-slate-500">
-                                                このケースに証跡はありません。
-                                              </p>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                          <button
-                                            className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
-                                            onClick={() => handleSaveRunScenarioCase(item.id, runCase)}
-                                          >
-                                            セーブ
-                                          </button>
-                                          <button
-                                            className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
-                                            onClick={() =>
-                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
-                                                executed_at: nowLocalInput()
-                                              })
-                                            }
-                                          >
-                                            実行日時を今
-                                          </button>
-                                        </div>
-                                      </div>
+	                                        </div>
+	                                        <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold text-slate-100">
+	                                          {runCaseStatusLabels[runCase.status as RunCaseStatus] ?? runCase.status}
+	                                        </span>
+	                                      </summary>
+	                                      <div className="mt-3 grid gap-4 text-xs text-slate-300">
+	                                        <div>
+	                                          <p className="text-[11px] font-semibold uppercase text-slate-400">
+	                                            手順
+	                                          </p>
+	                                          {caseDetail ? (
+	                                            caseDetail.steps.length ? (
+	                                              <ol className="mt-2 space-y-2 text-[12px]">
+	                                                {caseDetail.steps.map((step, index) => (
+	                                                  <li
+	                                                    key={`${runCase.id}-step-${index}`}
+	                                                    className={cn(
+	                                                      "space-y-1 rounded-lg border p-2",
+	                                                      theme === "light"
+	                                                        ? "border-slate-200 bg-white"
+	                                                        : "border-slate-800 bg-slate-900/40"
+	                                                    )}
+	                                                  >
+		                                                    <p
+		                                                      className={cn(
+		                                                        "whitespace-pre-wrap",
+		                                                        theme === "light"
+		                                                          ? "text-slate-700"
+		                                                          : "text-slate-300"
+		                                                      )}
+		                                                    >
+		                                                      <span
+		                                                        className={cn(
+		                                                          "font-semibold",
+		                                                          theme === "light"
+		                                                            ? "text-slate-900"
+		                                                            : "text-slate-100"
+		                                                        )}
+		                                                      >
+		                                                        操作:
+		                                                      </span>{" "}
+		                                                      {step.action || "なし"}
+		                                                    </p>
+		                                                    <p
+		                                                      className={cn(
+		                                                        "whitespace-pre-wrap",
+		                                                        theme === "light"
+		                                                          ? "text-slate-600"
+		                                                          : "text-slate-400"
+		                                                      )}
+		                                                    >
+		                                                      <span
+		                                                        className={cn(
+		                                                          "font-semibold",
+		                                                          theme === "light"
+		                                                            ? "text-slate-900"
+		                                                            : "text-slate-100"
+		                                                        )}
+		                                                      >
+		                                                        期待結果:
+		                                                      </span>{" "}
+		                                                      {step.expected || "なし"}
+		                                                    </p>
+	                                                  </li>
+	                                                ))}
+	                                              </ol>
+	                                            ) : (
+	                                              <p className="mt-2 text-xs text-slate-500">
+	                                                手順がありません。
+	                                              </p>
+	                                            )
+	                                          ) : (
+	                                            <p className="mt-2 text-xs text-slate-500">
+	                                              手順を読み込んでいます...
+	                                            </p>
+	                                          )}
+	                                        </div>
+
+	                                        <div className="grid gap-2">
+	                                          <fieldset className="grid gap-2">
+	                                            <legend className="text-[11px] font-semibold uppercase text-slate-400">
+	                                              結果詳細
+	                                            </legend>
+	                                            <div className="flex flex-wrap gap-2">
+	                                              {runCaseStatusOptions.map((option) => {
+	                                                const checked = runCase.status === option;
+	                                                return (
+	                                                  <label
+	                                                    key={`${runCase.id}-status-${option}`}
+	                                                    className={cn(
+	                                                      "cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold",
+	                                                      theme === "light"
+	                                                        ? checked
+	                                                          ? "border-sky-300 bg-sky-50 text-slate-900"
+	                                                          : "border-slate-200 text-slate-600"
+	                                                        : checked
+	                                                          ? "border-sky-500/60 bg-sky-950/30 text-slate-100"
+	                                                          : "border-slate-800 text-slate-200"
+	                                                    )}
+	                                                  >
+	                                                    <input
+	                                                      type="radio"
+	                                                      name={`run-case-status-${runCase.id}`}
+	                                                      value={option}
+	                                                      className="sr-only"
+	                                                      checked={checked}
+	                                                      onChange={() =>
+	                                                        updateRunScenarioCaseDraft(item.id, runCase.id, {
+	                                                          status: option
+	                                                        })
+	                                                      }
+	                                                    />
+	                                                    {runCaseStatusLabels[option]}
+	                                                  </label>
+	                                                );
+	                                              })}
+	                                            </div>
+	                                          </fieldset>
+	                                          <label
+	                                            htmlFor={`run-case-executed-${runCase.id}`}
+	                                            className="text-[11px] font-semibold uppercase text-slate-400"
+	                                          >
+	                                            実行日時
+	                                          </label>
+	                                          <input
+	                                            id={`run-case-executed-${runCase.id}`}
+	                                            className={inputClass}
+	                                            type="datetime-local"
+	                                            value={toLocalInput(runCase.executed_at)}
+	                                            onChange={(event) =>
+	                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
+	                                                executed_at: event.target.value
+	                                              })
+	                                            }
+	                                          />
+	                                          <label
+	                                            htmlFor={`run-case-notes-${runCase.id}`}
+	                                            className="text-[11px] font-semibold uppercase text-slate-400"
+	                                          >
+	                                            備考
+	                                          </label>
+	                                          <textarea
+	                                            id={`run-case-notes-${runCase.id}`}
+	                                            className={cn(inputClass, "min-h-[70px]")}
+	                                            value={runCase.notes ?? ""}
+	                                            onChange={(event) =>
+	                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
+	                                                notes: event.target.value
+	                                              })
+	                                            }
+	                                          />
+	                                          <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-950/20 p-3">
+	                                            <div className="flex items-center justify-between gap-2">
+	                                              <p className="text-[11px] font-semibold uppercase text-slate-400">
+	                                                証跡
+	                                              </p>
+	                                              <div className="flex flex-wrap gap-2">
+	                                                <button
+	                                                  type="button"
+	                                                  className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
+	                                                  onClick={() => handleAddRunCaseEvidence(runCase.id)}
+	                                                >
+	                                                  ファイル追加
+	                                                </button>
+	                                                <button
+	                                                  type="button"
+	                                                  className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
+	                                                  onClick={() => handlePasteRunCaseEvidence(runCase.id)}
+	                                                >
+	                                                  画像貼り付け
+	                                                </button>
+	                                              </div>
+	                                            </div>
+	                                            <div className="mt-3 grid gap-2">
+	                                              {caseEvidence.length ? (
+	                                                <div className="grid gap-2 md:grid-cols-2">
+	                                                  {caseEvidence.map((preview) => (
+	                                                    <div
+	                                                      key={preview.id}
+	                                                      className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 p-2"
+	                                                    >
+	                                                      {preview.dataUrl &&
+	                                                      preview.mimeType?.startsWith("image/") ? (
+	                                                        <img
+	                                                          src={preview.dataUrl}
+	                                                          alt={preview.fileName}
+	                                                          className="h-32 w-full rounded-lg object-cover"
+	                                                        />
+	                                                      ) : (
+	                                                        <div className="flex h-32 items-center justify-center text-xs text-slate-300">
+	                                                          {preview.fileName}
+	                                                        </div>
+	                                                      )}
+	                                                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
+	                                                        <span>{preview.fileName}</span>
+	                                                        <button
+	                                                          type="button"
+	                                                          className="rounded-full border border-rose-500 px-2 py-0.5 text-[10px] font-semibold text-rose-200"
+	                                                          onClick={() =>
+	                                                            handleRemoveRunCaseEvidence(
+	                                                              preview.id,
+	                                                              runCase.id
+	                                                            )
+	                                                          }
+	                                                        >
+	                                                          削除
+	                                                        </button>
+	                                                      </div>
+	                                                    </div>
+	                                                  ))}
+	                                                </div>
+	                                              ) : (
+	                                                <p className="text-xs text-slate-500">
+	                                                  このケースに証跡はありません。
+	                                                </p>
+	                                              )}
+	                                            </div>
+	                                          </div>
+	                                          <div className="flex flex-wrap gap-2">
+	                                            <button
+	                                              type="button"
+	                                              className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+	                                              onClick={() =>
+	                                                handleSaveRunScenarioCase(item.id, runCase)
+	                                              }
+	                                            >
+	                                              セーブ
+	                                            </button>
+	                                            <button
+	                                              type="button"
+	                                              className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
+	                                              onClick={() =>
+	                                                updateRunScenarioCaseDraft(item.id, runCase.id, {
+	                                                  executed_at: nowLocalInput()
+	                                                })
+	                                              }
+	                                            >
+	                                              実行日時を今
+	                                            </button>
+	                                          </div>
+	                                        </div>
+	                                      </div>
                                     </details>
                                   );
                                 })
