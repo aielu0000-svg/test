@@ -483,11 +483,16 @@ export default function App() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false);
   const [dashboardStatsError, setDashboardStatsError] = useState<string | null>(null);
+  const [caseMode, setCaseMode] = useState<"list" | "detail">("list");
+  const [scenarioMode, setScenarioMode] = useState<"list" | "detail">("list");
+  const [runMode, setRunMode] = useState<"list" | "detail" | "execute">("list");
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [caseQuery, setCaseQuery] = useState("");
   const [caseFolders, setCaseFolders] = useState<CaseFolder[]>([]);
   const [folderFilter, setFolderFilter] = useState("all");
+  const [casePriorityFilter, setCasePriorityFilter] = useState("all");
+  const [caseSeverityFilter, setCaseSeverityFilter] = useState("all");
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -514,6 +519,7 @@ export default function App() {
 
   const [runs, setRuns] = useState<TestRun[]>([]);
   const runsStamp = useMemo(() => runs[0]?.updated_at ?? "", [runs]);
+  const [runTab, setRunTab] = useState<"active" | "past" | "drafts">("active");
   const [runQuery, setRunQuery] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDraft, setRunDraft] = useState<RunDraft>(emptyRun());
@@ -990,6 +996,12 @@ export default function App() {
     if (folderFilter !== "all") {
       items = items.filter((item) => (item.folder_id ?? "none") === folderFilter);
     }
+    if (casePriorityFilter !== "all") {
+      items = items.filter((item) => (item.priority ?? "").trim() === casePriorityFilter);
+    }
+    if (caseSeverityFilter !== "all") {
+      items = items.filter((item) => (item.severity ?? "").trim() === caseSeverityFilter);
+    }
     if (tagFilters.length) {
       items = items.filter((item) => {
         const tags = item.tags
@@ -1003,7 +1015,7 @@ export default function App() {
     }
     const term = caseQuery.toLowerCase();
     return items.filter((item) => item.title.toLowerCase().includes(term));
-  }, [testCases, caseQuery, folderFilter, tagFilters]);
+  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter, caseSeverityFilter]);
 
   const caseGroups = useMemo(() => {
     const result: Record<string, TestCase[]> = {};
@@ -1186,6 +1198,7 @@ export default function App() {
 
   const selectCase = (id: string) => {
     setSelectedCaseId(id);
+    setCaseMode("detail");
     if (id === selectedCaseId) {
       void loadCaseById(id);
     }
@@ -1199,6 +1212,7 @@ export default function App() {
 
   const selectScenario = async (id: string) => {
     setSelectedScenarioId(id);
+    setScenarioMode("detail");
     const data = (await window.api.scenarios.get(id)) as { scenario: Scenario; cases: ScenarioCase[] };
     if (!data.scenario) {
       return;
@@ -1241,6 +1255,7 @@ export default function App() {
   const selectRun = async (id: string) => {
     setSection("runs");
     setSelectedRunId(id);
+    setRunMode("detail");
     const data = (await window.api.runs.get(id)) as { run: TestRun; runScenarios: RunCase[] };
     if (!data.run) {
       return;
@@ -1269,20 +1284,21 @@ export default function App() {
 
   const selectRunScenario = async (id: string) => {
     setSelectedRunScenarioId(id);
+    setRunMode("execute");
     const list = (await window.api.evidence.list(id)) as Evidence[];
     setEvidenceList(list);
     void loadRunScenarioCasesForIds([id]);
   };
 
-  const handleSaveCase = async () => {
-    setCaseError(null);
-    if (!caseDraft.title.trim()) {
-      setCaseError("タイトルは必須です。");
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const payload = {
+	  const handleSaveCase = async (): Promise<string | null> => {
+	    setCaseError(null);
+	    if (!caseDraft.title.trim()) {
+	      setCaseError("タイトルは必須です。");
+	      return null;
+	    }
+	    setIsLoading(true);
+	    try {
+	      const payload = {
         id: selectedCaseId ?? undefined,
         title: caseDraft.title.trim(),
         objective: caseDraft.objective,
@@ -1294,13 +1310,14 @@ export default function App() {
         dataSetIds: caseDraft.dataSetIds,
         folderId: caseDraft.folderId
       };
-      const id = (await window.api.testCases.save(payload)) as string;
-      await loadCases();
-      setSelectedCaseId(id);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+	      const id = (await window.api.testCases.save(payload)) as string;
+	      await loadCases();
+	      setSelectedCaseId(id);
+	      return id;
+	    } finally {
+	      setIsLoading(false);
+	    }
+	  };
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -1896,6 +1913,16 @@ export default function App() {
   const handleNavigate = (next: SectionKey) => {
     setSection(next);
     setMobileNavOpen(false);
+    if (next === "cases") {
+      setCaseMode("list");
+    }
+    if (next === "scenarios") {
+      setScenarioMode("list");
+    }
+    if (next === "runs") {
+      setRunMode("list");
+      setSelectedRunScenarioId(null);
+    }
   };
 
   const currentMeta = sectionMeta[section];
@@ -2366,60 +2393,111 @@ export default function App() {
 	              </div>
 	            )}
 
-            {section === "cases" && (
-              <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <div className={panelClass}>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-balance text-lg font-semibold">テストケース一覧</h2>
-                  <button
-                    className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
-                    onClick={() => {
-                      setSelectedCaseId(null);
-                      const draft = emptyCase();
-                      draft.folderId = folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
-                      setCaseDraft(draft);
-                      setCaseDataSets({});
-                      setCaseError(null);
-                    }}
-                  >
-                    新規作成
-                  </button>
-                </div>
-                <input
-                  className={cn(inputClass, "mt-4")}
-                  placeholder="検索"
-                  value={caseQuery}
-                  onChange={(event) => setCaseQuery(event.target.value)}
-                />
-                <div className="mt-3 grid gap-3">
-                  <div>
-                    <label
-                      htmlFor="case-folder-filter"
-                      className="text-xs font-semibold uppercase text-slate-400"
-                    >
-                      フォルダ絞り込み
-                    </label>
-                    <select
-                      id="case-folder-filter"
-                      className={cn(inputClass, "mt-2")}
+	            {section === "cases" && (
+	              <div className="grid gap-6">
+	              <div className={cn(panelClass, caseMode === "detail" && "hidden")}>
+	                <div className="flex flex-wrap items-start justify-between gap-4">
+	                  <div className="min-w-0">
+	                    <h2 className="text-balance text-lg font-semibold">Test Cases</h2>
+	                    <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                      Manage and organize your test cases
+	                    </p>
+	                  </div>
+	                  <button
+	                    type="button"
+	                    className={primaryButtonClass}
+	                    onClick={() => {
+	                      setSelectedCaseId(null);
+	                      const draft = emptyCase();
+	                      draft.folderId = folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
+	                      setCaseDraft(draft);
+	                      setCaseDataSets({});
+	                      setCaseError(null);
+	                      setCaseMode("detail");
+	                    }}
+	                  >
+	                    <PlusIcon className="size-5" />
+	                    New Test Case
+	                  </button>
+	                </div>
+	                <input
+	                  id="case-search"
+	                  className={cn(inputClass, "mt-4")}
+	                  placeholder="Search test cases..."
+	                  value={caseQuery}
+	                  onChange={(event) => setCaseQuery(event.target.value)}
+	                />
+	                <div className="mt-3 grid gap-3">
+	                  <div>
+	                    <label
+	                      htmlFor="case-folder-filter"
+	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
+	                    >
+	                      Folder
+	                    </label>
+	                    <select
+	                      id="case-folder-filter"
+	                      className={cn(inputClass, "mt-2")}
                       value={folderFilter}
                       onChange={(event) => setFolderFilter(event.target.value)}
                     >
-                      <option value="all">すべて</option>
-                      <option value="none">未分類</option>
-                      {caseFolders.map((folder) => (
-                        <option key={folder.id} value={folder.id}>
-                          {folder.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase text-slate-400">タグ絞り込み</p>
-                    {tagOptions.length === 0 ? (
-                      <p className="mt-2 text-xs text-slate-400">タグはまだありません。</p>
-                    ) : (
-                      <div className="mt-2 flex flex-wrap gap-2">
+	                      <option value="all">All Folders</option>
+	                      <option value="none">Uncategorized</option>
+	                      {caseFolders.map((folder) => (
+	                        <option key={folder.id} value={folder.id}>
+	                          {folder.name}
+	                        </option>
+	                      ))}
+	                    </select>
+	                  </div>
+	                  <div>
+	                    <label
+	                      htmlFor="case-priority-filter"
+	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
+	                    >
+	                      Priority
+	                    </label>
+	                    <select
+	                      id="case-priority-filter"
+	                      className={cn(inputClass, "mt-2")}
+	                      value={casePriorityFilter}
+	                      onChange={(event) => setCasePriorityFilter(event.target.value)}
+	                    >
+	                      <option value="all">Priority</option>
+	                      {priorityOptions.map((option) => (
+	                        <option key={option} value={option}>
+	                          {option}
+	                        </option>
+	                      ))}
+	                    </select>
+	                  </div>
+	                  <div>
+	                    <label
+	                      htmlFor="case-severity-filter"
+	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
+	                    >
+	                      Severity
+	                    </label>
+	                    <select
+	                      id="case-severity-filter"
+	                      className={cn(inputClass, "mt-2")}
+	                      value={caseSeverityFilter}
+	                      onChange={(event) => setCaseSeverityFilter(event.target.value)}
+	                    >
+	                      <option value="all">Severity</option>
+	                      {severityOptions.map((option) => (
+	                        <option key={option} value={option}>
+	                          {option}
+	                        </option>
+	                      ))}
+	                    </select>
+	                  </div>
+	                  <div>
+	                    <p className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}>Tags</p>
+	                    {tagOptions.length === 0 ? (
+	                      <p className={cn("mt-2 text-xs", mutedForegroundClass)}>No tags yet.</p>
+	                    ) : (
+	                      <div className="mt-2 flex flex-wrap gap-2">
                         {tagOptions.map((tag) => {
                           const checked = tagFilters.includes(tag);
                           return (
@@ -2504,13 +2582,125 @@ export default function App() {
                         ))}
                       </div>
                     )}
-                  </div>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {hasCasesInView ? (
-                    displayFolderKeys.map((folderKey) => {
-                      const cases = caseGroups[folderKey] ?? [];
-                      if (!cases.length) {
+	                  </div>
+	                </div>
+	                <div
+	                  className={cn(
+	                    "mt-4 rounded-none border",
+	                    theme === "light"
+	                      ? "border-border-light bg-card-light text-card-foreground-light"
+	                      : "border-border-dark bg-card-dark text-card-foreground-dark"
+	                  )}
+	                >
+	                  {filteredCases.length === 0 ? (
+	                    <div className="px-5 py-8">
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
+	                        No test cases found. Create your first test case.
+	                      </p>
+	                    </div>
+	                  ) : (
+	                    <div className="overflow-x-auto">
+	                      <div className="min-w-[980px]">
+	                        <div
+	                          className={cn(
+	                            "grid grid-cols-[minmax(0,1fr)_140px_140px_200px_220px] items-center text-sm",
+	                            borderClass,
+	                            "border-b",
+	                            theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
+	                            mutedForegroundClass
+	                          )}
+	                        >
+	                          <div className="px-5 py-4">Test Case</div>
+	                          <div className="px-5 py-4">Priority</div>
+	                          <div className="px-5 py-4">Severity</div>
+	                          <div className="px-5 py-4">Folder</div>
+	                          <div className="px-5 py-4">Actions</div>
+	                        </div>
+
+	                        {filteredCases.map((item) => {
+	                          const folderLabel =
+	                            item.folder_id == null
+	                              ? "Uncategorized"
+	                              : caseFolderMap[item.folder_id]?.name ?? "Folder";
+	                          return (
+	                            <div
+	                              key={item.id}
+	                              className={cn(
+	                                "grid grid-cols-[minmax(0,1fr)_140px_140px_200px_220px] items-center text-sm",
+	                                borderClass,
+	                                "border-b last:border-b-0",
+	                                theme === "light"
+	                                  ? "divide-x divide-border-light hover:bg-muted-light"
+	                                  : "divide-x divide-border-dark hover:bg-muted-dark"
+	                              )}
+	                            >
+	                              <div className="px-5 py-4">
+	                                <p className="truncate text-pretty text-sm font-medium">{item.title}</p>
+	                                <p className={cn("mt-1 truncate text-pretty text-sm", mutedForegroundClass)}>
+	                                  {item.objective || "—"}
+	                                </p>
+	                              </div>
+	                              <div className="px-5 py-4">
+	                                <p className="text-pretty text-sm">{item.priority || "—"}</p>
+	                              </div>
+	                              <div className="px-5 py-4">
+	                                <p className="text-pretty text-sm">{item.severity || "—"}</p>
+	                              </div>
+	                              <div className="px-5 py-4">
+	                                <p className={cn("truncate text-pretty text-sm", mutedForegroundClass)}>
+	                                  {folderLabel}
+	                                </p>
+	                              </div>
+	                              <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+	                                <button type="button" className={outlineButtonClass} onClick={() => selectCase(item.id)}>
+	                                  Open
+	                                </button>
+	                                <button
+	                                  type="button"
+	                                  className={cn(
+	                                    "inline-flex h-10 items-center justify-center rounded-pill border px-4 text-sm font-medium hover:opacity-90",
+	                                    theme === "light"
+	                                      ? "border-destructive-light text-destructive-light"
+	                                      : "border-destructive-dark text-destructive-dark"
+	                                  )}
+	                                  onClick={() => setDeleteTarget({ type: "case", id: item.id })}
+	                                >
+	                                  Delete
+	                                </button>
+	                              </div>
+	                            </div>
+	                          );
+	                        })}
+	                      </div>
+	                    </div>
+	                  )}
+
+	                  <div className={cn("flex h-[68px] items-center justify-end border-t px-5", borderClass)}>
+	                    <button
+	                      type="button"
+	                      className={primaryButtonClass}
+	                      onClick={() => {
+	                        setSelectedCaseId(null);
+	                        const draft = emptyCase();
+	                        draft.folderId =
+	                          folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
+	                        setCaseDraft(draft);
+	                        setCaseDataSets({});
+	                        setCaseError(null);
+	                        setCaseMode("detail");
+	                      }}
+	                    >
+	                      <PlusIcon className="size-5" />
+	                      New Test Case
+	                    </button>
+	                  </div>
+	                </div>
+
+	                <div className="hidden mt-4 space-y-3">
+	                  {hasCasesInView ? (
+	                    displayFolderKeys.map((folderKey) => {
+	                      const cases = caseGroups[folderKey] ?? [];
+	                      if (!cases.length) {
                         if (folderFilter === "all") {
                           return null;
                         }
@@ -2600,8 +2790,59 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">テストケース詳細</h2>
+	              <div className={cn(panelClass, caseMode === "list" && "hidden")}>
+	                <div className="flex flex-wrap items-center justify-between gap-4">
+	                  <div className="flex min-w-0 items-center gap-3">
+	                    <button
+	                      type="button"
+	                      className={outlineButtonClass}
+	                      onClick={() => {
+	                        setCaseMode("list");
+	                        setCaseError(null);
+	                      }}
+	                    >
+	                      Back
+	                    </button>
+	                    <div className="min-w-0">
+	                      <h2 className="text-balance text-lg font-semibold">Test Case Detail</h2>
+	                      <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                        {selectedCaseId ? "Edit details, steps, and datasets." : "Create a new test case."}
+	                      </p>
+	                    </div>
+	                  </div>
+	                  <div className="flex flex-wrap items-center gap-3">
+	                    <button
+	                      type="button"
+	                      className={outlineButtonClass}
+	                      onClick={async () => {
+	                        setCaseError(null);
+	                        if (selectedCaseId) {
+	                          await loadCaseById(selectedCaseId);
+	                        } else {
+	                          setSelectedCaseId(null);
+	                          setCaseDraft(emptyCase());
+	                          setCaseDataSets({});
+	                        }
+	                        setCaseMode("list");
+	                      }}
+	                    >
+	                      Cancel
+	                    </button>
+	                    <button
+	                      type="button"
+	                      className={cn(primaryButtonClass, isLoading && "opacity-60")}
+	                      disabled={isLoading}
+	                      onClick={async () => {
+	                        const savedId = await handleSaveCase();
+	                        if (savedId) {
+	                          setCaseMode("list");
+	                        }
+	                      }}
+	                    >
+	                      Save
+	                    </button>
+	                  </div>
+	                </div>
                 <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
                   <label htmlFor="case-title" className="text-xs font-semibold uppercase text-slate-400">
                     タイトル
@@ -2962,11 +3203,11 @@ export default function App() {
 
                   {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={handleSaveCase}
-                      disabled={isLoading}
+	                  <div className="hidden flex flex-wrap gap-3">
+	                    <button
+	                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+	                      onClick={handleSaveCase}
+	                      disabled={isLoading}
                     >
                       保存
                     </button>
@@ -2984,29 +3225,37 @@ export default function App() {
             </div>
           )}
 
-          {section === "scenarios" && (
-            <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <div className={panelClass}>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-balance text-lg font-semibold">シナリオ一覧</h2>
-                  <button
-                    className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
-                    onClick={() => {
-                      setSelectedScenarioId(null);
-                      setScenarioDraft(emptyScenario());
-                      setScenarioError(null);
-                      setScenarioDetail(null);
-                    }}
-                  >
-                    新規作成
-                  </button>
-                </div>
-                <input
-                  className={cn(inputClass, "mt-4")}
-                  placeholder="検索"
-                  value={scenarioQuery}
-                  onChange={(event) => setScenarioQuery(event.target.value)}
-                />
+	          {section === "scenarios" && (
+	            <div className="grid gap-6">
+	              <div className={cn(panelClass, scenarioMode === "detail" && "hidden")}>
+	                <div className="flex flex-wrap items-start justify-between gap-4">
+	                  <div className="min-w-0">
+	                    <h2 className="text-balance text-lg font-semibold">Test Scenarios</h2>
+	                    <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                      Organize test cases into scenarios for better management
+	                    </p>
+	                  </div>
+	                  <button
+	                    type="button"
+	                    className={primaryButtonClass}
+	                    onClick={() => {
+	                      setSelectedScenarioId(null);
+	                      setScenarioDraft(emptyScenario());
+	                      setScenarioError(null);
+	                      setScenarioDetail(null);
+	                      setScenarioMode("detail");
+	                    }}
+	                  >
+	                    <PlusIcon className="size-5" />
+	                    New Scenario
+	                  </button>
+	                </div>
+	                <input
+	                  className={cn(inputClass, "mt-4")}
+	                  placeholder="Search scenarios..."
+	                  value={scenarioQuery}
+	                  onChange={(event) => setScenarioQuery(event.target.value)}
+	                />
                 <div
                   className={cn(
                     "mt-3 rounded-2xl border p-3",
@@ -3050,40 +3299,124 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-2">
-                      {filteredScenarios.map((item) => (
-                        <div key={item.id} className="relative">
-                          <button
-                            type="button"
-                            className={cn(
-                              "w-full rounded-xl border px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-                              selectedScenarioId === item.id
-                                ? "border-sky-400 bg-slate-900 text-slate-100"
-                                : "border-slate-800 text-slate-300"
-                            )}
-                            onClick={() => selectScenario(item.id)}
-                          >
-                            <div className="flex items-start justify-between gap-2 pr-12">
-                              <div>
-                                <div className="text-balance font-semibold">{item.title}</div>
-                                <div className="mt-1 text-xs text-slate-400">{item.updated_at}</div>
-                              </div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="absolute right-2 top-2 rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
-                            onClick={() => setDeleteTarget({ type: "scenario", id: item.id })}
-                          >
-                            削除
-                          </button>
-                        </div>
-                      ))}
-                </div>
+	                <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+	                  {filteredScenarios.map((item) => {
+	                    const scenarioCaseCount =
+	                      (item as unknown as { case_count?: number }).case_count ??
+	                      scenarioDetailsCache[item.id]?.cases.length;
+	                    const statusLabel =
+	                      scenarioCaseCount === 0
+	                        ? "Planning"
+	                        : item.updated_at === item.created_at
+	                          ? "In Review"
+	                          : "Active";
+	                    return (
+	                      <div
+	                        key={item.id}
+	                        className={cn(
+	                          "rounded-none border p-5",
+	                          theme === "light"
+	                            ? "border-border-light bg-card-light text-card-foreground-light"
+	                            : "border-border-dark bg-card-dark text-card-foreground-dark"
+	                        )}
+	                      >
+	                        <div className="flex items-start justify-between gap-3">
+	                          <button
+	                            type="button"
+	                            className="min-w-0 text-left"
+	                            onClick={() => selectScenario(item.id)}
+	                          >
+	                            <p className="truncate text-balance text-sm font-semibold">{item.title}</p>
+	                            <p className={cn("mt-2 text-pretty text-sm", mutedForegroundClass)}>
+	                              {item.objective || "—"}
+	                            </p>
+	                          </button>
+	                          <button
+	                            type="button"
+	                            aria-label="Delete scenario"
+	                            className={cn(
+	                              "inline-flex size-10 items-center justify-center rounded-pill border text-sm font-semibold hover:opacity-90",
+	                              theme === "light"
+	                                ? "border-destructive-light text-destructive-light"
+	                                : "border-destructive-dark text-destructive-dark"
+	                            )}
+	                            onClick={() => setDeleteTarget({ type: "scenario", id: item.id })}
+	                          >
+	                            ✕
+	                          </button>
+	                        </div>
+
+	                        <div className={cn("mt-5 grid gap-3 border-t pt-4", borderClass)}>
+	                          <div className="flex items-center justify-between gap-3 text-sm">
+	                            <span className={cn("text-pretty", mutedForegroundClass)}>Test Cases</span>
+	                            <span className="tabular-nums text-pretty font-semibold">
+	                              {scenarioCaseCount == null ? "—" : scenarioCaseCount}
+	                            </span>
+	                          </div>
+	                          <div className="flex items-center justify-between gap-3 text-sm">
+	                            <span className={cn("text-pretty", mutedForegroundClass)}>Status</span>
+	                            <span className="text-pretty font-medium">{statusLabel}</span>
+	                          </div>
+	                        </div>
+	                      </div>
+	                    );
+	                  })}
+	                </div>
               </div>
 
-              <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
+	              <div className={cn(panelClass, scenarioMode === "list" && "hidden")}>
+	                <div className="flex flex-wrap items-center justify-between gap-4">
+	                  <div className="flex min-w-0 items-center gap-3">
+	                    <button
+	                      type="button"
+	                      className={outlineButtonClass}
+	                      onClick={() => {
+	                        setScenarioMode("list");
+	                        setScenarioError(null);
+	                      }}
+	                    >
+	                      Back
+	                    </button>
+	                    <div className="min-w-0">
+	                      <h2 className="text-balance text-lg font-semibold">Scenario Detail</h2>
+	                      <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                        {selectedScenarioId ? "Edit and organize test cases." : "Create a new scenario."}
+	                      </p>
+	                    </div>
+	                  </div>
+	                  <div className="flex flex-wrap items-center gap-3">
+	                    <button
+	                      type="button"
+	                      className={outlineButtonClass}
+	                      onClick={async () => {
+	                        setScenarioError(null);
+	                        if (selectedScenarioId) {
+	                          await selectScenario(selectedScenarioId);
+	                        } else {
+	                          setSelectedScenarioId(null);
+	                          setScenarioDraft(emptyScenario());
+	                          setScenarioDetail(null);
+	                        }
+	                        setScenarioMode("list");
+	                      }}
+	                    >
+	                      Cancel
+	                    </button>
+	                    <button
+	                      type="button"
+	                      className={cn(primaryButtonClass, isLoading && "opacity-60")}
+	                      disabled={isLoading}
+	                      onClick={async () => {
+	                        await handleSaveScenario();
+	                        if (!scenarioTitleError) {
+	                          setScenarioMode("list");
+	                        }
+	                      }}
+	                    >
+	                      Save
+	                    </button>
+	                  </div>
+	                </div>
               {scenarioDetail ? (
                 <div className="mt-4 space-y-3">
                 {scenarioDetail.cases.map((detail) =>
@@ -3486,13 +3819,19 @@ export default function App() {
             </div>
           )}
 
-          {section === "runs" && (
-            <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <div className={panelClass}>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-balance text-lg font-semibold">テスト実行一覧</h2>
+	          {section === "runs" && (
+	            <div className="grid gap-6">
+	              <div className={cn(panelClass, runMode !== "list" && "hidden")}>
+	                <div className="flex flex-wrap items-start justify-between gap-4">
+	                  <div className="min-w-0">
+	                    <h2 className="text-balance text-lg font-semibold">Test Runs</h2>
+	                    <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                      Execute and track test scenarios
+	                    </p>
+	                  </div>
 	                  <button
-	                    className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
+	                    type="button"
+	                    className={primaryButtonClass}
 	                    onClick={() => {
 	                      setSelectedRunId(null);
 	                      setRunDraft(emptyRun());
@@ -3501,22 +3840,164 @@ export default function App() {
 	                      setSelectedRunScenarioId(null);
 	                      setRunScenarioAddQuery("");
 	                      setRunScenarioAddId("");
+	                      setRunMode("detail");
 	                    }}
 	                  >
-	                    新規作成
+	                    <PlusIcon className="size-5" />
+	                    Start New Run
 	                  </button>
-                </div>
-                <input
-                  className={cn(inputClass, "mt-4")}
-                  placeholder="検索"
-                  value={runQuery}
-                  onChange={(event) => setRunQuery(event.target.value)}
-                />
-                <div className="mt-4 grid gap-2">
-                  {filteredRuns.map((item) => (
-                    <button
-                      key={item.id}
-                      className={cn(
+	                </div>
+	                <input
+	                  className={cn(inputClass, "mt-4")}
+	                  placeholder="Search test runs..."
+	                  value={runQuery}
+	                  onChange={(event) => setRunQuery(event.target.value)}
+	                />
+	                <div className="mt-5 flex flex-wrap gap-2">
+	                  {[
+	                    { key: "active" as const, label: "Active" },
+	                    { key: "past" as const, label: "Past Runs" },
+	                    { key: "drafts" as const, label: "Drafts" }
+	                  ].map((tab) => {
+	                    const active = runTab === tab.key;
+	                    return (
+	                      <button
+	                        key={tab.key}
+	                        type="button"
+	                        className={cn(
+	                          "rounded-pill border px-4 py-2 text-sm font-medium hover:opacity-90",
+	                          active
+	                            ? theme === "light"
+	                              ? "border-border-light bg-muted-light text-foreground-light"
+	                              : "border-border-dark bg-muted-dark text-foreground-dark"
+	                            : cn(borderClass, mutedForegroundClass)
+	                        )}
+	                        onClick={() => setRunTab(tab.key)}
+	                      >
+	                        {tab.label}
+	                      </button>
+	                    );
+	                  })}
+	                </div>
+
+	                <div
+	                  className={cn(
+	                    "mt-4 rounded-none border",
+	                    theme === "light"
+	                      ? "border-border-light bg-card-light text-card-foreground-light"
+	                      : "border-border-dark bg-card-dark text-card-foreground-dark"
+	                  )}
+	                >
+	                  {(() => {
+	                    const runsForTab = filteredRuns.filter((item) => {
+	                      if (runTab === "past") {
+	                        return item.status === "completed";
+	                      }
+	                      if (runTab === "drafts") {
+	                        return item.status === "draft";
+	                      }
+	                      return item.status !== "completed";
+	                    });
+
+	                    if (runsForTab.length === 0) {
+	                      return (
+	                        <div className="px-5 py-8">
+	                          <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
+	                            No test runs found.
+	                          </p>
+	                        </div>
+	                      );
+	                    }
+
+	                    return (
+	                      <div className="overflow-x-auto">
+	                        <div className="min-w-[920px]">
+	                          <div
+	                            className={cn(
+	                              "grid grid-cols-[minmax(0,1fr)_120px_140px_120px] items-center text-sm",
+	                              borderClass,
+	                              "border-b",
+	                              theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
+	                              mutedForegroundClass
+	                            )}
+	                          >
+	                            <div className="px-5 py-4">Run Name</div>
+	                            <div className="px-5 py-4">Scenarios</div>
+	                            <div className="px-5 py-4">Status</div>
+	                            <div className="px-5 py-4">Progress</div>
+	                          </div>
+
+	                          {runsForTab.map((item) => {
+	                            const scenarioCount = Number((item as unknown as { scenario_count?: number }).scenario_count ?? 0);
+	                            const totalCases = Number((item as unknown as { total_cases?: number }).total_cases ?? 0);
+	                            const completedCases = Number((item as unknown as { completed_cases?: number }).completed_cases ?? 0);
+	                            const progressPercent = totalCases
+	                              ? Math.round((completedCases / totalCases) * 100)
+	                              : 0;
+	                            return (
+	                              <button
+	                                key={item.id}
+	                                type="button"
+	                                className={cn(
+	                                  "grid w-full grid-cols-[minmax(0,1fr)_120px_140px_120px] items-center text-left text-sm",
+	                                  borderClass,
+	                                  "border-b last:border-b-0",
+	                                  theme === "light"
+	                                    ? "divide-x divide-border-light hover:bg-muted-light"
+	                                    : "divide-x divide-border-dark hover:bg-muted-dark"
+	                                )}
+	                                onClick={() => selectRun(item.id)}
+	                              >
+	                                <div className="px-5 py-4">
+	                                  <p className="truncate text-pretty text-sm font-medium">{item.name}</p>
+	                                </div>
+	                                <div className="px-5 py-4">
+	                                  <p className="text-pretty text-sm tabular-nums">{scenarioCount || "—"}</p>
+	                                </div>
+	                                <div className="px-5 py-4">
+	                                  <p className={cn("text-pretty text-sm font-medium", getRunStatusClass(item.status))}>
+	                                    {getRunStatusLabel(item.status)}
+	                                  </p>
+	                                </div>
+	                                <div className="px-5 py-4">
+	                                  <p className="text-pretty text-sm font-medium tabular-nums">
+	                                    {totalCases ? `${progressPercent}%` : "—"}
+	                                  </p>
+	                                </div>
+	                              </button>
+	                            );
+	                          })}
+	                        </div>
+	                      </div>
+	                    );
+	                  })()}
+
+	                  <div className={cn("flex h-[68px] items-center justify-end border-t px-5", borderClass)}>
+	                    <button
+	                      type="button"
+	                      className={primaryButtonClass}
+	                      onClick={() => {
+	                        setSelectedRunId(null);
+	                        setRunDraft(emptyRun());
+	                        setRunScenarios([]);
+	                        setRunError(null);
+	                        setSelectedRunScenarioId(null);
+	                        setRunScenarioAddQuery("");
+	                        setRunScenarioAddId("");
+	                        setRunMode("detail");
+	                      }}
+	                    >
+	                      <PlusIcon className="size-5" />
+	                      Start New Run
+	                    </button>
+	                  </div>
+	                </div>
+
+	                <div className="hidden mt-4 grid gap-2">
+	                  {filteredRuns.map((item) => (
+	                    <button
+	                      key={item.id}
+	                      className={cn(
                         "rounded-xl border px-3 py-2 text-left text-sm",
                         selectedRunId === item.id
                           ? "border-sky-400 bg-slate-900 text-slate-100"
@@ -3531,8 +4012,118 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">テスト実行詳細</h2>
+	              <div className={cn(panelClass, runMode === "list" && "hidden")}>
+	                <div className="flex flex-wrap items-center justify-between gap-4">
+	                  <div className="flex min-w-0 items-center gap-3">
+	                    <button
+	                      type="button"
+	                      className={outlineButtonClass}
+	                      onClick={() => {
+	                        setRunMode("list");
+	                        setSelectedRunScenarioId(null);
+	                        setRunError(null);
+	                      }}
+	                    >
+	                      Back
+	                    </button>
+	                    <div className="min-w-0">
+	                      <h2 className="truncate text-balance text-lg font-semibold">
+	                        {runMode === "execute"
+	                          ? `${runDraft.name || "Test Run"} - ${
+	                              runScenarios.find((item) => item.id === selectedRunScenarioId)?.title ??
+	                              "Scenario"
+	                            }`
+	                          : "Test Run Detail"}
+	                      </h2>
+	                      <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                        {runMode === "execute"
+	                          ? "Execute test cases and record results"
+	                          : selectedRunId
+	                            ? "Edit run details and manage scenarios."
+	                            : "Create a new test run."}
+	                      </p>
+	                    </div>
+	                  </div>
+	                  <div className="flex flex-wrap items-center gap-3">
+	                    {runMode === "execute" && selectedRunScenarioId && (
+	                      <>
+	                        <button
+	                          type="button"
+	                          className={outlineButtonClass}
+	                          onClick={() => {
+	                            const target = runScenarios.find((item) => item.id === selectedRunScenarioId);
+	                            if (!target) return;
+	                            void handleUpdateRunScenario({
+	                              id: target.id,
+	                              status: "draft",
+	                              assignee: target.assignee ?? "",
+	                              actualResult: target.actual_result ?? "",
+	                              notes: target.notes ?? "",
+	                              executedAt: nowLocalInput()
+	                            });
+	                          }}
+	                        >
+	                          Pause
+	                        </button>
+	                        <button
+	                          type="button"
+	                          className={primaryButtonClass}
+	                          onClick={() => {
+	                            const target = runScenarios.find((item) => item.id === selectedRunScenarioId);
+	                            if (!target) return;
+	                            void handleUpdateRunScenario({
+	                              id: target.id,
+	                              status: "completed",
+	                              assignee: target.assignee ?? "",
+	                              actualResult: target.actual_result ?? "",
+	                              notes: target.notes ?? "",
+	                              executedAt: nowLocalInput()
+	                            });
+	                          }}
+	                        >
+	                          Submit Results
+	                        </button>
+	                      </>
+	                    )}
+	                    {runMode !== "execute" && (
+	                      <>
+	                        <button
+	                          type="button"
+	                          className={outlineButtonClass}
+	                          onClick={async () => {
+	                            setRunError(null);
+	                            if (selectedRunId) {
+	                              await selectRun(selectedRunId);
+	                            } else {
+	                              setSelectedRunId(null);
+	                              setRunDraft(emptyRun());
+	                              setRunScenarios([]);
+	                              setSelectedRunScenarioId(null);
+	                              setRunScenarioAddQuery("");
+	                              setRunScenarioAddId("");
+	                            }
+	                            setRunMode("list");
+	                          }}
+	                        >
+	                          Cancel
+	                        </button>
+	                        <button
+	                          type="button"
+	                          className={cn(primaryButtonClass, isLoading && "opacity-60")}
+	                          disabled={isLoading}
+	                          onClick={async () => {
+	                            const id = await handleSaveRun();
+	                            if (id) {
+	                              setRunMode("list");
+	                            }
+	                          }}
+	                        >
+	                          Save
+	                        </button>
+	                      </>
+	                    )}
+	                  </div>
+	                </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   {[
                     {
@@ -3674,11 +4265,11 @@ export default function App() {
 
                   {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={handleSaveRun}
-                      disabled={isLoading}
+	                  <div className="hidden flex flex-wrap gap-3">
+	                    <button
+	                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+	                      onClick={handleSaveRun}
+	                      disabled={isLoading}
                     >
                       保存
                     </button>

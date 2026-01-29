@@ -574,7 +574,15 @@ export const deleteCaseFolder = (id: string) => {
 export const listScenarios = () => {
   const { db: database } = ensureDb();
   return database
-    .prepare("SELECT * FROM scenarios ORDER BY updated_at DESC")
+    .prepare(
+      `SELECT
+        scenarios.*,
+        COUNT(scenario_cases.case_id) AS case_count
+      FROM scenarios
+      LEFT JOIN scenario_cases ON scenario_cases.scenario_id = scenarios.id
+      GROUP BY scenarios.id
+      ORDER BY scenarios.updated_at DESC`
+    )
     .all();
 };
 
@@ -786,7 +794,18 @@ export const deleteDataSet = (id: string) => {
 export const listRuns = () => {
   const { db: database } = ensureDb();
   return database
-    .prepare("SELECT * FROM test_runs ORDER BY updated_at DESC")
+    .prepare(
+      `SELECT
+        test_runs.*,
+        COUNT(DISTINCT run_scenarios.id) AS scenario_count,
+        COUNT(run_scenario_cases.id) AS total_cases,
+        SUM(CASE WHEN run_scenario_cases.status IN ('pass','fail','blocked') THEN 1 ELSE 0 END) AS completed_cases
+      FROM test_runs
+      LEFT JOIN run_scenarios ON run_scenarios.run_id = test_runs.id
+      LEFT JOIN run_scenario_cases ON run_scenario_cases.run_scenario_id = run_scenarios.id
+      GROUP BY test_runs.id
+      ORDER BY test_runs.updated_at DESC`
+    )
     .all();
 };
 
