@@ -199,6 +199,21 @@ type RunDraft = {
 
 type SectionKey = "dashboard" | "cases" | "scenarios" | "data" | "runs" | "export" | "settings";
 
+type DashboardStats = {
+  totalTestCases: number;
+  totalScenarios: number;
+  activeTestRuns: number;
+  passRate: number | null;
+  passRateDelta: number | null;
+  recentRuns: Array<{
+    id: string;
+    name: string;
+    status: string;
+    progressPercent: number;
+    date: string;
+  }>;
+};
+
 const priorityOptions = ["高", "中", "低"] as const;
 const severityOptions = ["致命的", "高", "中", "低"] as const;
 const runStatusOptions = ["draft", "in_progress", "completed"] as const;
@@ -317,6 +332,105 @@ const FlaskConicalIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const PlusIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-5", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </svg>
+);
+
+const NavIcon = ({ name, className }: { name: SectionKey; className?: string }) => {
+  const shared = {
+    className: cn("size-6", className),
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+    viewBox: "0 0 24 24"
+  };
+
+  switch (name) {
+    case "dashboard":
+      return (
+        <svg {...shared}>
+          <path d="M3 3h8v8H3z" />
+          <path d="M13 3h8v5h-8z" />
+          <path d="M13 10h8v11h-8z" />
+          <path d="M3 13h8v8H3z" />
+        </svg>
+      );
+    case "cases":
+      return (
+        <svg {...shared}>
+          <path d="M8 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+          <path d="M4 7h2" />
+          <path d="M9 8h8" />
+          <path d="M9 12h8" />
+          <path d="M9 16h8" />
+        </svg>
+      );
+    case "scenarios":
+      return (
+        <svg {...shared}>
+          <path d="M7 7h10" />
+          <path d="M7 12h10" />
+          <path d="M7 17h10" />
+          <path d="M5 5l-2 2 2 2" />
+          <path d="M19 15l2 2-2 2" />
+        </svg>
+      );
+    case "runs":
+      return (
+        <svg {...shared}>
+          <path d="M10 8l6 4-6 4z" />
+          <path d="M4 5h2" />
+          <path d="M4 12h2" />
+          <path d="M4 19h2" />
+        </svg>
+      );
+    case "data":
+      return (
+        <svg {...shared}>
+          <path d="M12 2c4.4 0 8 1.3 8 3v14c0 1.7-3.6 3-8 3s-8-1.3-8-3V5c0-1.7 3.6-3 8-3z" />
+          <path d="M4 5c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+          <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+        </svg>
+      );
+    case "export":
+      return (
+        <svg {...shared}>
+          <path d="M12 3v10" />
+          <path d="M8 9l4 4 4-4" />
+          <path d="M5 21h14" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg {...shared}>
+          <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+          <path d="M19.4 15a7.9 7.9 0 0 0 .1-2l2-1.2-2-3.5-2.2.8a7.3 7.3 0 0 0-1.7-1l-.3-2.3h-4l-.3 2.3a7.3 7.3 0 0 0-1.7 1L4.6 8.3l-2 3.5 2 1.2a7.9 7.9 0 0 0 .1 2l-2 1.2 2 3.5 2.2-.8a7.3 7.3 0 0 0 1.7 1l.3 2.3h4l.3-2.3a7.3 7.3 0 0 0 1.7-1l2.2.8 2-3.5-2-1.2z" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...shared}>
+          <path d="M4 12h16" />
+        </svg>
+      );
+  }
+};
+
 const emptyCase = (): CaseDraft => ({
   title: "",
   objective: "",
@@ -366,6 +480,9 @@ export default function App() {
   const [section, setSection] = useState<SectionKey>("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false);
+  const [dashboardStatsError, setDashboardStatsError] = useState<string | null>(null);
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [caseQuery, setCaseQuery] = useState("");
@@ -396,6 +513,7 @@ export default function App() {
   const [dataError, setDataError] = useState<string | null>(null);
 
   const [runs, setRuns] = useState<TestRun[]>([]);
+  const runsStamp = useMemo(() => runs[0]?.updated_at ?? "", [runs]);
   const [runQuery, setRunQuery] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runDraft, setRunDraft] = useState<RunDraft>(emptyRun());
@@ -457,15 +575,15 @@ export default function App() {
   const panelClass = cn(
     "rounded-none border p-5 shadow-sm",
     theme === "light"
-      ? "border-[#CBCCC9] bg-white text-[#111111]"
-      : "border-[#27272A] bg-[#1A1A1A] text-[#FAFAFA]"
+      ? "border-border-light bg-card-light text-card-foreground-light"
+      : "border-border-dark bg-card-dark text-card-foreground-dark"
   );
 
   const inputClass = cn(
-    "w-full rounded-none border px-3 py-2 text-sm",
+    "w-full rounded-pill border px-4 py-2 text-sm",
     theme === "light"
-      ? "border-[#CBCCC9] bg-[#E7E8E5] text-[#111111]"
-      : "border-[#27272A] bg-[#27272A] text-[#FAFAFA]"
+      ? "border-input-light bg-background-light text-foreground-light placeholder:text-muted-foreground-light"
+      : "border-input-dark bg-background-dark text-foreground-dark placeholder:text-muted-foreground-dark"
   );
 
   const toLocalInput = (value?: string) => {
@@ -524,6 +642,36 @@ export default function App() {
     }
     loadAll();
   }, [project]);
+
+  useEffect(() => {
+    if (!project || section !== "dashboard") {
+      return;
+    }
+    let cancelled = false;
+    setDashboardStatsLoading(true);
+    setDashboardStatsError(null);
+    (async () => {
+      try {
+        const stats = (await window.api.dashboard.stats()) as DashboardStats;
+        if (!cancelled) {
+          setDashboardStats(stats);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDashboardStatsError(
+            err instanceof Error ? err.message : "ダッシュボードの集計に失敗しました。"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setDashboardStatsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project, section, runsStamp]);
 
 
   const loadAll = async () => {
@@ -1669,14 +1817,37 @@ export default function App() {
 
   if (!project) {
     return (
-      <main className="flex min-h-dvh items-center justify-center px-6 py-12" style={{backgroundColor: theme === "light" ? "#F2F3F0" : "#111111", color: theme === "light" ? "#111111" : "#FAFAFA"}}>
-        <div className="w-full max-w-lg rounded-none border p-8 shadow-sm" style={{borderColor: theme === "light" ? "#CBCCC9" : "#27272A", backgroundColor: theme === "light" ? "#FFFFFF" : "#1A1A1A"}}>
+      <main
+        className={cn(
+          "flex min-h-dvh items-center justify-center px-6 py-12",
+          theme === "light"
+            ? "bg-background-light text-foreground-light"
+            : "bg-background-dark text-foreground-dark"
+        )}
+      >
+        <div
+          className={cn(
+            "w-full max-w-lg rounded-none border p-8 shadow-sm",
+            theme === "light" ? "border-border-light bg-card-light" : "border-border-dark bg-card-dark"
+          )}
+        >
           <h1 className="text-balance text-3xl font-semibold">the test</h1>
-          <p className="text-pretty mt-3 text-sm text-slate-300">
+          <p
+            className={cn(
+              "text-pretty mt-3 text-sm",
+              theme === "light" ? "text-muted-foreground-light" : "text-muted-foreground-dark"
+            )}
+          >
             ローカルで完結するテスト管理アプリ。SQLite と証跡フォルダで持ち運びできます。
           </p>
           <div className="mt-6 grid gap-4">
-            <label htmlFor="project-name" className="text-xs font-semibold uppercase text-slate-400">
+            <label
+              htmlFor="project-name"
+              className={cn(
+                "text-xs font-semibold uppercase",
+                theme === "light" ? "text-muted-foreground-light" : "text-muted-foreground-dark"
+              )}
+            >
               プロジェクト名
             </label>
             <input
@@ -1693,14 +1864,26 @@ export default function App() {
                 新規プロジェクトを作成
               </button>
               <button
-                className="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100"
+                className={cn(
+                  "rounded-pill border px-4 py-2 text-sm font-semibold hover:opacity-90",
+                  theme === "light"
+                    ? "border-input-light bg-background-light text-foreground-light"
+                    : "border-input-dark bg-background-dark text-foreground-dark"
+                )}
                 onClick={handleOpenProject}
               >
                 既存プロジェクトを開く
               </button>
             </div>
             {projectError && (
-              <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+              <div
+                className={cn(
+                  "rounded-none border px-4 py-3 text-sm",
+                  theme === "light"
+                    ? "border-error-light bg-error-light text-error-foreground-light"
+                    : "border-error-dark bg-error-dark text-error-foreground-dark"
+                )}
+              >
                 {projectError}
               </div>
             )}
@@ -1716,45 +1899,102 @@ export default function App() {
   };
 
   const currentMeta = sectionMeta[section];
-  const dashboardCardClass = cn(
-    "rounded-none border p-4",
-    theme === "light" ? "border-[#CBCCC9] bg-white" : "border-[#27272A] bg-[#1A1A1A]"
-  );
-  const dashboardLinkClass = cn("mt-3 text-sm font-semibold", theme === "light" ? "text-[#FF8400]" : "text-[#FF8400]");
-  const dashboardActionButtonClass = cn(
-    "rounded-full border px-3 py-2 text-left text-sm font-semibold",
+
+  const mutedForegroundClass =
+    theme === "light" ? "text-muted-foreground-light" : "text-muted-foreground-dark";
+  const borderClass = theme === "light" ? "border-border-light" : "border-border-dark";
+
+  const primaryButtonClass =
+    "inline-flex h-10 items-center justify-center gap-2 rounded-pill bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90";
+  const outlineButtonClass = cn(
+    "inline-flex h-10 items-center justify-center gap-2 rounded-pill border px-4 text-sm font-medium hover:opacity-90",
     theme === "light"
-      ? "border-[#CBCCC9] bg-[#E7E8E5] text-[#111111] hover:opacity-90"
-      : "border-[#27272A] bg-[#2E2E2E] text-white hover:opacity-90"
+      ? "border-input-light bg-background-light text-foreground-light"
+      : "border-input-dark bg-background-dark text-foreground-dark"
   );
 
+  const metricCardClass = cn(
+    "flex min-h-[180px] flex-col rounded-none border",
+    theme === "light"
+      ? "border-border-light bg-card-light text-card-foreground-light"
+      : "border-border-dark bg-card-dark text-card-foreground-dark"
+  );
+
+  const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const monthCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const newCasesThisWeek = testCases.filter((entry) => Date.parse(entry.created_at) >= weekCutoff).length;
+  const activeScenarios = scenarios.filter((entry) => Date.parse(entry.updated_at) >= monthCutoff).length;
+  const inProgressRuns = runs.filter((entry) => entry.status === "in_progress").length;
+
+  const formatDashboardDate = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) {
+      return value;
+    }
+    return date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+  };
+
+  const getRunStatusLabel = (status: string) => {
+    if (status === "in_progress") return "Running";
+    if (status === "completed") return "Completed";
+    return "Draft";
+  };
+
+  const getRunStatusClass = (status: string) => {
+    if (status === "in_progress") {
+      return theme === "light" ? "text-warning-foreground-light" : "text-warning-foreground-dark";
+    }
+    if (status === "completed") {
+      return theme === "light" ? "text-success-foreground-light" : "text-success-foreground-dark";
+    }
+    return mutedForegroundClass;
+  };
+
   return (
-    <div className="min-h-dvh" style={{backgroundColor: theme === "light" ? "#F2F3F0" : "#111111", color: theme === "light" ? "#111111" : "#FAFAFA"}}>
+    <div
+      className={cn(
+        "min-h-dvh",
+        theme === "light"
+          ? "bg-background-light text-foreground-light"
+          : "bg-background-dark text-foreground-dark"
+      )}
+    >
       <div className="flex min-h-dvh">
         <aside
           className={cn(
-            "hidden h-dvh w-[280px] flex-col border-r px-4 py-6 md:flex",
-            theme === "light" ? "border-[#CBCCC9] bg-[#E7E8E5]" : "border-[#27272A] bg-[#18181b]"
+            "hidden h-dvh w-[280px] flex-col border-r md:flex",
+            theme === "light"
+              ? "border-sidebar-border-light bg-sidebar-light"
+              : "border-sidebar-border-dark bg-sidebar-dark"
           )}
         >
-          <div className="flex items-center gap-3">
+          <div className={cn("border-b px-8 py-6", theme === "light" ? "border-sidebar-border-light" : "border-sidebar-border-dark")}>
             <button
               type="button"
               className={cn(
-                "flex items-center gap-2 rounded-xl px-2 py-1 text-left",
-                theme === "light" ? "text-slate-900" : "text-slate-100"
+                "flex w-full items-center gap-3 rounded-pill px-2 py-1 text-left",
+                theme === "light"
+                  ? "text-sidebar-accent-foreground-light"
+                  : "text-sidebar-accent-foreground-dark"
               )}
               onClick={() => handleNavigate("dashboard")}
             >
-              <FlaskConicalIcon className={theme === "light" ? "text-slate-700" : "text-slate-200"} />
-              <span className="text-balance text-base font-semibold">the test</span>
+              <FlaskConicalIcon className="size-7 text-primary" />
+              <span className="text-balance text-xl font-semibold">the test</span>
             </button>
           </div>
 
-          <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pr-1">
+          <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 py-6">
             {navGroups.map((group) => (
               <div key={group.title} className="grid gap-2">
-                <p className="text-xs font-semibold text-slate-500">{group.title}</p>
+                <p
+                  className={cn(
+                    "px-4 text-sm font-medium",
+                    theme === "light" ? "text-sidebar-foreground-light" : "text-sidebar-foreground-dark"
+                  )}
+                >
+                  {group.title}
+                </p>
                 <div className="grid gap-1">
                   {group.items.map((item) => {
                     const active = section === item.key;
@@ -1763,18 +2003,19 @@ export default function App() {
                         key={item.key}
                         type="button"
                         className={cn(
-                          "w-full rounded-pill px-3 py-2 text-left text-sm font-semibold",
-                          theme === "light"
-                            ? active
-                              ? "bg-[#CBCCC9] text-[#111111]"
-                              : "text-[#111111] hover:bg-[#CBCCC9]/50"
-                            : active
-                              ? "bg-[#27272A] text-[#FAFAFA]"
-                              : "text-[#FAFAFA] hover:bg-[#27272A]/50"
+                          "flex w-full items-center gap-4 rounded-pill px-4 py-3 text-left text-base font-normal",
+                          active
+                            ? theme === "light"
+                              ? "bg-sidebar-accent-light text-sidebar-accent-foreground-light"
+                              : "bg-sidebar-accent-dark text-sidebar-accent-foreground-dark"
+                            : theme === "light"
+                              ? "text-sidebar-foreground-light hover:bg-sidebar-accent-light/50"
+                              : "text-sidebar-foreground-dark hover:bg-sidebar-accent-dark/50"
                         )}
                         onClick={() => handleNavigate(item.key)}
                       >
-                        {item.label}
+                        <NavIcon name={item.key} />
+                        <span className="text-pretty">{item.label}</span>
                       </button>
                     );
                   })}
@@ -1783,230 +2024,347 @@ export default function App() {
             ))}
           </nav>
 
-          <div className={cn("mt-6 border-t pt-4 text-xs text-slate-500", theme === "light" ? "border-slate-200" : "border-slate-800")}>
-            <p className="text-pretty font-semibold">{project.name}</p>
-            <p className="text-pretty mt-1 break-all">{project.path}</p>
+          <div className={cn("border-t px-8 py-6", theme === "light" ? "border-sidebar-border-light" : "border-sidebar-border-dark")}>
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p
+                  className={cn(
+                    "truncate text-pretty text-base font-medium",
+                    theme === "light"
+                      ? "text-sidebar-accent-foreground-light"
+                      : "text-sidebar-accent-foreground-dark"
+                  )}
+                >
+                  {project.name}
+                </p>
+                <p
+                  className={cn(
+                    "mt-1 truncate text-pretty text-sm",
+                    theme === "light" ? "text-sidebar-foreground-light" : "text-sidebar-foreground-dark"
+                  )}
+                >
+                  {project.path}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Open settings"
+                className={cn(
+                  "inline-flex size-10 items-center justify-center rounded-pill border",
+                  theme === "light"
+                    ? "border-sidebar-border-light bg-sidebar-light text-sidebar-foreground-light hover:bg-sidebar-accent-light/50"
+                    : "border-sidebar-border-dark bg-sidebar-dark text-sidebar-foreground-dark hover:bg-sidebar-accent-dark/50"
+                )}
+                onClick={() => handleNavigate("settings")}
+              >
+                <NavIcon name="settings" className="size-5" />
+              </button>
+            </div>
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header
-            className={cn(
-              "border-b px-6 py-5",
-              theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950"
-            )}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h1 className="text-balance text-[28px] font-semibold leading-tight">
-                  {currentMeta.title}
-                </h1>
-                <p
-                  className={cn(
-                    "text-pretty mt-1 text-sm",
-                    theme === "light" ? "text-slate-500" : "text-slate-400"
-                  )}
-                >
-                  {currentMeta.subtitle}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  className={cn(
-                    "inline-flex items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold md:hidden",
-                    theme === "light"
-                      ? "border-slate-200 bg-white text-slate-900"
-                      : "border-slate-800 bg-slate-950 text-slate-100"
-                  )}
-                  aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
-                  aria-expanded={mobileNavOpen}
-                  aria-controls="mobile-navigation"
-                  onClick={() => setMobileNavOpen((prev) => !prev)}
-                >
-                  Menu
-                </button>
-                <label htmlFor="theme-select" className="text-xs font-semibold uppercase text-slate-400">
-                  テーマ
-                </label>
-                <select
-                  id="theme-select"
-                  className={cn(inputClass, "w-auto")}
-                  value={theme}
-                  onChange={(event) => setTheme(event.target.value as "dark" | "light")}
-                >
-                  <option value="dark">ダーク</option>
-                  <option value="light">ライト</option>
-                </select>
-              </div>
-            </div>
+	        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+	          <header className="px-8 pt-8 pb-6">
+	            <div className="flex flex-wrap items-center justify-between gap-4">
+	              <div className="min-w-0">
+	                <h1 className="text-balance text-[28px] font-semibold leading-tight">
+	                  {currentMeta.title}
+	                </h1>
+	                <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+	                  {currentMeta.subtitle}
+	                </p>
+	              </div>
+	              <div className="flex items-center gap-3">
+	                <button
+	                  type="button"
+	                  className={cn(outlineButtonClass, "md:hidden")}
+	                  aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+	                  aria-expanded={mobileNavOpen}
+	                  aria-controls="mobile-navigation"
+	                  onClick={() => setMobileNavOpen((prev) => !prev)}
+	                >
+	                  Menu
+	                </button>
+	                {section === "dashboard" && (
+	                  <button
+	                    type="button"
+	                    className={primaryButtonClass}
+	                    onClick={() => {
+	                      handleNavigate("runs");
+	                      setSelectedRunId(null);
+	                      setRunDraft(emptyRun());
+	                      setRunScenarios([]);
+	                      setRunError(null);
+	                      setSelectedRunScenarioId(null);
+	                      setRunScenarioAddQuery("");
+	                      setRunScenarioAddId("");
+	                    }}
+	                  >
+	                    <PlusIcon className="size-5" />
+	                    New Test Run
+	                  </button>
+	                )}
+	                <select
+	                  id="theme-select"
+	                  aria-label="Theme"
+	                  className={cn(inputClass, "w-auto")}
+	                  value={theme}
+	                  onChange={(event) => setTheme(event.target.value as "dark" | "light")}
+	                >
+	                  <option value="dark">Dark</option>
+	                  <option value="light">Light</option>
+	                </select>
+	              </div>
+	            </div>
 
-            {mobileNavOpen && (
-              <div
-                id="mobile-navigation"
-                className={cn(
-                  "mt-5 grid gap-4 rounded-2xl border p-4 md:hidden",
-                  theme === "light"
-                    ? "border-slate-200 bg-slate-50"
-                    : "border-slate-800 bg-slate-900/50"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <FlaskConicalIcon className={theme === "light" ? "text-slate-700" : "text-slate-200"} />
-                  <p className={cn("text-balance text-sm font-semibold", theme === "light" ? "text-slate-900" : "text-slate-100")}>
-                    the test
-                  </p>
-                  <p className="text-pretty text-xs text-slate-500">{project.name}</p>
-                </div>
-                {navGroups.map((group) => (
-                  <div key={group.title} className="grid gap-2">
-                    <p className="text-xs font-semibold text-slate-500">{group.title}</p>
-                    <div className="grid gap-1">
-                      {group.items.map((item) => {
-                        const active = section === item.key;
-                        return (
-                          <button
-                            key={item.key}
-                            type="button"
-                            className={cn(
-                              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold",
-                              theme === "light"
-                                ? active
-                                  ? "bg-white text-slate-900"
-                                  : "text-slate-700 hover:bg-white"
-                                : active
-                                  ? "bg-slate-900 text-slate-100"
-                                  : "text-slate-300 hover:bg-slate-900/40"
-                            )}
-                            onClick={() => handleNavigate(item.key)}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </header>
+	            {mobileNavOpen && (
+	              <div
+	                id="mobile-navigation"
+	                className={cn(
+	                  "mt-5 grid gap-4 rounded-none border p-4 md:hidden",
+	                  theme === "light"
+	                    ? "border-border-light bg-card-light"
+	                    : "border-border-dark bg-card-dark"
+	                )}
+	              >
+	                <div className="flex items-center gap-3">
+	                  <FlaskConicalIcon className="text-primary" />
+	                  <p className="text-balance text-sm font-semibold">the test</p>
+	                  <p className={cn("text-pretty text-xs", mutedForegroundClass)}>{project.name}</p>
+	                </div>
+	                {navGroups.map((group) => (
+	                  <div key={group.title} className="grid gap-2">
+	                    <p className={cn("px-1 text-sm font-medium", mutedForegroundClass)}>{group.title}</p>
+	                    <div className="grid gap-1">
+	                      {group.items.map((item) => {
+	                        const active = section === item.key;
+	                        return (
+	                          <button
+	                            key={item.key}
+	                            type="button"
+	                            className={cn(
+	                              "flex w-full items-center gap-3 rounded-pill px-3 py-2 text-left text-sm",
+	                              active
+	                                ? theme === "light"
+	                                  ? "bg-sidebar-accent-light text-sidebar-accent-foreground-light"
+	                                  : "bg-sidebar-accent-dark text-sidebar-accent-foreground-dark"
+	                                : mutedForegroundClass
+	                            )}
+	                            onClick={() => handleNavigate(item.key)}
+	                          >
+	                            <NavIcon name={item.key} className="size-5" />
+	                            <span className="text-pretty">{item.label}</span>
+	                          </button>
+	                        );
+	                      })}
+	                    </div>
+	                  </div>
+	                ))}
+	              </div>
+	            )}
+	          </header>
 
-          <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8">
-            {section === "dashboard" && (
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className={cn(panelClass, "lg:col-span-2")}>
-                  <h2 className="text-balance text-lg font-semibold">Overview</h2>
-                  <p className="text-pretty mt-1 text-sm text-slate-400">
-                    プロジェクト内の件数と、よく使う操作へのショートカットです。
-                  </p>
-                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                    <div className={dashboardCardClass}>
-                      <p className="text-pretty text-xs font-semibold text-slate-400">Test Cases</p>
-                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
-                        {testCases.length}
-                      </p>
-                      <button
-                        type="button"
-                        className={dashboardLinkClass}
-                        onClick={() => handleNavigate("cases")}
-                      >
-                        Open
-                      </button>
-                    </div>
-                    <div className={dashboardCardClass}>
-                      <p className="text-pretty text-xs font-semibold text-slate-400">Scenarios</p>
-                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
-                        {scenarios.length}
-                      </p>
-                      <button
-                        type="button"
-                        className={dashboardLinkClass}
-                        onClick={() => handleNavigate("scenarios")}
-                      >
-                        Open
-                      </button>
-                    </div>
-                    <div className={dashboardCardClass}>
-                      <p className="text-pretty text-xs font-semibold text-slate-400">Data Sets</p>
-                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
-                        {dataSets.length}
-                      </p>
-                      <button
-                        type="button"
-                        className={dashboardLinkClass}
-                        onClick={() => handleNavigate("data")}
-                      >
-                        Open
-                      </button>
-                    </div>
-                    <div className={dashboardCardClass}>
-                      <p className="text-pretty text-xs font-semibold text-slate-400">Test Runs</p>
-                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
-                        {runs.length}
-                      </p>
-                      <button
-                        type="button"
-                        className={dashboardLinkClass}
-                        onClick={() => handleNavigate("runs")}
-                      >
-                        Open
-                      </button>
-                    </div>
-                  </div>
-                </div>
+	          <main className="min-w-0 flex-1 overflow-y-auto px-8 pb-8">
+	            {section === "dashboard" && (
+	              <div className="grid gap-4">
+	                {dashboardStatsError && (
+	                  <div
+	                    className={cn(
+	                      "rounded-none border px-4 py-3 text-sm",
+	                      theme === "light"
+	                        ? "border-error-light bg-error-light text-error-foreground-light"
+	                        : "border-error-dark bg-error-dark text-error-foreground-dark"
+	                    )}
+	                  >
+	                    {dashboardStatsError}
+	                  </div>
+	                )}
 
-                <div className={panelClass}>
-                  <h2 className="text-balance text-lg font-semibold">Quick actions</h2>
-                  <div className="mt-4 grid gap-3">
-                    <button
-                      type="button"
-                      className={dashboardActionButtonClass}
-                      onClick={() => {
-                        handleNavigate("cases");
-                        setSelectedCaseId(null);
-                        setCaseDraft(emptyCase());
-                        setCaseDataSets({});
-                        setCaseError(null);
-                      }}
-                    >
-                      New test case
-                    </button>
-                    <button
-                      type="button"
-                      className={dashboardActionButtonClass}
-                      onClick={() => {
-                        handleNavigate("scenarios");
-                        setSelectedScenarioId(null);
-                        setScenarioDraft(emptyScenario());
-                        setScenarioDetail(null);
-                        setScenarioError(null);
-                      }}
-                    >
-                      New scenario
-                    </button>
-                    <button
-                      type="button"
-                      className={dashboardActionButtonClass}
-                      onClick={() => {
-                        handleNavigate("runs");
-                        setSelectedRunId(null);
-                        setRunDraft(emptyRun());
-                        setRunError(null);
-                      }}
-                    >
-                      New test run
-                    </button>
-                    <button
-                      type="button"
-                      className={dashboardActionButtonClass}
-                      onClick={() => handleNavigate("export")}
-                    >
-                      Export / Import
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+	                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+	                  <div className={metricCardClass}>
+	                    <div className="p-6">
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
+	                        Total Test Cases
+	                      </p>
+	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
+	                        {dashboardStatsLoading ? "…" : dashboardStats?.totalTestCases ?? testCases.length}
+	                      </p>
+	                    </div>
+	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
+	                      <p className={cn(theme === "light" ? "text-success-foreground-light" : "text-success-foreground-dark")}>
+	                        {newCasesThisWeek > 0 ? `+${newCasesThisWeek} this week` : `${newCasesThisWeek} this week`}
+	                      </p>
+	                    </div>
+	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
+	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("cases")}>
+	                        Open
+	                      </button>
+	                    </div>
+	                  </div>
+
+	                  <div className={metricCardClass}>
+	                    <div className="p-6">
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>Scenarios</p>
+	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
+	                        {dashboardStatsLoading ? "…" : dashboardStats?.totalScenarios ?? scenarios.length}
+	                      </p>
+	                    </div>
+	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
+	                      <p className={cn(theme === "light" ? "text-info-foreground-light" : "text-info-foreground-dark")}>
+	                        {activeScenarios} active
+	                      </p>
+	                    </div>
+	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
+	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("scenarios")}>
+	                        Open
+	                      </button>
+	                    </div>
+	                  </div>
+
+	                  <div className={metricCardClass}>
+	                    <div className="p-6">
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>Active Test Runs</p>
+	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
+	                        {dashboardStatsLoading ? "…" : dashboardStats?.activeTestRuns ?? runs.filter((entry) => entry.status !== "completed").length}
+	                      </p>
+	                    </div>
+	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
+	                      <p className={cn(theme === "light" ? "text-warning-foreground-light" : "text-warning-foreground-dark")}>
+	                        {inProgressRuns} in progress
+	                      </p>
+	                    </div>
+	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
+	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("runs")}>
+	                        Open
+	                      </button>
+	                    </div>
+	                  </div>
+
+	                  <div className={metricCardClass}>
+	                    <div className="p-6">
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>Pass Rate</p>
+	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
+	                        {dashboardStatsLoading
+	                          ? "…"
+	                          : dashboardStats?.passRate == null
+	                            ? "—"
+	                            : `${dashboardStats.passRate.toFixed(1)}%`}
+	                      </p>
+	                    </div>
+	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
+	                      <p className={cn(theme === "light" ? "text-success-foreground-light" : "text-success-foreground-dark")}>
+	                        {dashboardStatsLoading || dashboardStats?.passRateDelta == null
+	                          ? "—"
+	                          : `${dashboardStats.passRateDelta >= 0 ? "+" : ""}${dashboardStats.passRateDelta.toFixed(1)}% vs last week`}
+	                      </p>
+	                    </div>
+	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
+	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("runs")}>
+	                        View
+	                      </button>
+	                    </div>
+	                  </div>
+	                </div>
+
+	                <section
+	                  className={cn(
+	                    "rounded-none border",
+	                    theme === "light"
+	                      ? "border-border-light bg-card-light text-card-foreground-light"
+	                      : "border-border-dark bg-card-dark text-card-foreground-dark"
+	                  )}
+	                >
+	                  <div className="flex items-center justify-between gap-4 p-6">
+	                    <h2 className="text-balance text-lg font-semibold">Recent Test Runs</h2>
+	                    <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("runs")}>
+	                      View All
+	                    </button>
+	                  </div>
+
+	                  {dashboardStatsLoading && !dashboardStats ? (
+	                    <p className={cn("px-6 pb-6 text-sm", mutedForegroundClass)}>Loading…</p>
+	                  ) : dashboardStats?.recentRuns?.length ? (
+	                    <div className="overflow-x-auto">
+	                      <div className="min-w-[720px]">
+	                        <div
+	                          className={cn(
+	                            "grid grid-cols-[minmax(0,1fr)_120px_100px_140px] items-center text-sm",
+	                            borderClass,
+	                            "border-b",
+	                            theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
+	                            mutedForegroundClass
+	                          )}
+	                        >
+	                          <div className="px-3 py-3">Run Name</div>
+	                          <div className="px-3 py-3">Status</div>
+	                          <div className="px-3 py-3">Progress</div>
+	                          <div className="px-3 py-3">Date</div>
+	                        </div>
+	                        {dashboardStats.recentRuns.map((run) => (
+	                          <button
+	                            key={run.id}
+	                            type="button"
+	                            className={cn(
+	                              "grid w-full grid-cols-[minmax(0,1fr)_120px_100px_140px] items-center text-left text-sm",
+	                              borderClass,
+	                              "border-b last:border-b-0",
+	                              theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
+	                              theme === "light" ? "hover:bg-muted-light" : "hover:bg-muted-dark"
+	                            )}
+	                            onClick={() => selectRun(run.id)}
+	                          >
+	                            <div className="px-3 py-3">
+	                              <p className="truncate text-pretty text-sm font-medium">{run.name}</p>
+	                            </div>
+	                            <div className="px-3 py-3">
+	                              <p className={cn("text-pretty text-sm font-medium", getRunStatusClass(run.status))}>
+	                                {getRunStatusLabel(run.status)}
+	                              </p>
+	                            </div>
+	                            <div className="px-3 py-3">
+	                              <p className="text-pretty text-sm font-medium tabular-nums">
+	                                {run.progressPercent}%
+	                              </p>
+	                            </div>
+	                            <div className="px-3 py-3">
+	                              <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
+	                                {formatDashboardDate(run.date)}
+	                              </p>
+	                            </div>
+	                          </button>
+	                        ))}
+	                      </div>
+	                    </div>
+	                  ) : (
+	                    <div className="px-6 pb-6">
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
+	                        No test runs yet. Create your first run to start tracking execution and evidence.
+	                      </p>
+	                    </div>
+	                  )}
+
+	                  <div className={cn("flex h-[68px] items-center justify-end border-t px-6", borderClass)}>
+	                    <button
+	                      type="button"
+	                      className={primaryButtonClass}
+	                      onClick={() => {
+	                        handleNavigate("runs");
+	                        setSelectedRunId(null);
+	                        setRunDraft(emptyRun());
+	                        setRunScenarios([]);
+	                        setRunError(null);
+	                        setSelectedRunScenarioId(null);
+	                        setRunScenarioAddQuery("");
+	                        setRunScenarioAddId("");
+	                      }}
+	                    >
+	                      <PlusIcon className="size-5" />
+	                      New Test Run
+	                    </button>
+	                  </div>
+	                </section>
+	              </div>
+	            )}
 
             {section === "cases" && (
               <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -4383,6 +4741,7 @@ export default function App() {
         open={!!deleteTarget}
         title="削除してもよいですか？"
         description="この操作は取り消せません。"
+        theme={theme}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
@@ -4391,6 +4750,7 @@ export default function App() {
         title="DB をリセットしてもよいですか？"
         description="すべてのデータが削除され、この操作は取り消せません。"
         confirmLabel="リセットする"
+        theme={theme}
         onConfirm={async () => {
           setResetDatabaseOpen(false);
           await handleResetDatabase();

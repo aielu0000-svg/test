@@ -19,6 +19,7 @@ import {
   importData,
   createTemplateDataSets,
   getDataSet,
+  getDashboardStats,
   getProjectInfo,
   getRun,
   getScenario,
@@ -176,6 +177,8 @@ ipcMain.handle("project:backup", async () => {
 });
 
 ipcMain.handle("project:reset", () => resetProject());
+
+ipcMain.handle("dashboard:stats", () => getDashboardStats());
 
 ipcMain.handle("testCases:list", () => listTestCases());
 ipcMain.handle("testCases:get", (_event, id: string) => getTestCase(id));

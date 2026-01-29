@@ -790,6 +790,128 @@ export const listRuns = () => {
     .all();
 };
 
+export const getDashboardStats = () => {
+  const { db: database } = ensureDb();
+
+  const totalTestCases = Number(
+    database.prepare("SELECT COUNT(1) AS count FROM test_cases").get()?.count ?? 0
+  );
+  const totalScenarios = Number(
+    database.prepare("SELECT COUNT(1) AS count FROM scenarios").get()?.count ?? 0
+  );
+  const activeTestRuns = Number(
+    database
+      .prepare("SELECT COUNT(1) AS count FROM test_runs WHERE status != 'completed'")
+      .get()?.count ?? 0
+  );
+
+  const overallPassRateRow = database
+    .prepare(
+      `SELECT
+        SUM(CASE WHEN status = 'pass' THEN 1 ELSE 0 END) AS passed,
+        SUM(CASE WHEN status IN ('pass','fail','blocked') THEN 1 ELSE 0 END) AS completed
+      FROM run_scenario_cases`
+    )
+    .get() as { passed?: number; completed?: number } | undefined;
+  const overallCompleted = Number(overallPassRateRow?.completed ?? 0);
+  const overallPassed = Number(overallPassRateRow?.passed ?? 0);
+  const passRate = overallCompleted ? (overallPassed / overallCompleted) * 100 : null;
+
+  const clampDate = (value: Date) => value.toISOString();
+  const nowDate = new Date();
+  const weekStart = new Date(nowDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const prevWeekStart = new Date(nowDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+  const passRateBetween = (startIso: string, endIso: string) => {
+    const row = database
+      .prepare(
+        `SELECT
+          SUM(CASE WHEN status = 'pass' THEN 1 ELSE 0 END) AS passed,
+          SUM(CASE WHEN status IN ('pass','fail','blocked') THEN 1 ELSE 0 END) AS completed
+        FROM run_scenario_cases
+        WHERE COALESCE(NULLIF(executed_at,''), updated_at) >= ?
+          AND COALESCE(NULLIF(executed_at,''), updated_at) < ?`
+      )
+      .get(startIso, endIso) as { passed?: number; completed?: number } | undefined;
+    const completed = Number(row?.completed ?? 0);
+    const passed = Number(row?.passed ?? 0);
+    return completed ? (passed / completed) * 100 : null;
+  };
+
+  const thisWeekRate = passRateBetween(clampDate(weekStart), clampDate(nowDate));
+  const prevWeekRate = passRateBetween(clampDate(prevWeekStart), clampDate(weekStart));
+  const passRateDelta =
+    thisWeekRate == null || prevWeekRate == null ? null : thisWeekRate - prevWeekRate;
+
+  const recentRuns = database
+    .prepare(
+      `SELECT id, name, status, started_at, created_at, updated_at
+      FROM test_runs
+      ORDER BY updated_at DESC
+      LIMIT 3`
+    )
+    .all() as Array<{
+    id: string;
+    name: string;
+    status: string;
+    started_at?: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  const runIds = recentRuns.map((run) => run.id);
+  const progressByRun: Record<string, { total: number; completed: number }> = {};
+  if (runIds.length) {
+    const placeholders = runIds.map(() => "?").join(",");
+    const rows = database
+      .prepare(
+        `SELECT
+          run_scenarios.run_id AS run_id,
+          COUNT(run_scenario_cases.id) AS total,
+          SUM(CASE WHEN run_scenario_cases.status IN ('pass','fail','blocked') THEN 1 ELSE 0 END) AS completed
+        FROM run_scenarios
+        JOIN run_scenario_cases ON run_scenario_cases.run_scenario_id = run_scenarios.id
+        WHERE run_scenarios.run_id IN (${placeholders})
+        GROUP BY run_scenarios.run_id`
+      )
+      .all(...runIds) as Array<{ run_id: string; total?: number; completed?: number }>;
+
+    rows.forEach((row) => {
+      progressByRun[row.run_id] = {
+        total: Number(row.total ?? 0),
+        completed: Number(row.completed ?? 0)
+      };
+    });
+  }
+
+  const pickDate = (run: { started_at?: string | null; updated_at: string; created_at: string }) => {
+    const started = run.started_at?.trim();
+    if (started) return started;
+    const updated = run.updated_at?.trim();
+    if (updated) return updated;
+    return run.created_at;
+  };
+
+  return {
+    totalTestCases,
+    totalScenarios,
+    activeTestRuns,
+    passRate,
+    passRateDelta,
+    recentRuns: recentRuns.map((run) => {
+      const progress = progressByRun[run.id] ?? { total: 0, completed: 0 };
+      const percent = progress.total ? (progress.completed / progress.total) * 100 : 0;
+      return {
+        id: run.id,
+        name: run.name,
+        status: run.status,
+        progressPercent: Math.round(percent),
+        date: pickDate(run)
+      };
+    })
+  };
+};
+
 export const getRun = (id: string) => {
   const { db: database } = ensureDb();
   const run = database.prepare("SELECT * FROM test_runs WHERE id = ?").get(id);

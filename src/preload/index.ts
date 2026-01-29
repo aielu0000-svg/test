@@ -9,6 +9,9 @@ const api = {
     backup: () => ipcRenderer.invoke("project:backup"),
     reset: () => ipcRenderer.invoke("project:reset")
   },
+  dashboard: {
+    stats: () => ipcRenderer.invoke("dashboard:stats")
+  },
   testCases: {
     list: () => ipcRenderer.invoke("testCases:list"),
     get: (id: string) => ipcRenderer.invoke("testCases:get", id),

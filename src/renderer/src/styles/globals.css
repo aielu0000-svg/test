@@ -13,7 +13,7 @@
   body {
     @apply min-h-dvh antialiased font-secondary;
     background-color: #111111;
-    color: #FAFAFA;
+    color: #FFFFFF;
   }
 
   body[data-theme="light"] {
