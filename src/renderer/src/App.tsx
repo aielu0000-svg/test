@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./lib/utils";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 
@@ -175,8 +175,15 @@ type DataDraft = {
   name: string;
   scope: string;
   description: string;
-  items: Array<{ label: string; value: string; note: string }>;
+  items: DataDraftItem[];
   links: DataLink[];
+};
+
+type DataDraftItem = {
+  clientId: string;
+  label: string;
+  value: string;
+  note: string;
 };
 
 type RunDraft = {
@@ -190,7 +197,7 @@ type RunDraft = {
   notes: string;
 };
 
-type SectionKey = "cases" | "scenarios" | "data" | "runs" | "export" | "settings";
+type SectionKey = "dashboard" | "cases" | "scenarios" | "data" | "runs" | "export" | "settings";
 
 const priorityOptions = ["高", "中", "低"] as const;
 const severityOptions = ["致命的", "高", "中", "低"] as const;
@@ -204,6 +211,28 @@ const runCaseStatusLabels: Record<RunCaseStatus, string> = {
   blocked: "⚠️ blocked",
   skip: "skip"
 };
+const completedRunCaseStatuses = new Set<RunCaseStatus>(["pass", "fail", "blocked"]);
+const remainingRunCaseStatuses = new Set<RunCaseStatus>(["not_run", "skip"]);
+
+const summarizeRunCaseStatuses = (entries: Array<{ status?: string }>) => {
+  let total = 0;
+  let completed = 0;
+  let remaining = 0;
+
+  entries.forEach((entry) => {
+    total += 1;
+    const status = entry.status as RunCaseStatus | undefined;
+    if (status && completedRunCaseStatuses.has(status)) {
+      completed += 1;
+      return;
+    }
+    if (status && remainingRunCaseStatuses.has(status)) {
+      remaining += 1;
+    }
+  });
+
+  return { total, completed, remaining };
+};
 const dataScopes = [
   { value: "common", label: "共通初期データ" },
   { value: "case", label: "テストケース初期データ" },
@@ -211,14 +240,82 @@ const dataScopes = [
   { value: "run", label: "実行初期データ" }
 ];
 
-const sections: Array<{ key: SectionKey; label: string }> = [
-  { key: "cases", label: "テストケース" },
-  { key: "scenarios", label: "シナリオ" },
-  { key: "data", label: "初期データ" },
-  { key: "runs", label: "テスト実行" },
-  { key: "export", label: "エクスポート" },
-  { key: "settings", label: "設定" }
+const navGroups: Array<{
+  title: string;
+  items: Array<{ key: SectionKey; label: string }>;
+}> = [
+  {
+    title: "Overview",
+    items: [
+      { key: "dashboard", label: "Dashboard" },
+      { key: "cases", label: "Test Cases" },
+      { key: "scenarios", label: "Scenarios" }
+    ]
+  },
+  {
+    title: "Execution",
+    items: [
+      { key: "runs", label: "Test Runs" },
+      { key: "data", label: "Data Sets" }
+    ]
+  },
+  {
+    title: "Reports",
+    items: [{ key: "export", label: "Export / Import" }]
+  },
+  {
+    title: "System",
+    items: [{ key: "settings", label: "Settings" }]
+  }
 ];
+
+const sectionMeta: Record<SectionKey, { title: string; subtitle: string }> = {
+  dashboard: {
+    title: "Dashboard",
+    subtitle: "いまの状況を俯瞰して、作業を始めます。"
+  },
+  cases: {
+    title: "Test Cases",
+    subtitle: "テストケースの作成・編集・フォルダ整理を行います。"
+  },
+  scenarios: {
+    title: "Scenarios",
+    subtitle: "シナリオを組み立てて、実行単位にまとめます。"
+  },
+  runs: {
+    title: "Test Runs",
+    subtitle: "シナリオを実行し、結果と証跡を記録します。"
+  },
+  data: {
+    title: "Data Sets",
+    subtitle: "共通/ケース/シナリオ/実行の初期データを管理します。"
+  },
+  export: {
+    title: "Export / Import",
+    subtitle: "テスト資産をエクスポート/インポートして共有します。"
+  },
+  settings: {
+    title: "Settings",
+    subtitle: "プロジェクト名などの設定を変更します。"
+  }
+};
+
+const FlaskConicalIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-5 text-slate-200", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M10 2h4" />
+    <path d="M10 2v5l-5.6 9.7A5.5 5.5 0 0 0 9.2 22h5.6a5.5 5.5 0 0 0 4.8-5.3L14 7V2" />
+    <path d="M8.7 12h6.6" />
+  </svg>
+);
 
 const emptyCase = (): CaseDraft => ({
   title: "",
@@ -238,11 +335,15 @@ const emptyScenario = (): ScenarioDraft => ({
   caseIds: [] as string[]
 });
 
+const createClientId = () => {
+  return globalThis.crypto?.randomUUID?.() ?? `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+};
+
 const emptyDataSet = (): DataDraft => ({
   name: "",
   scope: "common",
   description: "",
-  items: [{ label: "", value: "", note: "" }],
+  items: [{ clientId: createClientId(), label: "", value: "", note: "" }],
   links: [] as DataLink[]
 });
 
@@ -262,7 +363,8 @@ export default function App() {
   const [projectName, setProjectName] = useState("the test");
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
-  const [section, setSection] = useState<SectionKey>("cases");
+  const [section, setSection] = useState<SectionKey>("dashboard");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
@@ -331,6 +433,20 @@ export default function App() {
   const [importFormat, setImportFormat] = useState<"csv" | "json" | "md">("csv");
   const [importScope, setImportScope] = useState("common");
   const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [importStagedFile, setImportStagedFile] = useState<{ fileName: string; content: string } | null>(
+    null
+  );
+  const [importPreviewData, setImportPreviewData] = useState<{
+    fileName: string;
+    total: number;
+    columns: string[];
+    rows: string[][];
+  } | null>(null);
+  const [importPreviewErrorMessage, setImportPreviewErrorMessage] = useState<string | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [resetDatabaseOpen, setResetDatabaseOpen] = useState(false);
 
   const caseTitleError = caseError === "タイトルは必須です。";
   const scenarioTitleError = scenarioError === "タイトルは必須です。";
@@ -339,17 +455,17 @@ export default function App() {
   const runNameError = runError === "テスト実行名は必須です。";
 
   const panelClass = cn(
-    "rounded-2xl border p-5 shadow-sm",
+    "rounded-none border p-5 shadow-sm",
     theme === "light"
-      ? "border-slate-200 bg-white text-slate-900"
-      : "border-slate-800 bg-slate-900/60 text-slate-100"
+      ? "border-[#CBCCC9] bg-white text-[#111111]"
+      : "border-[#27272A] bg-[#1A1A1A] text-[#FAFAFA]"
   );
 
   const inputClass = cn(
-    "w-full rounded-xl border px-3 py-2 text-sm",
+    "w-full rounded-none border px-3 py-2 text-sm",
     theme === "light"
-      ? "border-slate-200 bg-white text-slate-900"
-      : "border-slate-800 bg-slate-950 text-slate-100"
+      ? "border-[#CBCCC9] bg-[#E7E8E5] text-[#111111]"
+      : "border-[#27272A] bg-[#27272A] text-[#FAFAFA]"
   );
 
   const toLocalInput = (value?: string) => {
@@ -815,6 +931,13 @@ export default function App() {
     return candidates.filter((item) => item.title.toLowerCase().includes(term));
   }, [runScenarios, scenarios, runScenarioAddQuery]);
 
+  const runCaseTotals = useMemo(() => {
+    const scenarioIds = runScenarios.map((item) => item.id);
+    const isLoading = scenarioIds.some((id) => !runScenarioCasesMap[id]);
+    const aggregated = scenarioIds.flatMap((id) => runScenarioCasesMap[id] ?? []);
+    return { ...summarizeRunCaseStatuses(aggregated), isLoading };
+  }, [runScenarios, runScenarioCasesMap]);
+
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
     testCases.forEach((item) => {
@@ -956,8 +1079,13 @@ export default function App() {
       scope: data.dataSet.scope,
       description: data.dataSet.description ?? "",
       items: data.items.length
-        ? data.items.map((item) => ({ label: item.label, value: item.value, note: item.note ?? "" }))
-        : [{ label: "", value: "", note: "" }],
+        ? data.items.map((item) => ({
+            clientId: item.id ?? createClientId(),
+            label: item.label,
+            value: item.value,
+            note: item.note ?? ""
+          }))
+        : [{ clientId: createClientId(), label: "", value: "", note: "" }],
       links: data.links
     });
   };
@@ -1101,7 +1229,9 @@ export default function App() {
         name: dataDraft.name.trim(),
         scope: dataDraft.scope,
         description: dataDraft.description,
-        items: dataDraft.items.filter((item) => item.label.trim() || item.value.trim()),
+        items: dataDraft.items
+          .filter((item) => item.label.trim() || item.value.trim())
+          .map((item) => ({ label: item.label, value: item.value, note: item.note })),
         links: dataDraft.links
       };
       const id = (await window.api.dataSets.save(payload)) as string;
@@ -1253,6 +1383,48 @@ export default function App() {
     }
   };
 
+  const handlePreviewRunCaseEvidence = async (id: string, fileName: string) => {
+    try {
+      const result = (await window.api.runCaseEvidence.preview(id)) as
+        | { base64: string; mimeType: string; tooLarge?: boolean; size?: number }
+        | null;
+      if (!result) {
+        setPreviewError("プレビューを読み込めませんでした。");
+        setEvidencePreview({
+          id,
+          fileName,
+          dataUrl: "",
+          mimeType: "application/octet-stream"
+        });
+        return;
+      }
+
+      if (result.tooLarge) {
+        const mb = result.size ? (result.size / 1024 / 1024).toFixed(1) : "";
+        setPreviewError(
+          `ファイルサイズ${mb ? ` (${mb}MB)` : ""}が大きすぎるためプレビューできません。`
+        );
+        setEvidencePreview({
+          id,
+          fileName,
+          dataUrl: "",
+          mimeType: result.mimeType ?? "application/octet-stream"
+        });
+        return;
+      }
+
+      setPreviewError(null);
+      setEvidencePreview({
+        id,
+        fileName,
+        dataUrl: result.base64 ? `data:${result.mimeType};base64,${result.base64}` : "",
+        mimeType: result.mimeType
+      });
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "プレビューに失敗しました。");
+    }
+  };
+
   const closeEvidencePreview = () => {
     setEvidencePreview(null);
     setPreviewError(null);
@@ -1355,7 +1527,9 @@ export default function App() {
       const payload = {
         entity: importType,
         format: importFormat,
-        scopeOverride: importType === "data_sets" ? importScope : undefined
+        scopeOverride: importType === "data_sets" ? importScope : undefined,
+        content: importStagedFile?.content,
+        fileName: importStagedFile?.fileName
       };
       const result = (await window.api.import.run(payload)) as
         | { imported: number; filePath: string }
@@ -1365,9 +1539,83 @@ export default function App() {
         return;
       }
       setImportNotice(`取り込み完了: ${result.imported} 件 (${result.filePath})`);
+      setImportStagedFile(null);
+      setImportPreviewData(null);
+      setImportPreviewErrorMessage(null);
       await loadAll();
     } catch (err) {
       setImportNotice(err instanceof Error ? err.message : "インポートに失敗しました。");
+    }
+  };
+
+  const stageImportFile = async (file: File | null) => {
+    setImportNotice(null);
+    setImportPreviewErrorMessage(null);
+    setImportPreviewData(null);
+    if (!file) {
+      setImportStagedFile(null);
+      return;
+    }
+    try {
+      const content = await file.text();
+      setImportStagedFile({ fileName: file.name, content });
+      const preview = (await window.api.import.preview({
+        entity: importType,
+        format: importFormat,
+        scopeOverride: importType === "data_sets" ? importScope : undefined,
+        content
+      })) as { total: number; columns: string[]; rows: string[][] };
+      setImportPreviewData({ fileName: file.name, ...preview });
+    } catch (err) {
+      setImportPreviewErrorMessage(
+        err instanceof Error ? err.message : "プレビューを作成できませんでした。"
+      );
+    }
+  };
+
+  const handleBackupDatabase = async () => {
+    setSettingsNotice(null);
+    try {
+      const result = (await window.api.project.backup()) as string | null;
+      if (!result) {
+        setSettingsNotice("バックアップがキャンセルされました。");
+        return;
+      }
+      setSettingsNotice(`バックアップしました: ${result}`);
+    } catch (err) {
+      setSettingsNotice(err instanceof Error ? err.message : "バックアップに失敗しました。");
+    }
+  };
+
+  const handleResetDatabase = async () => {
+    setSettingsNotice(null);
+    try {
+      const updated = (await window.api.project.reset()) as ProjectInfo;
+      setProject(updated);
+      setSelectedCaseId(null);
+      setCaseDraft(emptyCase());
+      setCaseDataSets({});
+      setSelectedScenarioId(null);
+      setScenarioDraft(emptyScenario());
+      setScenarioDetail(null);
+      setScenarioDetailsCache({});
+      setSelectedDataSetId(null);
+      setDataDraft(emptyDataSet());
+      setSelectedRunId(null);
+      setRunDraft(emptyRun());
+      setRunScenarios([]);
+      setSelectedRunScenarioId(null);
+      setRunScenarioAddQuery("");
+      setRunScenarioAddId("");
+      setEvidenceList([]);
+      setRunCaseEvidenceMap({});
+      setRunScenarioCasesMap({});
+      setEvidencePreview(null);
+      setPreviewError(null);
+      await loadAll();
+      setSettingsNotice("データベースをリセットしました。");
+    } catch (err) {
+      setSettingsNotice(err instanceof Error ? err.message : "リセットに失敗しました。");
     }
   };
 
@@ -1421,8 +1669,8 @@ export default function App() {
 
   if (!project) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-slate-950 px-6 py-12 text-slate-100">
-        <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-sm">
+      <main className="flex min-h-dvh items-center justify-center px-6 py-12" style={{backgroundColor: theme === "light" ? "#F2F3F0" : "#111111", color: theme === "light" ? "#111111" : "#FAFAFA"}}>
+        <div className="w-full max-w-lg rounded-none border p-8 shadow-sm" style={{borderColor: theme === "light" ? "#CBCCC9" : "#27272A", backgroundColor: theme === "light" ? "#FFFFFF" : "#1A1A1A"}}>
           <h1 className="text-balance text-3xl font-semibold">the test</h1>
           <p className="text-pretty mt-3 text-sm text-slate-300">
             ローカルで完結するテスト管理アプリ。SQLite と証跡フォルダで持ち運びできます。
@@ -1439,7 +1687,7 @@ export default function App() {
             />
             <div className="flex flex-wrap gap-3">
               <button
-                className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
                 onClick={handleCreateProject}
               >
                 新規プロジェクトを作成
@@ -1462,59 +1710,306 @@ export default function App() {
     );
   }
 
+  const handleNavigate = (next: SectionKey) => {
+    setSection(next);
+    setMobileNavOpen(false);
+  };
+
+  const currentMeta = sectionMeta[section];
+  const dashboardCardClass = cn(
+    "rounded-none border p-4",
+    theme === "light" ? "border-[#CBCCC9] bg-white" : "border-[#27272A] bg-[#1A1A1A]"
+  );
+  const dashboardLinkClass = cn("mt-3 text-sm font-semibold", theme === "light" ? "text-[#FF8400]" : "text-[#FF8400]");
+  const dashboardActionButtonClass = cn(
+    "rounded-full border px-3 py-2 text-left text-sm font-semibold",
+    theme === "light"
+      ? "border-[#CBCCC9] bg-[#E7E8E5] text-[#111111] hover:opacity-90"
+      : "border-[#27272A] bg-[#2E2E2E] text-white hover:opacity-90"
+  );
+
   return (
-    <div className={cn("min-h-dvh", theme === "light" ? "bg-slate-50" : "bg-slate-950")}>
-      <div className="mx-auto grid min-h-dvh max-w-6xl grid-cols-[240px_minmax(0,1fr)] gap-6 px-6 py-8">
-        <aside className={cn("flex flex-col gap-4", panelClass)}>
-          <div>
-            <h2 className="text-balance text-lg font-semibold">the test</h2>
-            <p className="text-pretty mt-1 text-xs text-slate-400">{project.name}</p>
-            <p className="text-pretty mt-1 text-[11px] text-slate-500">{project.path}</p>
+    <div className="min-h-dvh" style={{backgroundColor: theme === "light" ? "#F2F3F0" : "#111111", color: theme === "light" ? "#111111" : "#FAFAFA"}}>
+      <div className="flex min-h-dvh">
+        <aside
+          className={cn(
+            "hidden h-dvh w-[280px] flex-col border-r px-4 py-6 md:flex",
+            theme === "light" ? "border-[#CBCCC9] bg-[#E7E8E5]" : "border-[#27272A] bg-[#18181b]"
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className={cn(
+                "flex items-center gap-2 rounded-xl px-2 py-1 text-left",
+                theme === "light" ? "text-slate-900" : "text-slate-100"
+              )}
+              onClick={() => handleNavigate("dashboard")}
+            >
+              <FlaskConicalIcon className={theme === "light" ? "text-slate-700" : "text-slate-200"} />
+              <span className="text-balance text-base font-semibold">the test</span>
+            </button>
           </div>
-          <nav className="mt-4 grid gap-2">
-            {sections.map((item) => (
-              <button
-                key={item.key}
-                className={cn(
-                  "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold",
-                  section === item.key
-                    ? "bg-slate-800 text-slate-100"
-                    : "border border-slate-800 text-slate-300"
-                )}
-                onClick={() => setSection(item.key)}
-              >
-                {item.label}
-              </button>
+
+          <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pr-1">
+            {navGroups.map((group) => (
+              <div key={group.title} className="grid gap-2">
+                <p className="text-xs font-semibold text-slate-500">{group.title}</p>
+                <div className="grid gap-1">
+                  {group.items.map((item) => {
+                    const active = section === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={cn(
+                          "w-full rounded-pill px-3 py-2 text-left text-sm font-semibold",
+                          theme === "light"
+                            ? active
+                              ? "bg-[#CBCCC9] text-[#111111]"
+                              : "text-[#111111] hover:bg-[#CBCCC9]/50"
+                            : active
+                              ? "bg-[#27272A] text-[#FAFAFA]"
+                              : "text-[#FAFAFA] hover:bg-[#27272A]/50"
+                        )}
+                        onClick={() => handleNavigate(item.key)}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
           </nav>
+
+          <div className={cn("mt-6 border-t pt-4 text-xs text-slate-500", theme === "light" ? "border-slate-200" : "border-slate-800")}>
+            <p className="text-pretty font-semibold">{project.name}</p>
+            <p className="text-pretty mt-1 break-all">{project.path}</p>
+          </div>
         </aside>
 
-        <section className="flex flex-col gap-6">
-          <header className={cn("flex flex-wrap items-center justify-between gap-4", panelClass)}>
-            <div>
-              <h1 className="text-balance text-2xl font-semibold">テスト管理</h1>
-              <p className="text-pretty mt-1 text-sm text-slate-400">
-                テストケース、シナリオ、初期データ、実行結果を一元管理します。
-              </p>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <header
+            className={cn(
+              "border-b px-6 py-5",
+              theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950"
+            )}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="text-balance text-[28px] font-semibold leading-tight">
+                  {currentMeta.title}
+                </h1>
+                <p
+                  className={cn(
+                    "text-pretty mt-1 text-sm",
+                    theme === "light" ? "text-slate-500" : "text-slate-400"
+                  )}
+                >
+                  {currentMeta.subtitle}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold md:hidden",
+                    theme === "light"
+                      ? "border-slate-200 bg-white text-slate-900"
+                      : "border-slate-800 bg-slate-950 text-slate-100"
+                  )}
+                  aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+                  aria-expanded={mobileNavOpen}
+                  aria-controls="mobile-navigation"
+                  onClick={() => setMobileNavOpen((prev) => !prev)}
+                >
+                  Menu
+                </button>
+                <label htmlFor="theme-select" className="text-xs font-semibold uppercase text-slate-400">
+                  テーマ
+                </label>
+                <select
+                  id="theme-select"
+                  className={cn(inputClass, "w-auto")}
+                  value={theme}
+                  onChange={(event) => setTheme(event.target.value as "dark" | "light")}
+                >
+                  <option value="dark">ダーク</option>
+                  <option value="light">ライト</option>
+                </select>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <label htmlFor="theme-select" className="text-xs font-semibold uppercase text-slate-400">
-                テーマ
-              </label>
-              <select
-                id="theme-select"
-                className={inputClass}
-                value={theme}
-                onChange={(event) => setTheme(event.target.value as "dark" | "light")}
+
+            {mobileNavOpen && (
+              <div
+                id="mobile-navigation"
+                className={cn(
+                  "mt-5 grid gap-4 rounded-2xl border p-4 md:hidden",
+                  theme === "light"
+                    ? "border-slate-200 bg-slate-50"
+                    : "border-slate-800 bg-slate-900/50"
+                )}
               >
-                <option value="dark">ダーク</option>
-                <option value="light">ライト</option>
-              </select>
-            </div>
+                <div className="flex items-center gap-3">
+                  <FlaskConicalIcon className={theme === "light" ? "text-slate-700" : "text-slate-200"} />
+                  <p className={cn("text-balance text-sm font-semibold", theme === "light" ? "text-slate-900" : "text-slate-100")}>
+                    the test
+                  </p>
+                  <p className="text-pretty text-xs text-slate-500">{project.name}</p>
+                </div>
+                {navGroups.map((group) => (
+                  <div key={group.title} className="grid gap-2">
+                    <p className="text-xs font-semibold text-slate-500">{group.title}</p>
+                    <div className="grid gap-1">
+                      {group.items.map((item) => {
+                        const active = section === item.key;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className={cn(
+                              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold",
+                              theme === "light"
+                                ? active
+                                  ? "bg-white text-slate-900"
+                                  : "text-slate-700 hover:bg-white"
+                                : active
+                                  ? "bg-slate-900 text-slate-100"
+                                  : "text-slate-300 hover:bg-slate-900/40"
+                            )}
+                            onClick={() => handleNavigate(item.key)}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </header>
 
-          {section === "cases" && (
-            <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8">
+            {section === "dashboard" && (
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div className={cn(panelClass, "lg:col-span-2")}>
+                  <h2 className="text-balance text-lg font-semibold">Overview</h2>
+                  <p className="text-pretty mt-1 text-sm text-slate-400">
+                    プロジェクト内の件数と、よく使う操作へのショートカットです。
+                  </p>
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className={dashboardCardClass}>
+                      <p className="text-pretty text-xs font-semibold text-slate-400">Test Cases</p>
+                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
+                        {testCases.length}
+                      </p>
+                      <button
+                        type="button"
+                        className={dashboardLinkClass}
+                        onClick={() => handleNavigate("cases")}
+                      >
+                        Open
+                      </button>
+                    </div>
+                    <div className={dashboardCardClass}>
+                      <p className="text-pretty text-xs font-semibold text-slate-400">Scenarios</p>
+                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
+                        {scenarios.length}
+                      </p>
+                      <button
+                        type="button"
+                        className={dashboardLinkClass}
+                        onClick={() => handleNavigate("scenarios")}
+                      >
+                        Open
+                      </button>
+                    </div>
+                    <div className={dashboardCardClass}>
+                      <p className="text-pretty text-xs font-semibold text-slate-400">Data Sets</p>
+                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
+                        {dataSets.length}
+                      </p>
+                      <button
+                        type="button"
+                        className={dashboardLinkClass}
+                        onClick={() => handleNavigate("data")}
+                      >
+                        Open
+                      </button>
+                    </div>
+                    <div className={dashboardCardClass}>
+                      <p className="text-pretty text-xs font-semibold text-slate-400">Test Runs</p>
+                      <p className="mt-2 text-balance text-3xl font-semibold tabular-nums">
+                        {runs.length}
+                      </p>
+                      <button
+                        type="button"
+                        className={dashboardLinkClass}
+                        onClick={() => handleNavigate("runs")}
+                      >
+                        Open
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={panelClass}>
+                  <h2 className="text-balance text-lg font-semibold">Quick actions</h2>
+                  <div className="mt-4 grid gap-3">
+                    <button
+                      type="button"
+                      className={dashboardActionButtonClass}
+                      onClick={() => {
+                        handleNavigate("cases");
+                        setSelectedCaseId(null);
+                        setCaseDraft(emptyCase());
+                        setCaseDataSets({});
+                        setCaseError(null);
+                      }}
+                    >
+                      New test case
+                    </button>
+                    <button
+                      type="button"
+                      className={dashboardActionButtonClass}
+                      onClick={() => {
+                        handleNavigate("scenarios");
+                        setSelectedScenarioId(null);
+                        setScenarioDraft(emptyScenario());
+                        setScenarioDetail(null);
+                        setScenarioError(null);
+                      }}
+                    >
+                      New scenario
+                    </button>
+                    <button
+                      type="button"
+                      className={dashboardActionButtonClass}
+                      onClick={() => {
+                        handleNavigate("runs");
+                        setSelectedRunId(null);
+                        setRunDraft(emptyRun());
+                        setRunError(null);
+                      }}
+                    >
+                      New test run
+                    </button>
+                    <button
+                      type="button"
+                      className={dashboardActionButtonClass}
+                      onClick={() => handleNavigate("export")}
+                    >
+                      Export / Import
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {section === "cases" && (
+              <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
               <div className={panelClass}>
                 <div className="flex items-center justify-between">
                   <h2 className="text-balance text-lg font-semibold">テストケース一覧</h2>
@@ -2111,7 +2606,7 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveCase}
                       disabled={isLoading}
                     >
@@ -2190,7 +2685,7 @@ export default function App() {
                     onChange={(event) => setScenarioFromFolderTitle(event.target.value)}
                     />
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+                      className="rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
                       onClick={handleCreateScenarioFromFolder}
                     >
                       フォルダから作成
@@ -2203,7 +2698,7 @@ export default function App() {
                           <button
                             type="button"
                             className={cn(
-                              "w-full rounded-xl border px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400",
+                              "w-full rounded-xl border px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
                               selectedScenarioId === item.id
                                 ? "border-sky-400 bg-slate-900 text-slate-100"
                                 : "border-slate-800 text-slate-300"
@@ -2292,7 +2787,7 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveScenario}
                       disabled={isLoading}
                     >
@@ -2469,88 +2964,119 @@ export default function App() {
 
                   <div>
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase text-slate-400">項目</p>
+                      <p className="text-xs font-semibold uppercase text-slate-400">Data items</p>
                       <button
                         className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
                         onClick={() =>
                           setDataDraft({
                             ...dataDraft,
-                            items: [...dataDraft.items, { label: "", value: "", note: "" }]
+                            items: [
+                              ...dataDraft.items,
+                              { clientId: createClientId(), label: "", value: "", note: "" }
+                            ]
                           })
                         }
                       >
-                        項目を追加
+                        Add Data Item
                       </button>
                     </div>
-                    <div className="mt-3 grid gap-3">
-                      {dataDraft.items.map((item, index) => (
-                        <div key={`${index}-${item.label}`} className="rounded-xl border border-slate-800 p-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-slate-400">項目 {index + 1}</span>
-                            {dataDraft.items.length > 1 && (
-                              <button
-                                className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200"
-                                onClick={() =>
-                                  setDataDraft({
-                                    ...dataDraft,
-                                    items: dataDraft.items.filter((_, itemIndex) => itemIndex !== index)
-                                  })
-                                }
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="w-full min-w-[720px] text-left text-sm">
+                        <thead className="text-xs font-semibold uppercase text-slate-400">
+                          <tr>
+                            <th className="px-3 py-2">Label</th>
+                            <th className="px-3 py-2">Value</th>
+                            <th className="px-3 py-2">Note</th>
+                            <th className="px-3 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dataDraft.items.length ? (
+                            dataDraft.items.map((item) => (
+                              <tr
+                                key={item.clientId}
+                                className={cn(
+                                  "border-t",
+                                  theme === "light" ? "border-slate-200" : "border-slate-800"
+                                )}
                               >
-                                削除
-                              </button>
-                            )}
-                          </div>
-                          <label
-                            htmlFor={`data-item-label-${index}`}
-                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
-                          >
-                            キー
-                          </label>
-                          <input
-                            id={`data-item-label-${index}`}
-                            className={cn(inputClass, "mt-2")}
-                            value={item.label}
-                            onChange={(event) => {
-                              const next = [...dataDraft.items];
-                              next[index] = { ...item, label: event.target.value };
-                              setDataDraft({ ...dataDraft, items: next });
-                            }}
-                          />
-                          <label
-                            htmlFor={`data-item-value-${index}`}
-                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
-                          >
-                            値
-                          </label>
-                          <input
-                            id={`data-item-value-${index}`}
-                            className={cn(inputClass, "mt-2")}
-                            value={item.value}
-                            onChange={(event) => {
-                              const next = [...dataDraft.items];
-                              next[index] = { ...item, value: event.target.value };
-                              setDataDraft({ ...dataDraft, items: next });
-                            }}
-                          />
-                          <label
-                            htmlFor={`data-item-note-${index}`}
-                            className="mt-2 block text-xs font-semibold uppercase text-slate-400"
-                          >
-                            メモ
-                          </label>
-                          <input
-                            id={`data-item-note-${index}`}
-                            className={cn(inputClass, "mt-2")}
-                            value={item.note ?? ""}
-                            onChange={(event) => {
-                              const next = [...dataDraft.items];
-                              next[index] = { ...item, note: event.target.value };
-                              setDataDraft({ ...dataDraft, items: next });
-                            }}
-                          />
-                        </div>
-                      ))}
+                                <td className="px-3 py-2">
+                                  <input
+                                    className={inputClass}
+                                    value={item.label}
+                                    onChange={(event) => {
+                                      const next = dataDraft.items.map((entry) =>
+                                        entry.clientId === item.clientId
+                                          ? { ...entry, label: event.target.value }
+                                          : entry
+                                      );
+                                      setDataDraft({ ...dataDraft, items: next });
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    className={inputClass}
+                                    value={item.value}
+                                    onChange={(event) => {
+                                      const next = dataDraft.items.map((entry) =>
+                                        entry.clientId === item.clientId
+                                          ? { ...entry, value: event.target.value }
+                                          : entry
+                                      );
+                                      setDataDraft({ ...dataDraft, items: next });
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    className={inputClass}
+                                    value={item.note ?? ""}
+                                    onChange={(event) => {
+                                      const next = dataDraft.items.map((entry) =>
+                                        entry.clientId === item.clientId
+                                          ? { ...entry, note: event.target.value }
+                                          : entry
+                                      );
+                                      setDataDraft({ ...dataDraft, items: next });
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "rounded-full border px-3 py-1 text-xs font-semibold",
+                                      theme === "light"
+                                        ? "border-slate-200 text-slate-700"
+                                        : "border-slate-700 text-slate-200"
+                                    )}
+                                    onClick={() =>
+                                      setDataDraft({
+                                        ...dataDraft,
+                                        items: dataDraft.items.filter((entry) => entry.clientId !== item.clientId)
+                                      })
+                                    }
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr
+                              className={cn(
+                                "border-t",
+                                theme === "light" ? "border-slate-200" : "border-slate-800"
+                              )}
+                            >
+                              <td colSpan={4} className="px-3 py-8 text-center text-xs text-slate-400">
+                                Data items are empty. Click “Add Data Item” to add one.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
 
@@ -2564,7 +3090,7 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveDataSet}
                       disabled={isLoading}
                     >
@@ -2649,7 +3175,42 @@ export default function App() {
 
               <div className={panelClass}>
                 <h2 className="text-balance text-lg font-semibold">テスト実行詳細</h2>
-                <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {[
+                    {
+                      label: "Total",
+                      value: runCaseTotals.isLoading ? "…" : runCaseTotals.total,
+                      accent: "text-primary"
+                    },
+                    {
+                      label: "Completed",
+                      value: runCaseTotals.isLoading ? "…" : runCaseTotals.completed,
+                      accent: theme === "light" ? "text-emerald-700" : "text-emerald-300"
+                    },
+                    {
+                      label: "Remaining",
+                      value: runCaseTotals.isLoading ? "…" : runCaseTotals.remaining,
+                      accent: theme === "light" ? "text-amber-700" : "text-amber-300"
+                    }
+                  ].map((card) => (
+                    <div
+                      key={card.label}
+                      className={cn(
+                        "rounded-2xl border p-4",
+                        theme === "light"
+                          ? "border-slate-200 bg-white"
+                          : "border-slate-800 bg-slate-950/30"
+                      )}
+                    >
+                      <p className="text-pretty text-xs font-semibold text-slate-400">{card.label}</p>
+                      <p className={cn("mt-2 text-balance text-3xl font-semibold tabular-nums", card.accent)}>
+                        {card.value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-6 grid gap-4" aria-busy={isLoading || undefined}>
                   <label htmlFor="run-name" className="text-xs font-semibold uppercase text-slate-400">
                     実行名
                   </label>
@@ -2757,7 +3318,7 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleSaveRun}
                       disabled={isLoading}
                     >
@@ -2773,14 +3334,40 @@ export default function App() {
                     )}
                   </div>
 
-	                  <div className="border-t border-slate-800 pt-4">
-	                    <div className="flex flex-wrap items-center justify-between gap-3">
-	                      <h3 className="text-balance text-sm font-semibold">実行シナリオ</h3>
-	                    </div>
-
-                    <div
-                      className={cn(
-                        "mt-3 rounded-2xl border p-3",
+		                  <div className="border-t border-slate-800 pt-4">
+		                    <div className="flex flex-wrap items-center justify-between gap-3">
+		                      <h3 className="text-balance text-sm font-semibold">実行シナリオ</h3>
+		                    </div>
+		                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400 tabular-nums">
+		                      <span
+		                        className={cn(
+		                          "rounded-full border px-2 py-0.5",
+		                          theme === "light" ? "border-slate-200 text-slate-600" : "border-slate-800 text-slate-300"
+		                        )}
+		                      >
+		                        総数: {runCaseTotals.isLoading ? "…" : runCaseTotals.total}
+		                      </span>
+		                      <span
+		                        className={cn(
+		                          "rounded-full border px-2 py-0.5",
+		                          theme === "light" ? "border-slate-200 text-slate-600" : "border-slate-800 text-slate-300"
+		                        )}
+		                      >
+		                        完了: {runCaseTotals.isLoading ? "…" : runCaseTotals.completed}
+		                      </span>
+		                      <span
+		                        className={cn(
+		                          "rounded-full border px-2 py-0.5",
+		                          theme === "light" ? "border-slate-200 text-slate-600" : "border-slate-800 text-slate-300"
+		                        )}
+		                      >
+		                        残数: {runCaseTotals.isLoading ? "…" : runCaseTotals.remaining}
+		                      </span>
+		                    </div>
+	
+	                    <div
+	                      className={cn(
+	                        "mt-3 rounded-2xl border p-3",
                         theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950/30"
                       )}
                     >
@@ -2825,7 +3412,7 @@ export default function App() {
                         <div className="flex lg:justify-end">
                           <button
                             type="button"
-                            className="w-full rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
+                            className="w-full rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
                             onClick={() => {
                               if (!runScenarioAddId) {
                                 return;
@@ -2851,40 +3438,76 @@ export default function App() {
 	                      )}
 	                    </div>
 
-                    <div className="mt-4 grid gap-3">
-                      {runScenarios.map((item) => {
-                        const scenarioCases = runScenarioCasesMap[item.id] ?? [];
-                        return (
-                        <div
-                          key={item.id}
-                          className={cn(
-                            "rounded-xl border border-slate-800 p-3",
+	                    <div className="mt-4 grid gap-3">
+	                      {runScenarios.map((item) => {
+	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
+	                        const scenarioCases = scenarioCasesRaw ?? [];
+	                        const scenarioTotals = scenarioCasesRaw
+	                          ? summarizeRunCaseStatuses(scenarioCasesRaw)
+	                          : null;
+	                        return (
+	                        <div
+	                          key={item.id}
+	                          className={cn(
+	                            "rounded-xl border border-slate-800 p-3",
                             selectedRunScenarioId === item.id && "border-sky-400"
                           )}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <button
-                              className="text-left text-sm font-semibold"
-                              onClick={() => selectRunScenario(item.id)}
-                            >
-                              {item.title}
-                            </button>
-                            <button
-                              className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200"
-                              onClick={async () => {
-                                await window.api.runs.removeScenario(item.id);
-                                if (selectedRunId) {
-                                  await selectRun(selectedRunId);
-                                }
-                              }}
-                            >
-                              削除
-                            </button>
-                          </div>
-                          <div className="mt-3 grid gap-2">
-                            <label
-                              htmlFor={`run-scenario-status-${item.id}`}
-                              className="text-xs font-semibold uppercase text-slate-400"
+	                          <div className="flex items-center justify-between gap-2">
+	                            <button
+	                              className="text-left text-sm font-semibold"
+	                              onClick={() => selectRunScenario(item.id)}
+	                            >
+	                              {item.title}
+	                            </button>
+	                            <button
+	                              className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200"
+	                              onClick={async () => {
+	                                await window.api.runs.removeScenario(item.id);
+	                                if (selectedRunId) {
+	                                  await selectRun(selectedRunId);
+	                                }
+	                              }}
+	                            >
+	                              削除
+	                            </button>
+	                          </div>
+	                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400 tabular-nums">
+	                            <span
+	                              className={cn(
+	                                "rounded-full border px-2 py-0.5",
+	                                theme === "light"
+	                                  ? "border-slate-200 text-slate-600"
+	                                  : "border-slate-800 text-slate-300"
+	                              )}
+	                            >
+	                              総数: {scenarioTotals ? scenarioTotals.total : "…"}
+	                            </span>
+	                            <span
+	                              className={cn(
+	                                "rounded-full border px-2 py-0.5",
+	                                theme === "light"
+	                                  ? "border-slate-200 text-slate-600"
+	                                  : "border-slate-800 text-slate-300"
+	                              )}
+	                            >
+	                              完了: {scenarioTotals ? scenarioTotals.completed : "…"}
+	                            </span>
+	                            <span
+	                              className={cn(
+	                                "rounded-full border px-2 py-0.5",
+	                                theme === "light"
+	                                  ? "border-slate-200 text-slate-600"
+	                                  : "border-slate-800 text-slate-300"
+	                              )}
+	                            >
+	                              残数: {scenarioTotals ? scenarioTotals.remaining : "…"}
+	                            </span>
+	                          </div>
+	                          <div className="mt-3 grid gap-2">
+	                            <label
+	                              htmlFor={`run-scenario-status-${item.id}`}
+	                              className="text-xs font-semibold uppercase text-slate-400"
                             >
                               結果
                             </label>
@@ -2974,33 +3597,33 @@ export default function App() {
                                           : "border-slate-800 bg-slate-950/40"
                                       )}
                                     >
-	                                      <summary className="flex items-center justify-between text-sm font-semibold">
-	                                        <div className="space-y-1 text-slate-100">
-	                                          <span>{runCase.case_title}</span>
-                                          <p className="text-[11px] text-slate-400">
-                                            前提:{" "}
-                                            {runCase.preconditions?.trim()
-                                              ? runCase.preconditions
-                                              : "なし"}
-                                          </p>
-                                          <p className="text-[11px] text-slate-400">
-                                            初期データ:{" "}
-                                            {caseDetail?.dataSets.length
-                                              ? caseDetail.dataSets
-                                                  .map((dataSet) => dataSet.name)
-                                                  .join(" / ")
-                                              : "初期データなし"}
-                                          </p>
+		                                      <summary className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 text-sm font-semibold">
+		                                        <div className="min-w-0 space-y-1 text-slate-100">
+		                                          <span>{runCase.case_title}</span>
+	                                          <p className="text-[11px] text-slate-400">
+	                                            前提:{" "}
+	                                            {runCase.preconditions?.trim()
+	                                              ? runCase.preconditions
+	                                              : "なし"}
+	                                          </p>
+	                                          <p className="break-words text-[11px] text-slate-400">
+	                                            初期データ:{" "}
+	                                            {caseDetail?.dataSets.length
+	                                              ? caseDetail.dataSets
+	                                                  .map((dataSet) => dataSet.name)
+	                                                  .join(" / ")
+	                                              : "初期データなし"}
+	                                          </p>
                                           {runCase.tags?.trim() && (
                                             <p className="text-[11px] text-slate-400">
                                               タグ: {runCase.tags}
                                             </p>
                                           )}
 	                                        </div>
-	                                        <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold text-slate-100">
-	                                          {runCaseStatusLabels[runCase.status as RunCaseStatus] ?? runCase.status}
-	                                        </span>
-	                                      </summary>
+		                                        <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold text-slate-100">
+		                                          {runCaseStatusLabels[runCase.status as RunCaseStatus] ?? runCase.status}
+		                                        </span>
+		                                      </summary>
 	                                      <div className="mt-3 grid gap-4 text-xs text-slate-300">
 	                                        <div>
 	                                          <p className="text-[11px] font-semibold uppercase text-slate-400">
@@ -3155,69 +3778,86 @@ export default function App() {
 	                                              <div className="flex flex-wrap gap-2">
 	                                                <button
 	                                                  type="button"
-	                                                  className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
+	                                                  className="rounded-pill bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground"
 	                                                  onClick={() => handleAddRunCaseEvidence(runCase.id)}
 	                                                >
-	                                                  ファイル追加
+	                                                  Add Evidence
 	                                                </button>
 	                                                <button
 	                                                  type="button"
 	                                                  className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
 	                                                  onClick={() => handlePasteRunCaseEvidence(runCase.id)}
 	                                                >
-	                                                  画像貼り付け
+	                                                  Paste
 	                                                </button>
 	                                              </div>
 	                                            </div>
-	                                            <div className="mt-3 grid gap-2">
-	                                              {caseEvidence.length ? (
-	                                                <div className="grid gap-2 md:grid-cols-2">
-	                                                  {caseEvidence.map((preview) => (
-	                                                    <div
-	                                                      key={preview.id}
-	                                                      className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 p-2"
-	                                                    >
-	                                                      {preview.dataUrl &&
-	                                                      preview.mimeType?.startsWith("image/") ? (
-	                                                        <img
-	                                                          src={preview.dataUrl}
-	                                                          alt={preview.fileName}
-	                                                          className="h-32 w-full rounded-lg object-cover"
-	                                                        />
-	                                                      ) : (
-	                                                        <div className="flex h-32 items-center justify-center text-xs text-slate-300">
-	                                                          {preview.fileName}
-	                                                        </div>
-	                                                      )}
-	                                                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
-	                                                        <span>{preview.fileName}</span>
-	                                                        <button
-	                                                          type="button"
-	                                                          className="rounded-full border border-rose-500 px-2 py-0.5 text-[10px] font-semibold text-rose-200"
-	                                                          onClick={() =>
-	                                                            handleRemoveRunCaseEvidence(
-	                                                              preview.id,
-	                                                              runCase.id
-	                                                            )
-	                                                          }
-	                                                        >
-	                                                          削除
-	                                                        </button>
-	                                                      </div>
-	                                                    </div>
-	                                                  ))}
-	                                                </div>
-	                                              ) : (
-	                                                <p className="text-xs text-slate-500">
-	                                                  このケースに証跡はありません。
-	                                                </p>
-	                                              )}
+	                                            <div className="mt-3">
+                                                {caseEvidence.length ? (
+                                                  <div className="flex flex-wrap gap-3">
+                                                    {caseEvidence.map((preview) => (
+                                                      <div key={preview.id} className="group relative w-30">
+                                                        <button
+                                                          type="button"
+                                                          aria-label="証跡を削除"
+                                                          className={cn(
+                                                            "absolute right-1 top-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                                            "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                                                            theme === "light"
+                                                              ? "border-slate-200 bg-white text-slate-700"
+                                                              : "border-slate-700 bg-slate-950/90 text-slate-100"
+                                                          )}
+                                                          onClick={() =>
+                                                            handleRemoveRunCaseEvidence(preview.id, runCase.id)
+                                                          }
+                                                        >
+                                                          Delete
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          className={cn(
+                                                            "block rounded-xl border",
+                                                            theme === "light"
+                                                              ? "border-slate-200 bg-white"
+                                                              : "border-slate-800 bg-slate-950/60"
+                                                          )}
+                                                          onClick={() =>
+                                                            handlePreviewRunCaseEvidence(
+                                                              preview.id,
+                                                              preview.fileName
+                                                            )
+                                                          }
+                                                        >
+                                                          {preview.dataUrl &&
+                                                          preview.mimeType?.startsWith("image/") ? (
+                                                            <img
+                                                              src={preview.dataUrl}
+                                                              alt={preview.fileName}
+                                                              className="size-30 rounded-xl object-cover"
+                                                            />
+                                                          ) : (
+                                                            <div className="flex size-30 items-center justify-center p-2 text-center text-[11px] text-slate-400">
+                                                              <span className="line-clamp-3">{preview.fileName}</span>
+                                                            </div>
+                                                          )}
+                                                        </button>
+                                                        <p className="mt-1 w-30 truncate text-[10px] text-slate-400">
+                                                          {preview.fileName}
+                                                        </p>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                ) : (
+                                                  <p className="text-pretty text-xs text-slate-400">
+                                                    証跡はまだありません。Add Evidence から追加してください。
+                                                  </p>
+                                                )}
 	                                            </div>
 	                                          </div>
 	                                          <div className="flex flex-wrap gap-2">
 	                                            <button
 	                                              type="button"
-	                                              className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+	                                              className="rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
 	                                              onClick={() =>
 	                                                handleSaveRunScenarioCase(item.id, runCase)
 	                                              }
@@ -3246,7 +3886,7 @@ export default function App() {
                           </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
-                              className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950"
+                              className="rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
                               onClick={() =>
                                 handleUpdateRunScenario({
                                   id: item.id,
@@ -3294,23 +3934,23 @@ export default function App() {
                         </div>
                         <div className="mt-3 grid gap-2">
                           {evidenceList.map((evidence) => (
-                            <div key={evidence.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                              <div className="flex flex-wrap items-center gap-2">
+                            <div key={evidence.id} className="flex items-center justify-between gap-2 text-sm">
+                              <div className="flex min-w-0 items-center gap-2">
                                 <button
-                                  className="text-left text-sky-300"
+                                  className="min-w-0 truncate text-left text-sky-300"
                                   onClick={() => window.api.evidence.open(evidence.id)}
                                 >
                                   {evidence.file_name}
                                 </button>
                                 <button
-                                  className="rounded-full border border-slate-600 px-2 py-1 text-[10px] font-semibold text-slate-200"
+                                  className="shrink-0 rounded-full border border-slate-600 px-2 py-1 text-[10px] font-semibold text-slate-200"
                                   onClick={() => handlePreviewEvidence(evidence.id, evidence.file_name)}
                                 >
                                   プレビュー
                                 </button>
                               </div>
                               <button
-                                className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
+                                className="shrink-0 rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
                                 onClick={async () => {
                                   await window.api.evidence.remove(evidence.id);
                                   if (selectedRunScenarioId) {
@@ -3335,90 +3975,98 @@ export default function App() {
           )}
 
           {section === "export" && (
-            <div className={panelClass}>
-              <h2 className="text-balance text-lg font-semibold">エクスポート</h2>
-              <p className="text-pretty mt-2 text-sm text-slate-400">
-                テストケース / シナリオ / 初期データを用途に合わせて出力できます。
-              </p>
-              <div className="mt-4 grid gap-4">
-                <label htmlFor="export-type" className="text-xs font-semibold uppercase text-slate-400">
-                  対象
-                </label>
-                <select
-                  id="export-type"
-                  className={inputClass}
-                  value={exportType}
-                  onChange={(event) => setExportType(event.target.value as typeof exportType)}
-                >
-                  <option value="test_cases">テストケース</option>
-                  <option value="scenarios">シナリオ</option>
-                  <option value="data_sets">初期データ</option>
-                  <option value="test_runs">テスト実行結果</option>
-                </select>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className={panelClass}>
+                <h2 className="text-balance text-lg font-semibold">Export</h2>
+                <p className="text-pretty mt-2 text-sm text-slate-400">
+                  テスト資産を用途に合わせて出力できます。
+                </p>
+                <div className="mt-4 grid gap-4">
+                  <label htmlFor="export-type" className="text-xs font-semibold uppercase text-slate-400">
+                    Type
+                  </label>
+                  <select
+                    id="export-type"
+                    className={inputClass}
+                    value={exportType}
+                    onChange={(event) => setExportType(event.target.value as typeof exportType)}
+                  >
+                    <option value="test_cases">テストケース</option>
+                    <option value="scenarios">シナリオ</option>
+                    <option value="data_sets">初期データ</option>
+                    <option value="test_runs">テスト実行結果</option>
+                  </select>
 
-                {exportType === "data_sets" && (
-                  <>
-                    <label
-                      htmlFor="export-scope"
-                      className="text-xs font-semibold uppercase text-slate-400"
-                    >
-                      初期データ種別
-                    </label>
-                    <select
-                      id="export-scope"
-                      className={inputClass}
-                      value={exportScope}
-                      onChange={(event) => setExportScope(event.target.value)}
-                    >
-                      {dataScopes.map((scope) => (
-                        <option key={scope.value} value={scope.value}>
-                          {scope.label}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
+                  {exportType === "data_sets" && (
+                    <>
+                      <label
+                        htmlFor="export-scope"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        Scope
+                      </label>
+                      <select
+                        id="export-scope"
+                        className={inputClass}
+                        value={exportScope}
+                        onChange={(event) => setExportScope(event.target.value)}
+                      >
+                        {dataScopes.map((scope) => (
+                          <option key={scope.value} value={scope.value}>
+                            {scope.label}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
 
-                <label htmlFor="export-format" className="text-xs font-semibold uppercase text-slate-400">
-                  形式
-                </label>
-                <select
-                  id="export-format"
-                  className={inputClass}
-                  value={exportFormat}
-                  onChange={(event) => setExportFormat(event.target.value as typeof exportFormat)}
-                >
-                  <option value="csv">CSV</option>
-                  <option value="json">JSON</option>
-                  <option value="md">Markdown</option>
-                </select>
-                <button
-                  className="w-fit rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
-                  onClick={handleExport}
-                >
-                  エクスポートする
-                </button>
-                {exportNotice && (
-                  <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
-                    {exportNotice}
-                  </div>
-                )}
+                  <label htmlFor="export-format" className="text-xs font-semibold uppercase text-slate-400">
+                    Format
+                  </label>
+                  <select
+                    id="export-format"
+                    className={inputClass}
+                    value={exportFormat}
+                    onChange={(event) => setExportFormat(event.target.value as typeof exportFormat)}
+                  >
+                    <option value="csv">CSV</option>
+                    <option value="json">JSON</option>
+                    <option value="md">Markdown</option>
+                  </select>
+                  <button
+                    className="w-fit rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                    onClick={handleExport}
+                  >
+                    Export
+                  </button>
+                  {exportNotice && (
+                    <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+                      {exportNotice}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="mt-8 border-t border-slate-800 pt-6">
-                <h2 className="text-balance text-lg font-semibold">インポート</h2>
+              <div className={panelClass}>
+                <h2 className="text-balance text-lg font-semibold">Import</h2>
                 <p className="text-pretty mt-2 text-sm text-slate-400">
-                  CSV / JSON / Markdown からデータを追加できます。
+                  ドラッグ&ドロップでプレビューし、そのまま取り込めます。
                 </p>
                 <div className="mt-4 grid gap-4">
                   <label htmlFor="import-type" className="text-xs font-semibold uppercase text-slate-400">
-                    対象
+                    Type
                   </label>
                   <select
                     id="import-type"
                     className={inputClass}
                     value={importType}
-                    onChange={(event) => setImportType(event.target.value as typeof importType)}
+                    onChange={(event) => {
+                      setImportType(event.target.value as typeof importType);
+                      setImportNotice(null);
+                      setImportStagedFile(null);
+                      setImportPreviewData(null);
+                      setImportPreviewErrorMessage(null);
+                    }}
                   >
                     <option value="test_cases">テストケース</option>
                     <option value="scenarios">シナリオ</option>
@@ -3431,13 +4079,19 @@ export default function App() {
                         htmlFor="import-scope"
                         className="text-xs font-semibold uppercase text-slate-400"
                       >
-                        初期データ種別
+                        Scope
                       </label>
                       <select
                         id="import-scope"
                         className={inputClass}
                         value={importScope}
-                        onChange={(event) => setImportScope(event.target.value)}
+                        onChange={(event) => {
+                          setImportScope(event.target.value);
+                          setImportNotice(null);
+                          setImportStagedFile(null);
+                          setImportPreviewData(null);
+                          setImportPreviewErrorMessage(null);
+                        }}
                       >
                         {dataScopes.map((scope) => (
                           <option key={`import-${scope.value}`} value={scope.value}>
@@ -3449,24 +4103,152 @@ export default function App() {
                   )}
 
                   <label htmlFor="import-format" className="text-xs font-semibold uppercase text-slate-400">
-                    形式
+                    Format
                   </label>
                   <select
                     id="import-format"
                     className={inputClass}
                     value={importFormat}
-                    onChange={(event) => setImportFormat(event.target.value as typeof importFormat)}
+                    onChange={(event) => {
+                      setImportFormat(event.target.value as typeof importFormat);
+                      setImportNotice(null);
+                      setImportStagedFile(null);
+                      setImportPreviewData(null);
+                      setImportPreviewErrorMessage(null);
+                    }}
                   >
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
                     <option value="md">Markdown</option>
                   </select>
-                  <button
-                    className="w-fit rounded-full bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950"
-                    onClick={handleImport}
+
+                  <input
+                    ref={importFileInputRef}
+                    type="file"
+                    className="sr-only"
+                    onChange={(event) => {
+                      void stageImportFile(event.target.files?.[0] ?? null);
+                      event.target.value = "";
+                    }}
+                  />
+                  <div
+                    className={cn(
+                      "rounded-2xl border border-dashed p-5 text-center",
+                      theme === "light"
+                        ? "border-slate-200 bg-white text-slate-600"
+                        : "border-slate-800 bg-slate-950/30 text-slate-300"
+                    )}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "copy";
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const file = event.dataTransfer.files?.[0] ?? null;
+                      void stageImportFile(file);
+                    }}
                   >
-                    ファイルを選択して取り込む
+                    <p className="text-pretty text-sm">
+                      Drag & drop here, or{" "}
+                      <button
+                        type="button"
+                        className="font-semibold text-primary underline-offset-4 hover:underline"
+                        onClick={() => importFileInputRef.current?.click()}
+                      >
+                        choose a file
+                      </button>
+                      .
+                    </p>
+                    <p className="text-pretty mt-2 text-xs text-slate-400">
+                      選択中: {importStagedFile?.fileName ?? "なし"}
+                    </p>
+                  </div>
+
+                  {importPreviewErrorMessage && (
+                    <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+                      {importPreviewErrorMessage}
+                    </div>
+                  )}
+
+                  {importPreviewData && (
+                    <div
+                      className={cn(
+                        "rounded-2xl border p-4",
+                        theme === "light"
+                          ? "border-slate-200 bg-white"
+                          : "border-slate-800/70 bg-slate-950/20"
+                      )}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p
+                          className={cn(
+                            "text-xs font-semibold",
+                            theme === "light" ? "text-slate-900" : "text-slate-300"
+                          )}
+                        >
+                          Preview: {importPreviewData.fileName}
+                        </p>
+                        <p className="text-xs text-slate-400 tabular-nums">
+                          Total: {importPreviewData.total}
+                        </p>
+                      </div>
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="w-full min-w-[520px] text-left text-xs">
+                          <thead className="text-[11px] font-semibold uppercase text-slate-400">
+                            <tr>
+                              {importPreviewData.columns.map((col) => (
+                                <th key={col} className="px-2 py-2">
+                                  {col}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className={cn(theme === "light" ? "text-slate-900" : "text-slate-200")}>
+                            {importPreviewData.rows.length ? (
+                              importPreviewData.rows.map((row, idx) => (
+                                <tr
+                                  key={`preview-${idx}`}
+                                  className={cn(
+                                    "border-t",
+                                    theme === "light" ? "border-slate-200" : "border-slate-800"
+                                  )}
+                                >
+                                  {row.map((cell, cellIndex) => (
+                                    <td key={`preview-${idx}-${cellIndex}`} className="px-2 py-2 align-top">
+                                      <span className="line-clamp-3 text-pretty">{cell}</span>
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))
+                            ) : (
+                              <tr
+                                className={cn(
+                                  "border-t",
+                                  theme === "light" ? "border-slate-200" : "border-slate-800"
+                                )}
+                              >
+                                <td
+                                  className="px-2 py-6 text-center text-xs text-slate-400"
+                                  colSpan={importPreviewData.columns.length || 1}
+                                >
+                                  プレビューできるデータがありません。
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    className="w-fit rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={handleImport}
+                    disabled={isLoading}
+                  >
+                    Import
                   </button>
+
                   {importNotice && (
                     <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
                       {importNotice}
@@ -3478,40 +4260,101 @@ export default function App() {
           )}
 
           {section === "settings" && (
-            <div className={panelClass}>
-              <h2 className="text-balance text-lg font-semibold">設定</h2>
-              <div className="mt-4 grid gap-4">
-                <label
-                  htmlFor="settings-project-name"
-                  className="text-xs font-semibold uppercase text-slate-400"
-                >
-                  プロジェクト名
-                </label>
-                <input
-                  id="settings-project-name"
-                  className={inputClass}
-                  value={project.name}
-                  onChange={(event) => setProject({ ...project, name: event.target.value })}
-                  onBlur={async () => {
-                    const updated = (await window.api.project.rename(project.name)) as ProjectInfo;
-                    setProject(updated);
-                  }}
-                />
-                <div>
-                  <p className="text-pretty text-sm text-slate-400">
-                    プロジェクトフォルダをコピーすると、他PCでも同じデータで開けます。
-                    <br />
-                    DB と attachments フォルダがセットです。
-                  </p>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className={cn(panelClass, "lg:col-span-2")}>
+                <h2 className="text-balance text-lg font-semibold">Project Settings</h2>
+                <div className="mt-4 grid gap-4">
+                  <label
+                    htmlFor="settings-project-name"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    Project name
+                  </label>
+                  <input
+                    id="settings-project-name"
+                    className={inputClass}
+                    value={project.name}
+                    onChange={(event) => setProject({ ...project, name: event.target.value })}
+                    onBlur={async () => {
+                      const updated = (await window.api.project.rename(project.name)) as ProjectInfo;
+                      setProject(updated);
+                      setSettingsNotice("プロジェクト名を保存しました。");
+                    }}
+                  />
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-400">Path</p>
+                    <p className="text-pretty mt-2 break-all text-sm text-slate-300">{project.path}</p>
+                  </div>
                 </div>
+              </div>
+
+              <div className={panelClass}>
+                <h2 className="text-balance text-lg font-semibold">Appearance</h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-pill border px-4 py-2 text-sm font-semibold",
+                      theme === "light"
+                        ? "border-slate-200 bg-white text-slate-900"
+                        : "border-slate-800 bg-slate-950/30 text-slate-100",
+                      theme === "light" && "ring-1 ring-primary"
+                    )}
+                    onClick={() => setTheme("light")}
+                  >
+                    Light
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-pill border px-4 py-2 text-sm font-semibold",
+                      theme === "dark"
+                        ? "border-slate-800 bg-slate-950/30 text-slate-100"
+                        : "border-slate-200 bg-white text-slate-900",
+                      theme === "dark" && "ring-1 ring-primary"
+                    )}
+                    onClick={() => setTheme("dark")}
+                  >
+                    Dark
+                  </button>
+                </div>
+              </div>
+
+              <div className={panelClass}>
+                <h2 className="text-balance text-lg font-semibold">Database</h2>
+                <p className="text-pretty mt-2 text-sm text-slate-400">
+                  Backup は DB と attachments をフォルダにコピーします。Reset はすべてのデータを削除します。
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                    onClick={handleBackupDatabase}
+                  >
+                    Backup
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border border-rose-500 px-4 py-2 text-sm font-semibold text-rose-200"
+                    onClick={() => setResetDatabaseOpen(true)}
+                  >
+                    Reset
+                  </button>
+                </div>
+                {settingsNotice && (
+                  <div className="mt-4 rounded-xl border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+                    {settingsNotice}
+                  </div>
+                )}
               </div>
             </div>
           )}
-        </section>
+          </main>
+        </div>
       </div>
 
       {evidencePreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 [padding:calc(env(safe-area-inset-top)+1rem)_calc(env(safe-area-inset-right)+1rem)_calc(env(safe-area-inset-bottom)+1rem)_calc(env(safe-area-inset-left)+1rem)]">
           <div className="relative w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-950/90 p-5 shadow-2xl">
             <div className="flex items-center justify-between text-sm font-semibold text-slate-100">
               <span>{evidencePreview.fileName}</span>
@@ -3542,6 +4385,17 @@ export default function App() {
         description="この操作は取り消せません。"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+      <ConfirmDialog
+        open={resetDatabaseOpen}
+        title="DB をリセットしてもよいですか？"
+        description="すべてのデータが削除され、この操作は取り消せません。"
+        confirmLabel="リセットする"
+        onConfirm={async () => {
+          setResetDatabaseOpen(false);
+          await handleResetDatabase();
+        }}
+        onCancel={() => setResetDatabaseOpen(false)}
       />
     </div>
   );

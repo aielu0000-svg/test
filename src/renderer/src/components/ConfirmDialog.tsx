@@ -5,11 +5,19 @@ type ConfirmDialogProps = {
   open: boolean;
   title: string;
   description: string;
+  confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 };
 
-export function ConfirmDialog({ open, title, description, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = "削除する",
+  onConfirm,
+  onCancel
+}: ConfirmDialogProps) {
   return (
     <AlertDialog.Root open={open} onOpenChange={(next) => !next && onCancel()}>
       <AlertDialog.Portal>
@@ -42,7 +50,7 @@ export function ConfirmDialog({ open, title, description, onConfirm, onCancel }:
                 className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white"
                 onClick={onConfirm}
               >
-                削除する
+                {confirmLabel}
               </button>
             </AlertDialog.Action>
           </div>

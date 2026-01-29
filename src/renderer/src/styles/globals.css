@@ -1,3 +1,6 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,10 +11,13 @@
   }
 
   body {
-    @apply min-h-dvh bg-slate-950 text-slate-100 antialiased;
+    @apply min-h-dvh antialiased font-secondary;
+    background-color: #111111;
+    color: #FAFAFA;
   }
 
   body[data-theme="light"] {
-    @apply bg-slate-50 text-slate-900;
+    background-color: #F2F3F0;
+    color: #111111;
   }
 }

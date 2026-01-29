@@ -332,6 +332,43 @@ export const updateProjectName = (name: string) => {
   database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run("updated_at", now());
 };
 
+export const backupProject = (destinationFolder: string) => {
+  const { projectPath: folderPath } = ensureDb();
+  const timestamp = now().replace(/[:.]/g, "-");
+  const backupRoot = path.join(destinationFolder, `the-test-backup_${timestamp}`);
+  fs.mkdirSync(backupRoot, { recursive: true });
+
+  const dbPath = path.join(folderPath, DB_FILE);
+  if (!fs.existsSync(dbPath)) {
+    throw new Error("DBファイルが見つかりません。");
+  }
+  fs.copyFileSync(dbPath, path.join(backupRoot, DB_FILE));
+
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (fs.existsSync(attachmentsPath)) {
+    fs.cpSync(attachmentsPath, path.join(backupRoot, ATTACHMENTS_DIR), { recursive: true });
+  }
+
+  return backupRoot;
+};
+
+export const resetProject = () => {
+  const info = getProjectInfo();
+  const { projectPath: folderPath } = ensureDb();
+  closeCurrentProject();
+
+  const dbPath = path.join(folderPath, DB_FILE);
+  if (fs.existsSync(dbPath)) {
+    fs.rmSync(dbPath, { force: true });
+  }
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (fs.existsSync(attachmentsPath)) {
+    fs.rmSync(attachmentsPath, { recursive: true, force: true });
+  }
+
+  return createProject(folderPath, info.name);
+};
+
 export const listTestCases = () => {
   const { db: database } = ensureDb();
   return database
@@ -1369,6 +1406,13 @@ export const exportData = (payload: {
       return text.length ? text : null;
     };
 
+    const isImageAttachment = (fileName: string, mimeType?: string) => {
+      if (mimeType?.startsWith("image/")) {
+        return true;
+      }
+      return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName);
+    };
+
     const lines: string[] = ["# テスト実行", ""];
 
     runs.forEach((run) => {
@@ -1436,7 +1480,12 @@ export const exportData = (payload: {
         if (scenarioEvidence.length) {
           lines.push("- 証跡:");
           scenarioEvidence.forEach((item) => {
-            const storedPath = formatOptional(item.stored_path);
+            const storedPathRaw = formatOptional(item.stored_path);
+            const storedPath = storedPathRaw ? storedPathRaw.replace(/\\/g, "/") : null;
+            if (storedPath && isImageAttachment(String(item.file_name ?? storedPath), item.mime_type)) {
+              lines.push(`  - ![${String(item.file_name ?? "evidence")}](${storedPath})`);
+              return;
+            }
             lines.push(`  - ${item.file_name}${storedPath ? ` (${storedPath})` : ""}`);
           });
         }
@@ -1481,7 +1530,12 @@ export const exportData = (payload: {
           if (caseEvidence.length) {
             lines.push("- 証跡:");
             caseEvidence.forEach((item) => {
-              const storedPath = formatOptional(item.stored_path);
+              const storedPathRaw = formatOptional(item.stored_path);
+              const storedPath = storedPathRaw ? storedPathRaw.replace(/\\/g, "/") : null;
+              if (storedPath && isImageAttachment(String(item.file_name ?? storedPath), item.mime_type)) {
+                lines.push(`  - ![${String(item.file_name ?? "evidence")}](${storedPath})`);
+                return;
+              }
               lines.push(`  - ${item.file_name}${storedPath ? ` (${storedPath})` : ""}`);
             });
           }
@@ -1502,9 +1556,58 @@ export const exportData = (payload: {
   }
 
   if (payload.entity === "scenarios") {
-    rows = database
+    const scenarios = database
       .prepare("SELECT id, title, objective, preconditions FROM scenarios ORDER BY updated_at DESC")
       .all() as Array<Record<string, any>>;
+    const latestRunScenarioQuery = database.prepare(
+      `SELECT
+        id,
+        run_id,
+        status,
+        actual_result,
+        notes,
+        executed_at,
+        created_at
+      FROM run_scenarios
+      WHERE scenario_id = ?
+      ORDER BY COALESCE(executed_at, created_at) DESC
+      LIMIT 1`
+    );
+    const runNameQuery = database.prepare("SELECT name FROM test_runs WHERE id = ?");
+    const evidenceQuery = database.prepare(
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+    );
+
+    rows = scenarios.map((scenario) => {
+      const latest = latestRunScenarioQuery.get(scenario.id) as Record<string, any> | undefined;
+      const runName = latest?.run_id
+        ? ((runNameQuery.get(latest.run_id) as { name?: string } | undefined)?.name ?? "")
+        : "";
+      const evidence = latest?.id ? (evidenceQuery.all(latest.id) as Array<Record<string, any>>) : [];
+      const evidenceValue =
+        payload.format === "json"
+          ? evidence
+          : evidence
+              .map((item) => {
+                const storedPath = item.stored_path ? ` (${item.stored_path})` : "";
+                return `${item.file_name}${storedPath}`;
+              })
+              .join(" / ");
+
+      return {
+        id: scenario.id,
+        title: scenario.title ?? "",
+        objective: scenario.objective ?? "",
+        preconditions: scenario.preconditions ?? "",
+        last_run_name: runName,
+        last_run_scenario_id: latest?.id ?? "",
+        last_status: latest?.status ?? "",
+        last_actual_result: latest?.actual_result ?? "",
+        last_notes: latest?.notes ?? "",
+        last_executed_at: latest?.executed_at ?? "",
+        last_evidence: evidenceValue
+      };
+    });
   }
 
   if (payload.entity === "data_sets") {
@@ -1674,6 +1777,24 @@ export const importData = (payload: {
   }
 
   return 0;
+};
+
+export const previewImportData = (payload: { format: "csv" | "json" | "md"; content: string }) => {
+  let records: Array<Record<string, any>> = [];
+  if (payload.format === "json") {
+    const parsed = JSON.parse(payload.content);
+    if (!Array.isArray(parsed)) {
+      throw new Error("JSONは配列形式である必要があります。");
+    }
+    records = parsed;
+  } else if (payload.format === "md") {
+    const rows = parseMarkdownTable(payload.content);
+    records = rowsToObjects(rows);
+  } else {
+    const rows = parseCsv(payload.content.replace(/^\uFEFF/, ""));
+    records = rowsToObjects(rows);
+  }
+  return records;
 };
 
 export const createTemplateDataSets = (scope: string) => {

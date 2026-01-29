@@ -7,6 +7,7 @@ import {
   addRunScenario,
   addRunScenarioCaseEvidence,
   addRunScenarioCaseEvidenceBuffer,
+  backupProject,
   createScenarioFromFolder,
   createProject,
   deleteCaseFolder,
@@ -35,10 +36,12 @@ import {
   listScenarios,
   listTestCases,
   openProject,
+  previewImportData,
   removeRunScenario,
   removeScenarioCase,
   removeRunScenarioCaseEvidence,
   removeScenarioEvidence,
+  resetProject,
   saveCaseFolder,
   saveDataSet,
   saveRun,
@@ -160,6 +163,19 @@ ipcMain.handle("project:rename", (_event, name: string) => {
   updateProjectName(name);
   return getProjectInfo();
 });
+
+ipcMain.handle("project:backup", async () => {
+  const result = await showOpenDialogForMainWindow({
+    title: "バックアップ先フォルダを選択",
+    properties: ["openDirectory", "createDirectory"]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return backupProject(result.filePaths[0]);
+});
+
+ipcMain.handle("project:reset", () => resetProject());
 
 ipcMain.handle("testCases:list", () => listTestCases());
 ipcMain.handle("testCases:get", (_event, id: string) => getTestCase(id));
@@ -315,18 +331,55 @@ ipcMain.handle("export:save", async (_event, payload) => {
 
 ipcMain.handle("import:run", async (_event, payload) => {
   const ext = payload.format;
-  const result = await dialog.showOpenDialog({
-    title: "インポートするファイルを選択",
-    properties: ["openFile"],
-    filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
-  });
-  if (result.canceled || result.filePaths.length === 0) {
-    return null;
+  const entity = payload.entity as "test_cases" | "scenarios" | "data_sets";
+  const format = payload.format as "csv" | "json" | "md";
+  const scopeOverride = payload.scopeOverride as string | undefined;
+
+  let filePath: string;
+  let content: string;
+  if (typeof payload.content === "string") {
+    content = payload.content;
+    filePath = typeof payload.fileName === "string" && payload.fileName.trim()
+      ? payload.fileName.trim()
+      : `dropped.${ext}`;
+  } else {
+    const result = await dialog.showOpenDialog({
+      title: "インポートするファイルを選択",
+      properties: ["openFile"],
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    filePath = result.filePaths[0];
+    content = fs.readFileSync(filePath, "utf-8");
   }
-  const filePath = result.filePaths[0];
-  const content = fs.readFileSync(filePath, "utf-8");
-  const imported = importData({ ...payload, content });
+
+  const imported = importData({ entity, format, scopeOverride, content });
   return { imported, filePath };
+});
+
+ipcMain.handle("import:preview", (_event, payload) => {
+  const format = payload.format as "csv" | "json" | "md";
+  const records = previewImportData({ format, content: String(payload.content ?? "") });
+  const first = records[0] ?? {};
+  const columns = Object.keys(first).slice(0, 8);
+  const rows = records.slice(0, 10).map((record) =>
+    columns.map((col) => {
+      const value = (record as Record<string, any>)[col];
+      if (value == null) {
+        return "";
+      }
+      const text =
+        typeof value === "string"
+          ? value
+          : typeof value === "number" || typeof value === "boolean"
+            ? String(value)
+            : JSON.stringify(value);
+      return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+    })
+  );
+  return { total: records.length, columns, rows };
 });
 
 ipcMain.handle("dataSets:template", (_event, scope: string) => createTemplateDataSets(scope));

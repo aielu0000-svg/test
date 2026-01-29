@@ -5,7 +5,9 @@ const api = {
     create: (name: string) => ipcRenderer.invoke("project:create", name),
     open: () => ipcRenderer.invoke("project:open"),
     get: () => ipcRenderer.invoke("project:get"),
-    rename: (name: string) => ipcRenderer.invoke("project:rename", name)
+    rename: (name: string) => ipcRenderer.invoke("project:rename", name),
+    backup: () => ipcRenderer.invoke("project:backup"),
+    reset: () => ipcRenderer.invoke("project:reset")
   },
   testCases: {
     list: () => ipcRenderer.invoke("testCases:list"),
@@ -67,7 +69,8 @@ const api = {
     save: (payload: unknown) => ipcRenderer.invoke("export:save", payload)
   },
   import: {
-    run: (payload: unknown) => ipcRenderer.invoke("import:run", payload)
+    run: (payload: unknown) => ipcRenderer.invoke("import:run", payload),
+    preview: (payload: unknown) => ipcRenderer.invoke("import:preview", payload)
   }
 };
 
