@@ -1,0 +1,4 @@
+| name | scope | description | items |
+| --- | --- | --- | --- |
+| 実行初期データ（サンプル） | run | 実行時に記録しておきたい情報をまとめた初期データです。 | [{"label":"ビルド番号","value":"1.2.3","note":""},{"label":"実行担当","value":"山田 太郎","note":""},{"label":"端末/ブラウザ","value":"Windows 11 / Chrome","note":""}] |
+

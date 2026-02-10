@@ -5,12 +5,15 @@
 ## 取り込み手順（おすすめ順）
 
 1. `test_cases.csv` をインポート（種類: **テストケース** / 形式: **CSV**）
+   - Markdown版: `test_cases.md`（種類: **テストケース** / 形式: **マークダウン**）
 2. `scenarios.json` をインポート（種類: **シナリオ** / 形式: **JSON**）
+   - Markdown版: `scenarios.md`（種類: **シナリオ** / 形式: **マークダウン**）
 3. `data_sets_common.csv` をインポート（種類: **初期データ** / スコープ: **共通初期データ** / 形式: **CSV**）
+   - Markdown版: `data_sets_common.md`（種類: **初期データ** / 形式: **マークダウン**）
 4. `data_sets_run.csv` をインポート（種類: **初期データ** / スコープ: **実行初期データ** / 形式: **CSV**）
+   - Markdown版: `data_sets_run.md`（種類: **初期データ** / 形式: **マークダウン**）
 
 ## 補足
 
 - `scenarios.json` は `case_titles`（テストケース名の配列）でシナリオにテストケースを紐づけます。先にテストケースを取り込んでください。
 - `test_cases.csv` の `steps`、`data_sets_*.csv` の `items` は **JSON文字列**（配列）です。CSVのセル内では `"` を `""` としてエスケープしています。
-
