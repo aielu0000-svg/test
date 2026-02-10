@@ -1713,7 +1713,50 @@ export default function App() {
     }
   };
 
-  const stageImportFile = async (file: File | null) => {
+  const inferImportFormatFromFileName = (fileName: string) => {
+    const ext = fileName.split(".").pop()?.trim().toLowerCase();
+    if (ext === "csv" || ext === "json" || ext === "md") {
+      return ext;
+    }
+    return null;
+  };
+
+  const inferImportEntityFromColumns = (columns: string[]) => {
+    const keys = new Set(columns.map((col) => col.trim().toLowerCase()));
+    if (keys.has("case_titles") || keys.has("case_ids")) {
+      return "scenarios" as const;
+    }
+    if (keys.has("items") || keys.has("scope")) {
+      return "data_sets" as const;
+    }
+    if (keys.has("steps") || keys.has("priority") || keys.has("severity") || keys.has("preconditions")) {
+      return "test_cases" as const;
+    }
+    return "test_cases" as const;
+  };
+
+  const inferImportScopeFromPreviewAndFileName = (
+    preview: { columns: string[]; rows: string[][] },
+    fileName: string
+  ) => {
+    const allowed = new Set(["common", "case", "scenario", "run"]);
+    const scopeIndex = preview.columns.findIndex((col) => col.trim().toLowerCase() === "scope");
+    const scopeValueRaw = scopeIndex >= 0 ? preview.rows?.[0]?.[scopeIndex] : "";
+    const scopeValue = String(scopeValueRaw ?? "").trim().toLowerCase();
+    if (allowed.has(scopeValue)) {
+      return scopeValue as "common" | "case" | "scenario" | "run";
+    }
+
+    const normalized = fileName.toLowerCase();
+    if (normalized.includes("common") || normalized.includes("共通")) return "common";
+    if (normalized.includes("scenario") || normalized.includes("シナリオ")) return "scenario";
+    if (normalized.includes("case") || normalized.includes("ケース")) return "case";
+    if (normalized.includes("run") || normalized.includes("実行")) return "run";
+
+    return "common";
+  };
+
+  const stageImportFile = async (file: File | null, options?: { autoDetect?: boolean; source?: string }) => {
     setImportNotice(null);
     setImportPreviewErrorMessage(null);
     setImportPreviewData(null);
@@ -1722,14 +1765,37 @@ export default function App() {
       return;
     }
     try {
+      const inferredFormat = options?.autoDetect ? inferImportFormatFromFileName(file.name) : null;
+      if (options?.autoDetect && !inferredFormat) {
+        setImportStagedFile(null);
+        setImportPreviewErrorMessage(
+          `対応していない拡張子です（.csv / .json / .md のみ対応）: ${file.name}`
+        );
+        return;
+      }
+
       const content = await file.text();
-      setImportStagedFile({ fileName: file.name, content });
+      const nextFormat = (inferredFormat ?? importFormat) as "csv" | "json" | "md";
       const preview = (await window.api.import.preview({
-        entity: importType,
-        format: importFormat,
-        scopeOverride: importType === "data_sets" ? importScope : undefined,
+        format: nextFormat,
         content
       })) as { total: number; columns: string[]; rows: string[][] };
+
+      if (options?.autoDetect) {
+        const nextEntity = inferImportEntityFromColumns(preview.columns);
+        setImportFormat(nextFormat);
+        setImportType(nextEntity);
+        if (nextEntity === "data_sets") {
+          const nextScope = inferImportScopeFromPreviewAndFileName(preview, file.name);
+          setImportScope(nextScope);
+        }
+        const sourceLabel = options.source ? `（${options.source}）` : "";
+        setImportNotice(
+          `自動判定${sourceLabel}: 種類=${nextEntity === "test_cases" ? "テストケース" : nextEntity === "scenarios" ? "シナリオ" : "初期データ"} / 形式=${nextFormat.toUpperCase()}`
+        );
+      }
+
+      setImportStagedFile({ fileName: file.name, content });
       setImportPreviewData({ fileName: file.name, ...preview });
     } catch (err) {
       setImportPreviewErrorMessage(
@@ -4934,6 +5000,38 @@ export default function App() {
                 <p className="text-pretty mt-2 text-sm text-slate-400">
                   テスト資産を用途に合わせて出力できます。
                 </p>
+                <div
+                  className={cn(
+                    "mt-4 rounded-2xl border border-dashed p-4 text-center",
+                    theme === "light"
+                      ? "border-slate-200 bg-white text-slate-600"
+                      : "border-slate-800 bg-slate-950/30 text-slate-300"
+                  )}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const file = event.dataTransfer.files?.[0] ?? null;
+                    void stageImportFile(file, { autoDetect: true, source: "エクスポート欄ドロップ" });
+                  }}
+                >
+                  <p className="text-pretty text-sm">
+                    インポートしたいファイルをここにドラッグ＆ドロップすると、種類/スコープ/形式を自動判定して読み込みます。
+                  </p>
+                  <p className="text-pretty mt-2 text-xs text-slate-400">
+                    もしくは{" "}
+                    <button
+                      type="button"
+                      className="font-semibold text-primary underline-offset-4 hover:underline"
+                      onClick={() => importFileInputRef.current?.click()}
+                    >
+                      ファイルを選択
+                    </button>
+                    してください。
+                  </p>
+                </div>
                 <div className="mt-4 grid gap-4">
                   <label htmlFor="export-type" className="text-xs font-semibold uppercase text-slate-400">
                     種類
@@ -5080,7 +5178,10 @@ export default function App() {
                     type="file"
                     className="sr-only"
                     onChange={(event) => {
-                      void stageImportFile(event.target.files?.[0] ?? null);
+                      void stageImportFile(event.target.files?.[0] ?? null, {
+                        autoDetect: true,
+                        source: "ファイル選択"
+                      });
                       event.target.value = "";
                     }}
                   />
@@ -5098,7 +5199,7 @@ export default function App() {
                     onDrop={(event) => {
                       event.preventDefault();
                       const file = event.dataTransfer.files?.[0] ?? null;
-                      void stageImportFile(file);
+                      void stageImportFile(file, { autoDetect: true, source: "インポート欄ドロップ" });
                     }}
                   >
                     <p className="text-pretty text-sm">
