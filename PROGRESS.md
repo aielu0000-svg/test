@@ -1,9 +1,9 @@
-## Progress Tracker
+## 進捗トラッカー
 
-| Task | Status | Notes |
+| タスク | 状態 | メモ |
 | --- | --- | --- |
-| 1. Document next steps for scenario/case/result UI updates | ✅ Completed | 更新履歴と設計メモを PROGRESS.md に反映し、現在のタスクを整理済み。 |
-| 2. Extend DB/API with per-scenario-case results and richer evidence data | ✅ Completed | シナリオケース削除/証跡保存の DB 操作と IPC を追加し、ランタイム側でも取得・表示できるように。 |
-| 3. Refresh renderer with per-case results, screenshot previews, and color-coded metrics | ✅ Completed | ケース削除ボタン・マルチライン表示・スクリーンショットプレビューなどを組み込んだリッチ UI。 |
+| 1. シナリオ/ケース/結果 UI 更新の次の手順を整理 | ✅ 完了 | 更新履歴と設計メモを PROGRESS.md に反映し、現在のタスクを整理済み。 |
+| 2. シナリオ内ケース単位の結果・証跡データをデータベース/内部連携に追加 | ✅ 完了 | シナリオケース削除/証跡保存のデータベース操作とプロセス間通信を追加し、ランタイム側でも取得・表示できるように。 |
+| 3. レンダラを更新（ケース結果、スクショプレビュー、色分けメトリクス） | ✅ 完了 | ケース削除ボタン・マルチライン表示・スクリーンショットプレビューなどを組み込んだリッチ UI。 |
 
-> **Code review note:** Each change is reviewed before commit; keep verifying after every commit.
+> **コードレビュー:** 変更はコミット前に必ず見直し、コミット後も都度確認する。

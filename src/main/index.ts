@@ -104,7 +104,7 @@ const createWindow = () => {
     height: 820,
     minWidth: 1024,
     minHeight: 720,
-    title: "the test",
+    title: "ザ・テスト",
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -143,14 +143,14 @@ ipcMain.handle("project:create", async (_event, name: string) => {
   if (result.canceled || result.filePaths.length === 0) {
     return null;
   }
-  return createProject(result.filePaths[0], name || "the test");
+  return createProject(result.filePaths[0], name || "ザ・テスト");
 });
 
 ipcMain.handle("project:open", async () => {
   const result = await showOpenDialogForMainWindow({
-    title: "プロジェクトDBを選択",
+    title: "プロジェクトデータベースを選択",
     properties: ["openFile"],
-    filters: [{ name: "SQLite", extensions: ["sqlite"] }]
+    filters: [{ name: "データベース", extensions: ["sqlite"] }]
   });
   if (result.canceled || result.filePaths.length === 0) {
     return null;

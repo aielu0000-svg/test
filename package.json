@@ -1,6 +1,6 @@
 {
   "name": "the-test",
-  "productName": "the test",
+  "productName": "ザ・テスト",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -37,7 +37,7 @@
   },
   "build": {
     "appId": "com.thetest.app",
-    "productName": "the test",
+    "productName": "ザ・テスト",
     "files": [
       "out/**",
       "package.json"

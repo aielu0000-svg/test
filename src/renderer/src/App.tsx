@@ -221,10 +221,10 @@ const runCaseStatusOptions = ["not_run", "pass", "fail", "blocked", "skip"] as c
 type RunCaseStatus = (typeof runCaseStatusOptions)[number];
 const runCaseStatusLabels: Record<RunCaseStatus, string> = {
   not_run: "未実行",
-  pass: "✅ pass",
-  fail: "❌ fail",
-  blocked: "⚠️ blocked",
-  skip: "skip"
+  pass: "✅ 合格",
+  fail: "❌ 不合格",
+  blocked: "⚠️ ブロック",
+  skip: "スキップ"
 };
 const completedRunCaseStatuses = new Set<RunCaseStatus>(["pass", "fail", "blocked"]);
 const remainingRunCaseStatuses = new Set<RunCaseStatus>(["not_run", "skip"]);
@@ -260,57 +260,57 @@ const navGroups: Array<{
   items: Array<{ key: SectionKey; label: string }>;
 }> = [
   {
-    title: "Overview",
+    title: "概要",
     items: [
-      { key: "dashboard", label: "Dashboard" },
-      { key: "cases", label: "Test Cases" },
-      { key: "scenarios", label: "Scenarios" }
+      { key: "dashboard", label: "ダッシュボード" },
+      { key: "cases", label: "テストケース" },
+      { key: "scenarios", label: "シナリオ" }
     ]
   },
   {
-    title: "Execution",
+    title: "実行",
     items: [
-      { key: "runs", label: "Test Runs" },
-      { key: "data", label: "Data Sets" }
+      { key: "runs", label: "テスト実行" },
+      { key: "data", label: "データセット" }
     ]
   },
   {
-    title: "Reports",
-    items: [{ key: "export", label: "Export / Import" }]
+    title: "レポート",
+    items: [{ key: "export", label: "エクスポート / インポート" }]
   },
   {
-    title: "System",
-    items: [{ key: "settings", label: "Settings" }]
+    title: "システム",
+    items: [{ key: "settings", label: "設定" }]
   }
 ];
 
 const sectionMeta: Record<SectionKey, { title: string; subtitle: string }> = {
   dashboard: {
-    title: "Dashboard",
+    title: "ダッシュボード",
     subtitle: "いまの状況を俯瞰して、作業を始めます。"
   },
   cases: {
-    title: "Test Cases",
+    title: "テストケース",
     subtitle: "テストケースの作成・編集・フォルダ整理を行います。"
   },
   scenarios: {
-    title: "Scenarios",
+    title: "シナリオ",
     subtitle: "シナリオを組み立てて、実行単位にまとめます。"
   },
   runs: {
-    title: "Test Runs",
+    title: "テスト実行",
     subtitle: "シナリオを実行し、結果と証跡を記録します。"
   },
   data: {
-    title: "Data Sets",
+    title: "データセット",
     subtitle: "共通/ケース/シナリオ/実行の初期データを管理します。"
   },
   export: {
-    title: "Export / Import",
+    title: "エクスポート / インポート",
     subtitle: "テスト資産をエクスポート/インポートして共有します。"
   },
   settings: {
-    title: "Settings",
+    title: "設定",
     subtitle: "プロジェクト名などの設定を変更します。"
   }
 };
@@ -474,7 +474,7 @@ const emptyRun = (): RunDraft => ({
 
 export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [projectName, setProjectName] = useState("the test");
+  const [projectName, setProjectName] = useState("ザ・テスト");
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [section, setSection] = useState<SectionKey>("dashboard");
@@ -958,7 +958,7 @@ export default function App() {
   const handleCreateProject = async () => {
     setProjectError(null);
     if (!window.api?.project?.create) {
-      setProjectError("アプリのAPIが読み込めていません。再起動してください。");
+      setProjectError("アプリの機能が読み込めていません。再起動してください。");
       return;
     }
     try {
@@ -976,7 +976,7 @@ export default function App() {
   const handleOpenProject = async () => {
     setProjectError(null);
     if (!window.api?.project?.open) {
-      setProjectError("アプリのAPIが読み込めていません。再起動してください。");
+      setProjectError("アプリの機能が読み込めていません。再起動してください。");
       return;
     }
     try {
@@ -1848,14 +1848,14 @@ export default function App() {
             theme === "light" ? "border-border-light bg-card-light" : "border-border-dark bg-card-dark"
           )}
         >
-          <h1 className="text-balance text-3xl font-semibold">the test</h1>
+          <h1 className="text-balance text-3xl font-semibold">ザ・テスト</h1>
           <p
             className={cn(
               "text-pretty mt-3 text-sm",
               theme === "light" ? "text-muted-foreground-light" : "text-muted-foreground-dark"
             )}
           >
-            ローカルで完結するテスト管理アプリ。SQLite と証跡フォルダで持ち運びできます。
+            ローカルで完結するテスト管理アプリ。データベースと証跡フォルダごと持ち運びできます。
           </p>
           <div className="mt-6 grid gap-4">
             <label
@@ -1958,13 +1958,13 @@ export default function App() {
     if (Number.isNaN(date.valueOf())) {
       return value;
     }
-    return date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+    return date.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" });
   };
 
   const getRunStatusLabel = (status: string) => {
-    if (status === "in_progress") return "Running";
-    if (status === "completed") return "Completed";
-    return "Draft";
+    if (status === "in_progress") return "実行中";
+    if (status === "completed") return "完了";
+    return "下書き";
   };
 
   const getRunStatusClass = (status: string) => {
@@ -2007,7 +2007,7 @@ export default function App() {
               onClick={() => handleNavigate("dashboard")}
             >
               <FlaskConicalIcon className="size-7 text-primary" />
-              <span className="text-balance text-xl font-semibold">the test</span>
+              <span className="text-balance text-xl font-semibold">ザ・テスト</span>
             </button>
           </div>
 
@@ -2075,7 +2075,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                aria-label="Open settings"
+                aria-label="設定を開く"
                 className={cn(
                   "inline-flex size-10 items-center justify-center rounded-pill border",
                   theme === "light"
@@ -2105,12 +2105,12 @@ export default function App() {
 	                <button
 	                  type="button"
 	                  className={cn(outlineButtonClass, "md:hidden")}
-	                  aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+	                  aria-label={mobileNavOpen ? "メニューを閉じる" : "メニューを開く"}
 	                  aria-expanded={mobileNavOpen}
 	                  aria-controls="mobile-navigation"
 	                  onClick={() => setMobileNavOpen((prev) => !prev)}
 	                >
-	                  Menu
+	                  メニュー
 	                </button>
 	                {section === "dashboard" && (
 	                  <button
@@ -2128,18 +2128,18 @@ export default function App() {
 	                    }}
 	                  >
 	                    <PlusIcon className="size-5" />
-	                    New Test Run
+	                    新規テスト実行
 	                  </button>
 	                )}
 	                <select
 	                  id="theme-select"
-	                  aria-label="Theme"
+	                  aria-label="テーマ"
 	                  className={cn(inputClass, "w-auto")}
 	                  value={theme}
 	                  onChange={(event) => setTheme(event.target.value as "dark" | "light")}
 	                >
-	                  <option value="dark">Dark</option>
-	                  <option value="light">Light</option>
+	                  <option value="dark">ダーク</option>
+	                  <option value="light">ライト</option>
 	                </select>
 	              </div>
 	            </div>
@@ -2156,7 +2156,7 @@ export default function App() {
 	              >
 	                <div className="flex items-center gap-3">
 	                  <FlaskConicalIcon className="text-primary" />
-	                  <p className="text-balance text-sm font-semibold">the test</p>
+	                  <p className="text-balance text-sm font-semibold">ザ・テスト</p>
 	                  <p className={cn("text-pretty text-xs", mutedForegroundClass)}>{project.name}</p>
 	                </div>
 	                {navGroups.map((group) => (
@@ -2211,7 +2211,7 @@ export default function App() {
 	                  <div className={metricCardClass}>
 	                    <div className="p-6">
 	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
-	                        Total Test Cases
+	                        テストケース総数
 	                      </p>
 	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
 	                        {dashboardStatsLoading ? "…" : dashboardStats?.totalTestCases ?? testCases.length}
@@ -2219,57 +2219,57 @@ export default function App() {
 	                    </div>
 	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
 	                      <p className={cn(theme === "light" ? "text-success-foreground-light" : "text-success-foreground-dark")}>
-	                        {newCasesThisWeek > 0 ? `+${newCasesThisWeek} this week` : `${newCasesThisWeek} this week`}
+	                        {newCasesThisWeek > 0 ? `今週 +${newCasesThisWeek}` : `今週 ${newCasesThisWeek}`}
 	                      </p>
 	                    </div>
 	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
 	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("cases")}>
-	                        Open
+	                        開く
 	                      </button>
 	                    </div>
 	                  </div>
 
 	                  <div className={metricCardClass}>
 	                    <div className="p-6">
-	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>Scenarios</p>
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>シナリオ</p>
 	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
 	                        {dashboardStatsLoading ? "…" : dashboardStats?.totalScenarios ?? scenarios.length}
 	                      </p>
 	                    </div>
 	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
 	                      <p className={cn(theme === "light" ? "text-info-foreground-light" : "text-info-foreground-dark")}>
-	                        {activeScenarios} active
+	                        {activeScenarios} 件アクティブ
 	                      </p>
 	                    </div>
 	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
 	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("scenarios")}>
-	                        Open
+	                        開く
 	                      </button>
 	                    </div>
 	                  </div>
 
 	                  <div className={metricCardClass}>
 	                    <div className="p-6">
-	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>Active Test Runs</p>
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>実行中のテスト実行</p>
 	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
 	                        {dashboardStatsLoading ? "…" : dashboardStats?.activeTestRuns ?? runs.filter((entry) => entry.status !== "completed").length}
 	                      </p>
 	                    </div>
 	                    <div className="flex items-center gap-2 px-6 pb-3 text-sm">
 	                      <p className={cn(theme === "light" ? "text-warning-foreground-light" : "text-warning-foreground-dark")}>
-	                        {inProgressRuns} in progress
+	                        {inProgressRuns} 件実行中
 	                      </p>
 	                    </div>
 	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
 	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("runs")}>
-	                        Open
+	                        開く
 	                      </button>
 	                    </div>
 	                  </div>
 
 	                  <div className={metricCardClass}>
 	                    <div className="p-6">
-	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>Pass Rate</p>
+	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>合格率</p>
 	                      <p className="mt-1 text-balance text-3xl font-semibold tabular-nums">
 	                        {dashboardStatsLoading
 	                          ? "…"
@@ -2282,12 +2282,12 @@ export default function App() {
 	                      <p className={cn(theme === "light" ? "text-success-foreground-light" : "text-success-foreground-dark")}>
 	                        {dashboardStatsLoading || dashboardStats?.passRateDelta == null
 	                          ? "—"
-	                          : `${dashboardStats.passRateDelta >= 0 ? "+" : ""}${dashboardStats.passRateDelta.toFixed(1)}% vs last week`}
+	                          : `${dashboardStats.passRateDelta >= 0 ? "+" : ""}${dashboardStats.passRateDelta.toFixed(1)}%（先週比）`}
 	                      </p>
 	                    </div>
 	                    <div className={cn("mt-auto flex h-[68px] items-center justify-between border-t px-6", borderClass)}>
 	                      <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("runs")}>
-	                        View
+	                        表示
 	                      </button>
 	                    </div>
 	                  </div>
@@ -2302,14 +2302,14 @@ export default function App() {
 	                  )}
 	                >
 	                  <div className="flex items-center justify-between gap-4 p-6">
-	                    <h2 className="text-balance text-lg font-semibold">Recent Test Runs</h2>
+	                    <h2 className="text-balance text-lg font-semibold">最近のテスト実行</h2>
 	                    <button type="button" className={outlineButtonClass} onClick={() => handleNavigate("runs")}>
-	                      View All
+	                      すべて表示
 	                    </button>
 	                  </div>
 
 	                  {dashboardStatsLoading && !dashboardStats ? (
-	                    <p className={cn("px-6 pb-6 text-sm", mutedForegroundClass)}>Loading…</p>
+	                    <p className={cn("px-6 pb-6 text-sm", mutedForegroundClass)}>読み込み中…</p>
 	                  ) : dashboardStats?.recentRuns?.length ? (
 	                    <div className="overflow-x-auto">
 	                      <div className="min-w-[720px]">
@@ -2322,10 +2322,10 @@ export default function App() {
 	                            mutedForegroundClass
 	                          )}
 	                        >
-	                          <div className="px-3 py-3">Run Name</div>
-	                          <div className="px-3 py-3">Status</div>
-	                          <div className="px-3 py-3">Progress</div>
-	                          <div className="px-3 py-3">Date</div>
+	                          <div className="px-3 py-3">実行名</div>
+	                          <div className="px-3 py-3">状態</div>
+	                          <div className="px-3 py-3">進捗</div>
+	                          <div className="px-3 py-3">日付</div>
 	                        </div>
 	                        {dashboardStats.recentRuns.map((run) => (
 	                          <button
@@ -2365,7 +2365,7 @@ export default function App() {
 	                  ) : (
 	                    <div className="px-6 pb-6">
 	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
-	                        No test runs yet. Create your first run to start tracking execution and evidence.
+	                        まだテスト実行がありません。最初の実行を作成して、実行状況と証跡の記録を始めましょう。
 	                      </p>
 	                    </div>
 	                  )}
@@ -2386,7 +2386,7 @@ export default function App() {
 	                      }}
 	                    >
 	                      <PlusIcon className="size-5" />
-	                      New Test Run
+	                      新規テスト実行
 	                    </button>
 	                  </div>
 	                </section>
@@ -2398,9 +2398,9 @@ export default function App() {
 	              <div className={cn(panelClass, caseMode === "detail" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">
-	                    <h2 className="text-balance text-lg font-semibold">Test Cases</h2>
+	                    <h2 className="text-balance text-lg font-semibold">テストケース</h2>
 	                    <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
-	                      Manage and organize your test cases
+	                      テストケースを管理・整理します。
 	                    </p>
 	                  </div>
 	                  <button
@@ -2417,13 +2417,13 @@ export default function App() {
 	                    }}
 	                  >
 	                    <PlusIcon className="size-5" />
-	                    New Test Case
+	                    新規テストケース
 	                  </button>
 	                </div>
 	                <input
 	                  id="case-search"
 	                  className={cn(inputClass, "mt-4")}
-	                  placeholder="Search test cases..."
+	                  placeholder="テストケースを検索..."
 	                  value={caseQuery}
 	                  onChange={(event) => setCaseQuery(event.target.value)}
 	                />
@@ -2433,7 +2433,7 @@ export default function App() {
 	                      htmlFor="case-folder-filter"
 	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
 	                    >
-	                      Folder
+	                      フォルダ
 	                    </label>
 	                    <select
 	                      id="case-folder-filter"
@@ -2441,8 +2441,8 @@ export default function App() {
                       value={folderFilter}
                       onChange={(event) => setFolderFilter(event.target.value)}
                     >
-	                      <option value="all">All Folders</option>
-	                      <option value="none">Uncategorized</option>
+	                      <option value="all">すべてのフォルダ</option>
+	                      <option value="none">未分類</option>
 	                      {caseFolders.map((folder) => (
 	                        <option key={folder.id} value={folder.id}>
 	                          {folder.name}
@@ -2455,7 +2455,7 @@ export default function App() {
 	                      htmlFor="case-priority-filter"
 	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
 	                    >
-	                      Priority
+	                      優先度
 	                    </label>
 	                    <select
 	                      id="case-priority-filter"
@@ -2463,7 +2463,7 @@ export default function App() {
 	                      value={casePriorityFilter}
 	                      onChange={(event) => setCasePriorityFilter(event.target.value)}
 	                    >
-	                      <option value="all">Priority</option>
+	                      <option value="all">優先度</option>
 	                      {priorityOptions.map((option) => (
 	                        <option key={option} value={option}>
 	                          {option}
@@ -2476,7 +2476,7 @@ export default function App() {
 	                      htmlFor="case-severity-filter"
 	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
 	                    >
-	                      Severity
+	                      重大度
 	                    </label>
 	                    <select
 	                      id="case-severity-filter"
@@ -2484,7 +2484,7 @@ export default function App() {
 	                      value={caseSeverityFilter}
 	                      onChange={(event) => setCaseSeverityFilter(event.target.value)}
 	                    >
-	                      <option value="all">Severity</option>
+	                      <option value="all">重大度</option>
 	                      {severityOptions.map((option) => (
 	                        <option key={option} value={option}>
 	                          {option}
@@ -2493,9 +2493,9 @@ export default function App() {
 	                    </select>
 	                  </div>
 	                  <div>
-	                    <p className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}>Tags</p>
+	                    <p className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}>タグ</p>
 	                    {tagOptions.length === 0 ? (
-	                      <p className={cn("mt-2 text-xs", mutedForegroundClass)}>No tags yet.</p>
+	                      <p className={cn("mt-2 text-xs", mutedForegroundClass)}>タグはまだありません。</p>
 	                    ) : (
 	                      <div className="mt-2 flex flex-wrap gap-2">
                         {tagOptions.map((tag) => {
@@ -2595,7 +2595,7 @@ export default function App() {
 	                  {filteredCases.length === 0 ? (
 	                    <div className="px-5 py-8">
 	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
-	                        No test cases found. Create your first test case.
+	                        テストケースが見つかりません。最初のテストケースを作成しましょう。
 	                      </p>
 	                    </div>
 	                  ) : (
@@ -2610,18 +2610,18 @@ export default function App() {
 	                            mutedForegroundClass
 	                          )}
 	                        >
-	                          <div className="px-5 py-4">Test Case</div>
-	                          <div className="px-5 py-4">Priority</div>
-	                          <div className="px-5 py-4">Severity</div>
-	                          <div className="px-5 py-4">Folder</div>
-	                          <div className="px-5 py-4">Actions</div>
+	                          <div className="px-5 py-4">テストケース</div>
+	                          <div className="px-5 py-4">優先度</div>
+	                          <div className="px-5 py-4">重大度</div>
+	                          <div className="px-5 py-4">フォルダ</div>
+	                          <div className="px-5 py-4">操作</div>
 	                        </div>
 
 	                        {filteredCases.map((item) => {
 	                          const folderLabel =
 	                            item.folder_id == null
-	                              ? "Uncategorized"
-	                              : caseFolderMap[item.folder_id]?.name ?? "Folder";
+	                              ? "未分類"
+	                              : caseFolderMap[item.folder_id]?.name ?? "フォルダ";
 	                          return (
 	                            <div
 	                              key={item.id}
@@ -2653,7 +2653,7 @@ export default function App() {
 	                              </div>
 	                              <div className="flex flex-wrap items-center gap-2 px-5 py-4">
 	                                <button type="button" className={outlineButtonClass} onClick={() => selectCase(item.id)}>
-	                                  Open
+	                                  開く
 	                                </button>
 	                                <button
 	                                  type="button"
@@ -2665,7 +2665,7 @@ export default function App() {
 	                                  )}
 	                                  onClick={() => setDeleteTarget({ type: "case", id: item.id })}
 	                                >
-	                                  Delete
+	                                  削除
 	                                </button>
 	                              </div>
 	                            </div>
@@ -2691,7 +2691,7 @@ export default function App() {
 	                      }}
 	                    >
 	                      <PlusIcon className="size-5" />
-	                      New Test Case
+	                      新規テストケース
 	                    </button>
 	                  </div>
 	                </div>
@@ -2801,12 +2801,14 @@ export default function App() {
 	                        setCaseError(null);
 	                      }}
 	                    >
-	                      Back
+	                      戻る
 	                    </button>
 	                    <div className="min-w-0">
-	                      <h2 className="text-balance text-lg font-semibold">Test Case Detail</h2>
+	                      <h2 className="text-balance text-lg font-semibold">テストケース詳細</h2>
 	                      <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
-	                        {selectedCaseId ? "Edit details, steps, and datasets." : "Create a new test case."}
+	                        {selectedCaseId
+	                          ? "詳細・手順・データセットを編集します。"
+	                          : "新しいテストケースを作成します。"}
 	                      </p>
 	                    </div>
 	                  </div>
@@ -2826,7 +2828,7 @@ export default function App() {
 	                        setCaseMode("list");
 	                      }}
 	                    >
-	                      Cancel
+	                      キャンセル
 	                    </button>
 	                    <button
 	                      type="button"
@@ -2839,7 +2841,7 @@ export default function App() {
 	                        }
 	                      }}
 	                    >
-	                      Save
+	                      保存
 	                    </button>
 	                  </div>
 	                </div>
@@ -3143,7 +3145,7 @@ export default function App() {
                       {caseDraft.steps.map((step, index) => (
                         <div key={`step-${index}`} className="rounded-xl border border-slate-800 p-3">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-slate-400">Step {index + 1}</span>
+                            <span className="text-xs font-semibold text-slate-400">手順 {index + 1}</span>
                             {caseDraft.steps.length > 1 && (
                               <button
                                 className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200"
@@ -3230,9 +3232,9 @@ export default function App() {
 	              <div className={cn(panelClass, scenarioMode === "detail" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">
-	                    <h2 className="text-balance text-lg font-semibold">Test Scenarios</h2>
+	                    <h2 className="text-balance text-lg font-semibold">シナリオ</h2>
 	                    <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
-	                      Organize test cases into scenarios for better management
+	                      テストケースをシナリオにまとめて管理します。
 	                    </p>
 	                  </div>
 	                  <button
@@ -3247,12 +3249,12 @@ export default function App() {
 	                    }}
 	                  >
 	                    <PlusIcon className="size-5" />
-	                    New Scenario
+	                    新規シナリオ
 	                  </button>
 	                </div>
 	                <input
 	                  className={cn(inputClass, "mt-4")}
-	                  placeholder="Search scenarios..."
+	                  placeholder="シナリオを検索..."
 	                  value={scenarioQuery}
 	                  onChange={(event) => setScenarioQuery(event.target.value)}
 	                />
@@ -3306,10 +3308,10 @@ export default function App() {
 	                      scenarioDetailsCache[item.id]?.cases.length;
 	                    const statusLabel =
 	                      scenarioCaseCount === 0
-	                        ? "Planning"
+	                        ? "計画中"
 	                        : item.updated_at === item.created_at
-	                          ? "In Review"
-	                          : "Active";
+	                          ? "レビュー中"
+	                          : "進行中";
 	                    return (
 	                      <div
 	                        key={item.id}
@@ -3333,7 +3335,7 @@ export default function App() {
 	                          </button>
 	                          <button
 	                            type="button"
-	                            aria-label="Delete scenario"
+	                            aria-label="シナリオを削除"
 	                            className={cn(
 	                              "inline-flex size-10 items-center justify-center rounded-pill border text-sm font-semibold hover:opacity-90",
 	                              theme === "light"
@@ -3348,13 +3350,13 @@ export default function App() {
 
 	                        <div className={cn("mt-5 grid gap-3 border-t pt-4", borderClass)}>
 	                          <div className="flex items-center justify-between gap-3 text-sm">
-	                            <span className={cn("text-pretty", mutedForegroundClass)}>Test Cases</span>
+	                            <span className={cn("text-pretty", mutedForegroundClass)}>テストケース</span>
 	                            <span className="tabular-nums text-pretty font-semibold">
 	                              {scenarioCaseCount == null ? "—" : scenarioCaseCount}
 	                            </span>
 	                          </div>
 	                          <div className="flex items-center justify-between gap-3 text-sm">
-	                            <span className={cn("text-pretty", mutedForegroundClass)}>Status</span>
+	                            <span className={cn("text-pretty", mutedForegroundClass)}>状態</span>
 	                            <span className="text-pretty font-medium">{statusLabel}</span>
 	                          </div>
 	                        </div>
@@ -3375,12 +3377,14 @@ export default function App() {
 	                        setScenarioError(null);
 	                      }}
 	                    >
-	                      Back
+	                      戻る
 	                    </button>
 	                    <div className="min-w-0">
-	                      <h2 className="text-balance text-lg font-semibold">Scenario Detail</h2>
+	                      <h2 className="text-balance text-lg font-semibold">シナリオ詳細</h2>
 	                      <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
-	                        {selectedScenarioId ? "Edit and organize test cases." : "Create a new scenario."}
+	                        {selectedScenarioId
+	                          ? "テストケースを編集・整理します。"
+	                          : "新しいシナリオを作成します。"}
 	                      </p>
 	                    </div>
 	                  </div>
@@ -3400,7 +3404,7 @@ export default function App() {
 	                        setScenarioMode("list");
 	                      }}
 	                    >
-	                      Cancel
+	                      キャンセル
 	                    </button>
 	                    <button
 	                      type="button"
@@ -3413,7 +3417,7 @@ export default function App() {
 	                        }
 	                      }}
 	                    >
-	                      Save
+	                      保存
 	                    </button>
 	                  </div>
 	                </div>
@@ -3655,7 +3659,7 @@ export default function App() {
 
                   <div>
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase text-slate-400">Data items</p>
+                      <p className="text-xs font-semibold uppercase text-slate-400">データ項目</p>
                       <button
                         className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold"
                         onClick={() =>
@@ -3668,17 +3672,17 @@ export default function App() {
                           })
                         }
                       >
-                        Add Data Item
+                        項目を追加
                       </button>
                     </div>
                     <div className="mt-3 overflow-x-auto">
                       <table className="w-full min-w-[720px] text-left text-sm">
                         <thead className="text-xs font-semibold uppercase text-slate-400">
                           <tr>
-                            <th className="px-3 py-2">Label</th>
-                            <th className="px-3 py-2">Value</th>
-                            <th className="px-3 py-2">Note</th>
-                            <th className="px-3 py-2 text-right">Actions</th>
+                            <th className="px-3 py-2">ラベル</th>
+                            <th className="px-3 py-2">値</th>
+                            <th className="px-3 py-2">メモ</th>
+                            <th className="px-3 py-2 text-right">操作</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -3749,7 +3753,7 @@ export default function App() {
                                       })
                                     }
                                   >
-                                    Delete
+                                    削除
                                   </button>
                                 </td>
                               </tr>
@@ -3762,7 +3766,7 @@ export default function App() {
                               )}
                             >
                               <td colSpan={4} className="px-3 py-8 text-center text-xs text-slate-400">
-                                Data items are empty. Click “Add Data Item” to add one.
+                                データ項目が空です。「項目を追加」から追加してください。
                               </td>
                             </tr>
                           )}
@@ -3824,9 +3828,9 @@ export default function App() {
 	              <div className={cn(panelClass, runMode !== "list" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">
-	                    <h2 className="text-balance text-lg font-semibold">Test Runs</h2>
+	                    <h2 className="text-balance text-lg font-semibold">テスト実行</h2>
 	                    <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
-	                      Execute and track test scenarios
+	                      シナリオを実行し、進捗と結果を記録します。
 	                    </p>
 	                  </div>
 	                  <button
@@ -3844,20 +3848,20 @@ export default function App() {
 	                    }}
 	                  >
 	                    <PlusIcon className="size-5" />
-	                    Start New Run
+	                    新しい実行を開始
 	                  </button>
 	                </div>
 	                <input
 	                  className={cn(inputClass, "mt-4")}
-	                  placeholder="Search test runs..."
+	                  placeholder="テスト実行を検索..."
 	                  value={runQuery}
 	                  onChange={(event) => setRunQuery(event.target.value)}
 	                />
 	                <div className="mt-5 flex flex-wrap gap-2">
 	                  {[
-	                    { key: "active" as const, label: "Active" },
-	                    { key: "past" as const, label: "Past Runs" },
-	                    { key: "drafts" as const, label: "Drafts" }
+	                    { key: "active" as const, label: "進行中" },
+	                    { key: "past" as const, label: "過去の実行" },
+	                    { key: "drafts" as const, label: "下書き" }
 	                  ].map((tab) => {
 	                    const active = runTab === tab.key;
 	                    return (
@@ -3903,7 +3907,7 @@ export default function App() {
 	                      return (
 	                        <div className="px-5 py-8">
 	                          <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
-	                            No test runs found.
+	                            テスト実行が見つかりません。
 	                          </p>
 	                        </div>
 	                      );
@@ -3921,10 +3925,10 @@ export default function App() {
 	                              mutedForegroundClass
 	                            )}
 	                          >
-	                            <div className="px-5 py-4">Run Name</div>
-	                            <div className="px-5 py-4">Scenarios</div>
-	                            <div className="px-5 py-4">Status</div>
-	                            <div className="px-5 py-4">Progress</div>
+	                            <div className="px-5 py-4">実行名</div>
+	                            <div className="px-5 py-4">シナリオ</div>
+	                            <div className="px-5 py-4">状態</div>
+	                            <div className="px-5 py-4">進捗</div>
 	                          </div>
 
 	                          {runsForTab.map((item) => {
@@ -3988,7 +3992,7 @@ export default function App() {
 	                      }}
 	                    >
 	                      <PlusIcon className="size-5" />
-	                      Start New Run
+	                      新しい実行を開始
 	                    </button>
 	                  </div>
 	                </div>
@@ -4024,23 +4028,23 @@ export default function App() {
 	                        setRunError(null);
 	                      }}
 	                    >
-	                      Back
+	                      戻る
 	                    </button>
 	                    <div className="min-w-0">
 	                      <h2 className="truncate text-balance text-lg font-semibold">
 	                        {runMode === "execute"
-	                          ? `${runDraft.name || "Test Run"} - ${
+	                          ? `${runDraft.name || "テスト実行"} - ${
 	                              runScenarios.find((item) => item.id === selectedRunScenarioId)?.title ??
-	                              "Scenario"
+	                              "シナリオ"
 	                            }`
-	                          : "Test Run Detail"}
+	                          : "テスト実行詳細"}
 	                      </h2>
 	                      <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
 	                        {runMode === "execute"
-	                          ? "Execute test cases and record results"
+	                          ? "テストケースを実行して結果を記録します。"
 	                          : selectedRunId
-	                            ? "Edit run details and manage scenarios."
-	                            : "Create a new test run."}
+	                            ? "実行の詳細を編集し、シナリオを管理します。"
+	                            : "新しいテスト実行を作成します。"}
 	                      </p>
 	                    </div>
 	                  </div>
@@ -4063,7 +4067,7 @@ export default function App() {
 	                            });
 	                          }}
 	                        >
-	                          Pause
+	                          一時停止
 	                        </button>
 	                        <button
 	                          type="button"
@@ -4081,7 +4085,7 @@ export default function App() {
 	                            });
 	                          }}
 	                        >
-	                          Submit Results
+	                          結果を確定
 	                        </button>
 	                      </>
 	                    )}
@@ -4105,7 +4109,7 @@ export default function App() {
 	                            setRunMode("list");
 	                          }}
 	                        >
-	                          Cancel
+	                          キャンセル
 	                        </button>
 	                        <button
 	                          type="button"
@@ -4118,7 +4122,7 @@ export default function App() {
 	                            }
 	                          }}
 	                        >
-	                          Save
+	                          保存
 	                        </button>
 	                      </>
 	                    )}
@@ -4127,17 +4131,17 @@ export default function App() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   {[
                     {
-                      label: "Total",
+                      label: "合計",
                       value: runCaseTotals.isLoading ? "…" : runCaseTotals.total,
                       accent: "text-primary"
                     },
                     {
-                      label: "Completed",
+                      label: "完了",
                       value: runCaseTotals.isLoading ? "…" : runCaseTotals.completed,
                       accent: theme === "light" ? "text-emerald-700" : "text-emerald-300"
                     },
                     {
-                      label: "Remaining",
+                      label: "残り",
                       value: runCaseTotals.isLoading ? "…" : runCaseTotals.remaining,
                       accent: theme === "light" ? "text-amber-700" : "text-amber-300"
                     }
@@ -4730,14 +4734,14 @@ export default function App() {
 	                                                  className="rounded-pill bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground"
 	                                                  onClick={() => handleAddRunCaseEvidence(runCase.id)}
 	                                                >
-	                                                  Add Evidence
+	                                                  証跡を追加
 	                                                </button>
 	                                                <button
 	                                                  type="button"
 	                                                  className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-200"
 	                                                  onClick={() => handlePasteRunCaseEvidence(runCase.id)}
 	                                                >
-	                                                  Paste
+	                                                  貼り付け
 	                                                </button>
 	                                              </div>
 	                                            </div>
@@ -4760,7 +4764,7 @@ export default function App() {
                                                             handleRemoveRunCaseEvidence(preview.id, runCase.id)
                                                           }
                                                         >
-                                                          Delete
+                                                          削除
                                                         </button>
                                                         <button
                                                           type="button"
@@ -4798,7 +4802,7 @@ export default function App() {
                                                   </div>
                                                 ) : (
                                                   <p className="text-pretty text-xs text-slate-400">
-                                                    証跡はまだありません。Add Evidence から追加してください。
+                                                    証跡はまだありません。「証跡を追加」から追加してください。
                                                   </p>
                                                 )}
 	                                            </div>
@@ -4926,13 +4930,13 @@ export default function App() {
           {section === "export" && (
             <div className="grid gap-6 lg:grid-cols-2">
               <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">Export</h2>
+                <h2 className="text-balance text-lg font-semibold">エクスポート</h2>
                 <p className="text-pretty mt-2 text-sm text-slate-400">
                   テスト資産を用途に合わせて出力できます。
                 </p>
                 <div className="mt-4 grid gap-4">
                   <label htmlFor="export-type" className="text-xs font-semibold uppercase text-slate-400">
-                    Type
+                    種類
                   </label>
                   <select
                     id="export-type"
@@ -4952,7 +4956,7 @@ export default function App() {
                         htmlFor="export-scope"
                         className="text-xs font-semibold uppercase text-slate-400"
                       >
-                        Scope
+                        スコープ
                       </label>
                       <select
                         id="export-scope"
@@ -4970,7 +4974,7 @@ export default function App() {
                   )}
 
                   <label htmlFor="export-format" className="text-xs font-semibold uppercase text-slate-400">
-                    Format
+                    形式
                   </label>
                   <select
                     id="export-format"
@@ -4980,13 +4984,13 @@ export default function App() {
                   >
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
-                    <option value="md">Markdown</option>
+                    <option value="md">マークダウン</option>
                   </select>
                   <button
                     className="w-fit rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
                     onClick={handleExport}
                   >
-                    Export
+                    エクスポート
                   </button>
                   {exportNotice && (
                     <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
@@ -4997,13 +5001,13 @@ export default function App() {
               </div>
 
               <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">Import</h2>
+                <h2 className="text-balance text-lg font-semibold">インポート</h2>
                 <p className="text-pretty mt-2 text-sm text-slate-400">
                   ドラッグ&ドロップでプレビューし、そのまま取り込めます。
                 </p>
                 <div className="mt-4 grid gap-4">
                   <label htmlFor="import-type" className="text-xs font-semibold uppercase text-slate-400">
-                    Type
+                    種類
                   </label>
                   <select
                     id="import-type"
@@ -5028,7 +5032,7 @@ export default function App() {
                         htmlFor="import-scope"
                         className="text-xs font-semibold uppercase text-slate-400"
                       >
-                        Scope
+                        スコープ
                       </label>
                       <select
                         id="import-scope"
@@ -5052,7 +5056,7 @@ export default function App() {
                   )}
 
                   <label htmlFor="import-format" className="text-xs font-semibold uppercase text-slate-400">
-                    Format
+                    形式
                   </label>
                   <select
                     id="import-format"
@@ -5068,7 +5072,7 @@ export default function App() {
                   >
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
-                    <option value="md">Markdown</option>
+                    <option value="md">マークダウン</option>
                   </select>
 
                   <input
@@ -5098,15 +5102,15 @@ export default function App() {
                     }}
                   >
                     <p className="text-pretty text-sm">
-                      Drag & drop here, or{" "}
+                      ここにドラッグ＆ドロップ、または{" "}
                       <button
                         type="button"
                         className="font-semibold text-primary underline-offset-4 hover:underline"
                         onClick={() => importFileInputRef.current?.click()}
                       >
-                        choose a file
+                        ファイルを選択
                       </button>
-                      .
+                      してください。
                     </p>
                     <p className="text-pretty mt-2 text-xs text-slate-400">
                       選択中: {importStagedFile?.fileName ?? "なし"}
@@ -5135,10 +5139,10 @@ export default function App() {
                             theme === "light" ? "text-slate-900" : "text-slate-300"
                           )}
                         >
-                          Preview: {importPreviewData.fileName}
+                          プレビュー: {importPreviewData.fileName}
                         </p>
                         <p className="text-xs text-slate-400 tabular-nums">
-                          Total: {importPreviewData.total}
+                          合計: {importPreviewData.total}
                         </p>
                       </div>
                       <div className="mt-3 overflow-x-auto">
@@ -5195,7 +5199,7 @@ export default function App() {
                     onClick={handleImport}
                     disabled={isLoading}
                   >
-                    Import
+                    インポート
                   </button>
 
                   {importNotice && (
@@ -5211,13 +5215,13 @@ export default function App() {
           {section === "settings" && (
             <div className="grid gap-6 lg:grid-cols-2">
               <div className={cn(panelClass, "lg:col-span-2")}>
-                <h2 className="text-balance text-lg font-semibold">Project Settings</h2>
+                <h2 className="text-balance text-lg font-semibold">プロジェクト設定</h2>
                 <div className="mt-4 grid gap-4">
                   <label
                     htmlFor="settings-project-name"
                     className="text-xs font-semibold uppercase text-slate-400"
                   >
-                    Project name
+                    プロジェクト名
                   </label>
                   <input
                     id="settings-project-name"
@@ -5231,14 +5235,14 @@ export default function App() {
                     }}
                   />
                   <div>
-                    <p className="text-xs font-semibold uppercase text-slate-400">Path</p>
+                    <p className="text-xs font-semibold uppercase text-slate-400">パス</p>
                     <p className="text-pretty mt-2 break-all text-sm text-slate-300">{project.path}</p>
                   </div>
                 </div>
               </div>
 
               <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">Appearance</h2>
+                <h2 className="text-balance text-lg font-semibold">外観</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -5251,7 +5255,7 @@ export default function App() {
                     )}
                     onClick={() => setTheme("light")}
                   >
-                    Light
+                    ライト
                   </button>
                   <button
                     type="button"
@@ -5264,15 +5268,15 @@ export default function App() {
                     )}
                     onClick={() => setTheme("dark")}
                   >
-                    Dark
+                    ダーク
                   </button>
                 </div>
               </div>
 
               <div className={panelClass}>
-                <h2 className="text-balance text-lg font-semibold">Database</h2>
+                <h2 className="text-balance text-lg font-semibold">データベース</h2>
                 <p className="text-pretty mt-2 text-sm text-slate-400">
-                  Backup は DB と attachments をフォルダにコピーします。Reset はすべてのデータを削除します。
+                  バックアップはデータベースと証跡フォルダを指定フォルダにコピーします。リセットはすべてのデータを削除します。
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button
@@ -5280,14 +5284,14 @@ export default function App() {
                     className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
                     onClick={handleBackupDatabase}
                   >
-                    Backup
+                    バックアップ
                   </button>
                   <button
                     type="button"
                     className="rounded-full border border-rose-500 px-4 py-2 text-sm font-semibold text-rose-200"
                     onClick={() => setResetDatabaseOpen(true)}
                   >
-                    Reset
+                    リセット
                   </button>
                 </div>
                 {settingsNotice && (
@@ -5338,7 +5342,7 @@ export default function App() {
       />
       <ConfirmDialog
         open={resetDatabaseOpen}
-        title="DB をリセットしてもよいですか？"
+        title="データベースをリセットしてもよいですか？"
         description="すべてのデータが削除され、この操作は取り消せません。"
         confirmLabel="リセットする"
         theme={theme}
