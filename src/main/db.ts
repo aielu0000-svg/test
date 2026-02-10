@@ -153,6 +153,7 @@ const initSchema = (database: Database.Database) => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       scope TEXT NOT NULL,
+      folder_id TEXT,
       description TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -260,6 +261,7 @@ const initSchema = (database: Database.Database) => {
     CREATE INDEX IF NOT EXISTS idx_scenario_cases ON scenario_cases(scenario_id, position);
     CREATE INDEX IF NOT EXISTS idx_data_items ON data_items(data_set_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_data_links ON data_links(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_data_sets_folder ON data_sets(folder_id);
     CREATE INDEX IF NOT EXISTS idx_run_cases ON run_cases(run_id);
     CREATE INDEX IF NOT EXISTS idx_evidence_run_case ON evidence(run_case_id);
     CREATE INDEX IF NOT EXISTS idx_case_folders_name ON case_folders(name);
@@ -270,6 +272,7 @@ const initSchema = (database: Database.Database) => {
   `);
 
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
+  ensureColumn(database, "data_sets", "folder_id", "TEXT");
 };
 
 export const createProject = (folderPath: string, name: string) => {
@@ -393,6 +396,7 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
   const steps = database
     .prepare("SELECT * FROM test_steps WHERE case_id = ? ORDER BY position")
     .all(caseId);
+  const folderId = (testCase as { folder_id?: string | null } | null | undefined)?.folder_id ?? null;
   const dataSetRows = database
     .prepare(
       `
@@ -420,11 +424,39 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
     value?: string;
     note?: string;
   }>;
+  const folderCommonRows = folderId
+    ? (database
+        .prepare(
+          `
+          SELECT
+            data_sets.id as data_set_id,
+            data_sets.name,
+            data_sets.description,
+            data_items.id as item_id,
+            data_items.label,
+            data_items.value,
+            data_items.note
+          FROM data_sets
+          LEFT JOIN data_items ON data_sets.id = data_items.data_set_id
+          WHERE data_sets.scope = ? AND data_sets.folder_id = ?
+          ORDER BY data_sets.updated_at DESC, data_items.sort_order
+          `
+        )
+        .all("common", folderId) as Array<{
+        data_set_id: string;
+        name: string;
+        description?: string;
+        item_id?: string;
+        label?: string;
+        value?: string;
+        note?: string;
+      }>)
+    : [];
   const dataSetsMap = new Map<
     string,
     { id: string; name: string; description: string; items: DataItem[] }
   >();
-  dataSetRows.forEach((row) => {
+  [...folderCommonRows, ...dataSetRows].forEach((row) => {
     if (!row || !row.data_set_id) {
       return;
     }
@@ -568,6 +600,7 @@ export const saveCaseFolder = (payload: { id?: string; name: string }) => {
 export const deleteCaseFolder = (id: string) => {
   const { db: database } = ensureDb();
   database.prepare("UPDATE test_cases SET folder_id = NULL WHERE folder_id = ?").run(id);
+  database.prepare("UPDATE data_sets SET folder_id = NULL WHERE folder_id = ?").run(id);
   database.prepare("DELETE FROM case_folders WHERE id = ?").run(id);
 };
 
@@ -739,6 +772,7 @@ export const saveDataSet = (payload: {
   id?: string;
   name: string;
   scope: string;
+  folderId?: string | null;
   description?: string;
   items: Array<{ id?: string; label: string; value: string; note?: string }>;
   links: Array<{ entityType: string; entityId: string }>;
@@ -747,19 +781,20 @@ export const saveDataSet = (payload: {
   const id = payload.id ?? randomUUID();
   const timestamp = now();
   const existing = database.prepare("SELECT id FROM data_sets WHERE id = ?").get(id);
+  const folderId = payload.scope === "common" ? payload.folderId ?? null : null;
 
   if (existing) {
     database
       .prepare(
-        "UPDATE data_sets SET name = ?, scope = ?, description = ?, updated_at = ? WHERE id = ?"
+        "UPDATE data_sets SET name = ?, scope = ?, folder_id = ?, description = ?, updated_at = ? WHERE id = ?"
       )
-      .run(payload.name, payload.scope, payload.description ?? "", timestamp, id);
+      .run(payload.name, payload.scope, folderId, payload.description ?? "", timestamp, id);
   } else {
     database
       .prepare(
-        "INSERT INTO data_sets (id, name, scope, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO data_sets (id, name, scope, folder_id, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
       )
-      .run(id, payload.name, payload.scope, payload.description ?? "", timestamp, timestamp);
+      .run(id, payload.name, payload.scope, folderId, payload.description ?? "", timestamp, timestamp);
   }
 
   const insertItem = database.prepare(
@@ -1692,7 +1727,7 @@ export const exportData = (payload: {
 
   if (payload.entity === "test_cases") {
     rows = database
-      .prepare("SELECT id, title, objective, preconditions, priority, severity, tags FROM test_cases ORDER BY updated_at DESC")
+      .prepare("SELECT id, title, objective, preconditions, priority, tags FROM test_cases ORDER BY updated_at DESC")
       .all() as Array<Record<string, any>>;
   }
 
@@ -1754,11 +1789,11 @@ export const exportData = (payload: {
   if (payload.entity === "data_sets") {
     if (payload.scope) {
       rows = database
-        .prepare("SELECT id, name, scope, description FROM data_sets WHERE scope = ? ORDER BY updated_at DESC")
+        .prepare("SELECT id, name, scope, folder_id, description FROM data_sets WHERE scope = ? ORDER BY updated_at DESC")
         .all(payload.scope) as Array<Record<string, any>>;
     } else {
       rows = database
-        .prepare("SELECT id, name, scope, description FROM data_sets ORDER BY updated_at DESC")
+        .prepare("SELECT id, name, scope, folder_id, description FROM data_sets ORDER BY updated_at DESC")
         .all() as Array<Record<string, any>>;
     }
   }
@@ -1851,7 +1886,6 @@ export const importData = (payload: {
         objective: record.objective || "",
         preconditions: record.preconditions || "",
         priority: record.priority || "",
-        severity: record.severity || "",
         tags: record.tags || "",
         steps: Array.isArray(steps)
           ? steps.map((step: any) => ({
@@ -1900,9 +1934,12 @@ export const importData = (payload: {
         : typeof record.items === "string" && record.items.trim()
           ? safeJsonParse(record.items)
           : [];
+      const folderIdRaw = record.folder_id ?? record.folderId ?? record.folder;
+      const folderId = typeof folderIdRaw === "string" && folderIdRaw.trim() ? folderIdRaw.trim() : null;
       saveDataSet({
         name: record.name || record.title || "Untitled",
         scope: record.scope || payload.scopeOverride || "common",
+        folderId,
         description: record.description || "",
         items: Array.isArray(items)
           ? items.map((item: any) => ({
@@ -1985,7 +2022,7 @@ export const createTemplateDataSets = (scope: string) => {
   }
 
   const existing = database
-    .prepare("SELECT id FROM data_sets WHERE name = ? AND scope = ?")
+    .prepare("SELECT id FROM data_sets WHERE name = ? AND scope = ? AND folder_id IS NULL")
     .get(template.name, scope) as { id: string } | undefined;
 
   if (existing?.id) {

@@ -13,7 +13,6 @@ type TestCase = {
   objective: string;
   preconditions: string;
   priority: string;
-  severity: string;
   tags: string;
   folder_id?: string | null;
   created_at: string;
@@ -52,6 +51,7 @@ type DataSet = {
   id: string;
   name: string;
   scope: string;
+  folder_id?: string | null;
   description: string;
   created_at: string;
   updated_at: string;
@@ -158,7 +158,6 @@ type CaseDraft = {
   objective: string;
   preconditions: string;
   priority: string;
-  severity: string;
   tags: string;
   steps: TestStep[];
   dataSetIds: string[];
@@ -174,6 +173,7 @@ type ScenarioDraft = {
 type DataDraft = {
   name: string;
   scope: string;
+  folderId: string | null;
   description: string;
   items: DataDraftItem[];
   links: DataLink[];
@@ -215,7 +215,6 @@ type DashboardStats = {
 };
 
 const priorityOptions = ["高", "中", "低"] as const;
-const severityOptions = ["致命的", "高", "中", "低"] as const;
 const runStatusOptions = ["draft", "in_progress", "completed"] as const;
 const runCaseStatusOptions = ["not_run", "pass", "fail", "blocked", "skip"] as const;
 type RunCaseStatus = (typeof runCaseStatusOptions)[number];
@@ -436,7 +435,6 @@ const emptyCase = (): CaseDraft => ({
   objective: "",
   preconditions: "",
   priority: String(priorityOptions[1]),
-  severity: String(severityOptions[2]),
   tags: "",
   steps: [{ action: "", expected: "" }],
   dataSetIds: [],
@@ -456,6 +454,7 @@ const createClientId = () => {
 const emptyDataSet = (): DataDraft => ({
   name: "",
   scope: "common",
+  folderId: null,
   description: "",
   items: [{ clientId: createClientId(), label: "", value: "", note: "" }],
   links: [] as DataLink[]
@@ -492,7 +491,6 @@ export default function App() {
   const [caseFolders, setCaseFolders] = useState<CaseFolder[]>([]);
   const [folderFilter, setFolderFilter] = useState("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
-  const [caseSeverityFilter, setCaseSeverityFilter] = useState("all");
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -999,9 +997,6 @@ export default function App() {
     if (casePriorityFilter !== "all") {
       items = items.filter((item) => (item.priority ?? "").trim() === casePriorityFilter);
     }
-    if (caseSeverityFilter !== "all") {
-      items = items.filter((item) => (item.severity ?? "").trim() === caseSeverityFilter);
-    }
     if (tagFilters.length) {
       items = items.filter((item) => {
         const tags = item.tags
@@ -1015,7 +1010,7 @@ export default function App() {
     }
     const term = caseQuery.toLowerCase();
     return items.filter((item) => item.title.toLowerCase().includes(term));
-  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter, caseSeverityFilter]);
+  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter]);
 
   const caseGroups = useMemo(() => {
     const result: Record<string, TestCase[]> = {};
@@ -1112,14 +1107,31 @@ export default function App() {
 
   const caseDataSetOptions = useMemo(
     () =>
-      dataSets.filter(
-        (item) =>
-          item.scope === "common" ||
-          item.scope === "case" ||
-          item.scope === "scenario" ||
-          item.scope === "run"
-      ),
-    [dataSets]
+      dataSets.filter((item) => {
+        if (item.scope === "common") {
+          const folderId = item.folder_id ?? null;
+          if (folderId && folderId !== caseDraft.folderId) {
+            return false;
+          }
+          return true;
+        }
+        return item.scope === "case" || item.scope === "scenario" || item.scope === "run";
+      }),
+    [dataSets, caseDraft.folderId]
+  );
+
+  const autoFolderCommonDataSetIds = useMemo(() => {
+    if (!caseDraft.folderId) {
+      return [] as string[];
+    }
+    return dataSets
+      .filter((item) => item.scope === "common" && (item.folder_id ?? null) === caseDraft.folderId)
+      .map((item) => item.id);
+  }, [dataSets, caseDraft.folderId]);
+
+  const effectiveCaseDataSetIds = useMemo(
+    () => Array.from(new Set([...caseDraft.dataSetIds, ...autoFolderCommonDataSetIds])),
+    [caseDraft.dataSetIds, autoFolderCommonDataSetIds]
   );
 
   const dataScopeLabel = (scope: string) =>
@@ -1167,6 +1179,13 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    const missing = effectiveCaseDataSetIds.filter((id) => !caseDataSets[id]);
+    if (missing.length) {
+      void loadCaseDataSetDetails(missing);
+    }
+  }, [effectiveCaseDataSetIds, caseDataSets]);
+
   const loadCaseById = async (id: string) => {
     const data = (await window.api.testCases.get(id)) as {
       testCase: TestCase;
@@ -1182,7 +1201,6 @@ export default function App() {
       objective: data.testCase.objective ?? "",
       preconditions: data.testCase.preconditions ?? "",
       priority: data.testCase.priority || priorityOptions[1],
-      severity: data.testCase.severity || severityOptions[2],
       tags: data.testCase.tags ?? "",
       steps: data.steps.length
         ? data.steps.map((step) => ({ action: step.action, expected: step.expected }))
@@ -1239,6 +1257,7 @@ export default function App() {
     setDataDraft({
       name: data.dataSet.name,
       scope: data.dataSet.scope,
+      folderId: data.dataSet.folder_id ?? null,
       description: data.dataSet.description ?? "",
       items: data.items.length
         ? data.items.map((item) => ({
@@ -1298,13 +1317,12 @@ export default function App() {
 	    }
 	    setIsLoading(true);
 	    try {
-	      const payload = {
+      const payload = {
         id: selectedCaseId ?? undefined,
         title: caseDraft.title.trim(),
         objective: caseDraft.objective,
         preconditions: caseDraft.preconditions,
         priority: caseDraft.priority,
-        severity: caseDraft.severity,
         tags: caseDraft.tags,
         steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
         dataSetIds: caseDraft.dataSetIds,
@@ -1393,6 +1411,7 @@ export default function App() {
         id: selectedDataSetId ?? undefined,
         name: dataDraft.name.trim(),
         scope: dataDraft.scope,
+        folderId: dataDraft.scope === "common" ? dataDraft.folderId : null,
         description: dataDraft.description,
         items: dataDraft.items
           .filter((item) => item.label.trim() || item.value.trim())
@@ -2538,27 +2557,6 @@ export default function App() {
 	                    </select>
 	                  </div>
 	                  <div>
-	                    <label
-	                      htmlFor="case-severity-filter"
-	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
-	                    >
-	                      重大度
-	                    </label>
-	                    <select
-	                      id="case-severity-filter"
-	                      className={cn(inputClass, "mt-2")}
-	                      value={caseSeverityFilter}
-	                      onChange={(event) => setCaseSeverityFilter(event.target.value)}
-	                    >
-	                      <option value="all">重大度</option>
-	                      {severityOptions.map((option) => (
-	                        <option key={option} value={option}>
-	                          {option}
-	                        </option>
-	                      ))}
-	                    </select>
-	                  </div>
-	                  <div>
 	                    <p className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}>タグ</p>
 	                    {tagOptions.length === 0 ? (
 	                      <p className={cn("mt-2 text-xs", mutedForegroundClass)}>タグはまだありません。</p>
@@ -2666,10 +2664,10 @@ export default function App() {
 	                    </div>
 	                  ) : (
 	                    <div className="overflow-x-auto">
-	                      <div className="min-w-[980px]">
+	                      <div className="min-w-[860px]">
 	                        <div
 	                          className={cn(
-	                            "grid grid-cols-[minmax(0,1fr)_140px_140px_200px_220px] items-center text-sm",
+	                            "grid grid-cols-[minmax(0,1fr)_140px_200px_220px] items-center text-sm",
 	                            borderClass,
 	                            "border-b",
 	                            theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
@@ -2678,7 +2676,6 @@ export default function App() {
 	                        >
 	                          <div className="px-5 py-4">テストケース</div>
 	                          <div className="px-5 py-4">優先度</div>
-	                          <div className="px-5 py-4">重大度</div>
 	                          <div className="px-5 py-4">フォルダ</div>
 	                          <div className="px-5 py-4">操作</div>
 	                        </div>
@@ -2692,7 +2689,7 @@ export default function App() {
 	                            <div
 	                              key={item.id}
 	                              className={cn(
-	                                "grid grid-cols-[minmax(0,1fr)_140px_140px_200px_220px] items-center text-sm",
+	                                "grid grid-cols-[minmax(0,1fr)_140px_200px_220px] items-center text-sm",
 	                                borderClass,
 	                                "border-b last:border-b-0",
 	                                theme === "light"
@@ -2708,9 +2705,6 @@ export default function App() {
 	                              </div>
 	                              <div className="px-5 py-4">
 	                                <p className="text-pretty text-sm">{item.priority || "—"}</p>
-	                              </div>
-	                              <div className="px-5 py-4">
-	                                <p className="text-pretty text-sm">{item.severity || "—"}</p>
 	                              </div>
 	                              <div className="px-5 py-4">
 	                                <p className={cn("truncate text-pretty text-sm", mutedForegroundClass)}>
@@ -2951,7 +2945,7 @@ export default function App() {
                       setCaseDraft({ ...caseDraft, preconditions: event.target.value })
                     }
                   />
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label
                         htmlFor="case-priority"
@@ -2966,26 +2960,6 @@ export default function App() {
                         onChange={(event) => setCaseDraft({ ...caseDraft, priority: event.target.value })}
                       >
                         {priorityOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="case-severity"
-                        className="text-xs font-semibold uppercase text-slate-400"
-                      >
-                        重大度
-                      </label>
-                      <select
-                        id="case-severity"
-                        className={cn(inputClass, "mt-2")}
-                        value={caseDraft.severity}
-                        onChange={(event) => setCaseDraft({ ...caseDraft, severity: event.target.value })}
-                      >
-                        {severityOptions.map((option) => (
                           <option key={option} value={option}>
                             {option}
                           </option>
@@ -3041,7 +3015,7 @@ export default function App() {
                       <div>
                         <h3 className="text-balance text-sm font-semibold">初期データの選択</h3>
                         <p className="text-pretty mt-1 text-xs text-slate-400">
-                          初期データをテストケースに関連付けできます。
+                          フォルダに設定した共通初期データは自動で適用されます。必要に応じて個別の初期データも関連付けできます。
                         </p>
                       </div>
                       <button
@@ -3063,7 +3037,15 @@ export default function App() {
                     ) : (
                       <div className="mt-3 min-h-0 max-h-[240px] grid gap-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-900/40">
                         {caseDataSetOptions.map((dataSet) => {
-                          const checked = caseDraft.dataSetIds.includes(dataSet.id);
+                          const isAutoFolderCommon =
+                            dataSet.scope === "common" &&
+                            Boolean(dataSet.folder_id) &&
+                            (dataSet.folder_id ?? null) === caseDraft.folderId;
+                          const checked = isAutoFolderCommon || caseDraft.dataSetIds.includes(dataSet.id);
+                          const scopeLabel =
+                            dataSet.scope === "common" && dataSet.folder_id
+                              ? `共通（フォルダ: ${caseFolderMap[dataSet.folder_id]?.name ?? "（削除済み）"}）`
+                              : dataScopeLabel(dataSet.scope);
                           const inputId = `case-data-set-${dataSet.id}`;
                           return (
                             <label
@@ -3085,7 +3067,11 @@ export default function App() {
                                 type="checkbox"
                                 className="mt-1 size-4 accent-sky-400"
                                 checked={checked}
+                                disabled={isAutoFolderCommon}
                                 onChange={() => {
+                                  if (isAutoFolderCommon) {
+                                    return;
+                                  }
                                   void toggleCaseDataSet(dataSet.id);
                                 }}
                               />
@@ -3093,7 +3079,7 @@ export default function App() {
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="font-semibold">{dataSet.name}</span>
                                   <span className="text-[11px] text-slate-500">
-                                    {dataScopeLabel(dataSet.scope)}
+                                    {isAutoFolderCommon ? "フォルダ共通（自動）" : scopeLabel}
                                   </span>
                                 </div>
                                 {dataSet.description && (
@@ -3108,12 +3094,12 @@ export default function App() {
                       </div>
                     )}
 
-                    {caseDraft.dataSetIds.length > 0 && (
+                    {effectiveCaseDataSetIds.length > 0 && (
                       <div className="mt-4 grid gap-2">
                         <p className="text-xs font-semibold uppercase text-slate-400">
-                          選択中のデータ内容
+                          適用中のデータ内容
                         </p>
-                        {caseDraft.dataSetIds.map((dataSetId) => {
+                        {effectiveCaseDataSetIds.map((dataSetId) => {
                           const details = caseDataSets[dataSetId];
                           if (!details) {
                             return (
@@ -3624,7 +3610,12 @@ export default function App() {
                       onClick={() => selectDataSet(item.id)}
                     >
                       <div className="text-balance font-semibold">{item.name}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.scope}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {dataScopeLabel(item.scope)}
+                        {item.scope === "common" && item.folder_id
+                          ? ` / フォルダ: ${caseFolderMap[item.folder_id]?.name ?? "（削除済み）"}`
+                          : ""}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -3657,7 +3648,12 @@ export default function App() {
                     className={inputClass}
                     value={dataDraft.scope}
                     onChange={(event) =>
-                      setDataDraft({ ...dataDraft, scope: event.target.value, links: [] })
+                      setDataDraft({
+                        ...dataDraft,
+                        scope: event.target.value,
+                        folderId: event.target.value === "common" ? dataDraft.folderId : null,
+                        links: []
+                      })
                     }
                   >
                     {dataScopes.map((scope) => (
@@ -3666,6 +3662,37 @@ export default function App() {
                       </option>
                     ))}
                   </select>
+                  {dataDraft.scope === "common" && (
+                    <div>
+                      <label
+                        htmlFor="data-folder"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        フォルダ
+                      </label>
+                      <select
+                        id="data-folder"
+                        className={cn(inputClass, "mt-2")}
+                        value={dataDraft.folderId ?? "none"}
+                        onChange={(event) =>
+                          setDataDraft({
+                            ...dataDraft,
+                            folderId: event.target.value === "none" ? null : event.target.value
+                          })
+                        }
+                      >
+                        <option value="none">全体（共通）</option>
+                        {caseFolders.map((folder) => (
+                          <option key={`data-folder-${folder.id}`} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-pretty mt-1 text-xs text-slate-400">
+                        フォルダを選ぶと、そのフォルダ内のテストケースに共通初期データとして自動で適用されます。
+                      </p>
+                    </div>
+                  )}
                   <label
                     htmlFor="data-description"
                     className="text-xs font-semibold uppercase text-slate-400"
@@ -5000,38 +5027,6 @@ export default function App() {
                 <p className="text-pretty mt-2 text-sm text-slate-400">
                   テスト資産を用途に合わせて出力できます。
                 </p>
-                <div
-                  className={cn(
-                    "mt-4 rounded-2xl border border-dashed p-4 text-center",
-                    theme === "light"
-                      ? "border-slate-200 bg-white text-slate-600"
-                      : "border-slate-800 bg-slate-950/30 text-slate-300"
-                  )}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "copy";
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const file = event.dataTransfer.files?.[0] ?? null;
-                    void stageImportFile(file, { autoDetect: true, source: "エクスポート欄ドロップ" });
-                  }}
-                >
-                  <p className="text-pretty text-sm">
-                    インポートしたいファイルをここにドラッグ＆ドロップすると、種類/スコープ/形式を自動判定して読み込みます。
-                  </p>
-                  <p className="text-pretty mt-2 text-xs text-slate-400">
-                    もしくは{" "}
-                    <button
-                      type="button"
-                      className="font-semibold text-primary underline-offset-4 hover:underline"
-                      onClick={() => importFileInputRef.current?.click()}
-                    >
-                      ファイルを選択
-                    </button>
-                    してください。
-                  </p>
-                </div>
                 <div className="mt-4 grid gap-4">
                   <label htmlFor="export-type" className="text-xs font-semibold uppercase text-slate-400">
                     種類
