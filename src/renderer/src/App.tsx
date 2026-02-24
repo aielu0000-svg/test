@@ -717,7 +717,7 @@ export default function App() {
   };
 
   const queueRunScenarioAutoSave = (scenario: RunCase) => {
-    if (!selectedRunIdRef.current || isSyncingRunSelectionRef.current) {
+    if (!selectedRunIdRef.current) {
       return;
     }
     const key = scenario.id;
@@ -742,7 +742,7 @@ export default function App() {
   };
 
   const queueRunScenarioCaseAutoSave = (runCase: RunScenarioCase) => {
-    if (!selectedRunIdRef.current || isSyncingRunSelectionRef.current) {
+    if (!selectedRunIdRef.current) {
       return;
     }
     const key = runCase.id;
@@ -1718,7 +1718,7 @@ export default function App() {
         [runScenarioId]: nextCases
       };
     });
-    if (nextCaseForSave && !isSyncingRunSelectionRef.current) {
+    if (nextCaseForSave) {
       queueRunScenarioCaseAutoSave(nextCaseForSave);
     }
   };
@@ -1842,7 +1842,7 @@ export default function App() {
         return updated;
       })
     );
-    if (nextScenarioForSave && !isSyncingRunSelectionRef.current) {
+    if (nextScenarioForSave) {
       queueRunScenarioAutoSave(nextScenarioForSave);
     }
   };
