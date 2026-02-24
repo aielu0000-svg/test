@@ -1685,23 +1685,19 @@ export default function App() {
     caseId: string,
     patch: Partial<RunScenarioCase>
   ) => {
-    let nextCaseForSave: RunScenarioCase | null = null;
+    const currentCases = runScenarioCasesMap[runScenarioId] ?? [];
+    const currentCase = currentCases.find((entry) => entry.id === caseId) ?? null;
+    const nextCaseForSave = currentCase ? { ...currentCase, ...patch } : null;
     setRunScenarioCasesMap((prev) => {
       const cases = prev[runScenarioId] ?? [];
       if (!cases.length) {
         return prev;
       }
-      const nextCases = cases.map((entry) => {
-        if (entry.id !== caseId) {
-          return entry;
-        }
-        const updated = { ...entry, ...patch };
-        nextCaseForSave = updated;
-        return updated;
-      });
       return {
         ...prev,
-        [runScenarioId]: nextCases
+        [runScenarioId]: cases.map((entry) =>
+          entry.id === caseId ? { ...entry, ...patch } : entry
+        )
       };
     });
     if (nextCaseForSave) {
@@ -1817,16 +1813,10 @@ export default function App() {
   };
 
   const updateRunScenarioDraft = (id: string, patch: Partial<RunCase>) => {
-    let nextScenarioForSave: RunCase | null = null;
+    const currentScenario = runScenarios.find((item) => item.id === id) ?? null;
+    const nextScenarioForSave = currentScenario ? { ...currentScenario, ...patch } : null;
     setRunScenarios((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) {
-          return item;
-        }
-        const updated = { ...item, ...patch };
-        nextScenarioForSave = updated;
-        return updated;
-      })
+      prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
     );
     if (nextScenarioForSave) {
       queueRunScenarioAutoSave(nextScenarioForSave);
