@@ -1540,12 +1540,18 @@ export const exportData = (payload: {
   entity: "test_cases" | "scenarios" | "data_sets" | "test_runs";
   format: "csv" | "json" | "md";
   scope?: string;
+  runIds?: string[];
 }) => {
-  const { db: database } = ensureDb();
+  const { db: database, projectPath } = ensureDb();
+  const runIds = Array.isArray(payload.runIds)
+    ? payload.runIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
+  const selectedRunIdSet = runIds.length ? new Set(runIds) : null;
   if (payload.entity === "test_runs" && payload.format === "md") {
-    const runs = database
+    const allRuns = database
       .prepare("SELECT * FROM test_runs ORDER BY updated_at DESC")
       .all() as Array<Record<string, any>>;
+    const runs = selectedRunIdSet ? allRuns.filter((run) => selectedRunIdSet.has(String(run.id))) : allRuns;
     if (!runs.length) {
       return "# テスト実行\n\nデータがありません。";
     }
@@ -1589,12 +1595,47 @@ export const exportData = (payload: {
       return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName);
     };
 
+    const runStatusLabel = (status: string) => {
+      if (status === "in_progress") return "実行中";
+      if (status === "completed") return "完了";
+      return "下書き";
+    };
+    const scenarioStatusLabel = (status: string) => {
+      if (status === "not_run") return "未実行";
+      if (status === "in_progress") return "実行中";
+      if (status === "completed_pass") return "実行済み";
+      if (status === "completed_fail") return "実行済み";
+      return status;
+    };
+    const caseStatusLabel = (status: string) => {
+      if (status === "not_run") return "未実行";
+      if (status === "pass") return "✅ 合格";
+      if (status === "fail") return "❌ 不合格";
+      if (status === "blocked") return "⚠️ ブロック";
+      if (status === "skip") return "スキップ";
+      return status;
+    };
+    const toEmbeddedImageDataUrl = (item: Record<string, any>) => {
+      const storedPath = formatOptional(item.stored_path);
+      const fileName = String(item.file_name ?? storedPath ?? "evidence");
+      if (!storedPath || !isImageAttachment(fileName, item.mime_type)) {
+        return null;
+      }
+      const absPath = resolveAttachmentPath(projectPath, storedPath);
+      if (!absPath || !fs.existsSync(absPath)) {
+        return null;
+      }
+      const mimeType = String(item.mime_type || inferMimeTypeFromName(fileName) || "image/png");
+      const base64 = fs.readFileSync(absPath).toString("base64");
+      return `data:${mimeType};base64,${base64}`;
+    };
+
     const lines: string[] = ["# テスト実行", ""];
 
     runs.forEach((run) => {
       lines.push(`## ${run.name ?? ""}`.trimEnd());
       if (formatOptional(run.status)) {
-        lines.push(`- ステータス: ${String(run.status)}`);
+        lines.push(`- ステータス: ${runStatusLabel(String(run.status))}`);
       }
       if (formatOptional(run.environment)) {
         lines.push(`- 環境: ${String(run.environment)}`);
@@ -1631,7 +1672,7 @@ export const exportData = (payload: {
         const title = formatOptional(runScenario.scenario_title) ?? formatOptional(runScenario.title) ?? "";
         lines.push(`### ${scenarioIndex + 1}. ${title}`.trimEnd());
         if (formatOptional(runScenario.status)) {
-          lines.push(`- 結果: ${String(runScenario.status)}`);
+          lines.push(`- 結果: ${scenarioStatusLabel(String(runScenario.status))}`);
         }
         if (formatOptional(runScenario.assignee)) {
           lines.push(`- 担当者: ${String(runScenario.assignee)}`);
@@ -1658,8 +1699,9 @@ export const exportData = (payload: {
           scenarioEvidence.forEach((item) => {
             const storedPathRaw = formatOptional(item.stored_path);
             const storedPath = storedPathRaw ? storedPathRaw.replace(/\\/g, "/") : null;
-            if (storedPath && isImageAttachment(String(item.file_name ?? storedPath), item.mime_type)) {
-              lines.push(`  - ![${String(item.file_name ?? "evidence")}](${storedPath})`);
+            const embedded = toEmbeddedImageDataUrl(item);
+            if (embedded) {
+              lines.push(`  - ![${String(item.file_name ?? "evidence")}](${embedded})`);
               return;
             }
             lines.push(`  - ${item.file_name}${storedPath ? ` (${storedPath})` : ""}`);
@@ -1677,7 +1719,7 @@ export const exportData = (payload: {
         lines.push("");
         runScenarioCases.forEach((runCase, caseIndex) => {
           lines.push(`#### ${scenarioIndex + 1}.${caseIndex + 1}. ${String(runCase.case_title ?? "")}`.trimEnd());
-          lines.push(`- 結果: ${String(runCase.status ?? "")}`);
+          lines.push(`- 結果: ${caseStatusLabel(String(runCase.status ?? ""))}`);
           if (formatOptional(runCase.executed_at)) {
             lines.push(`- 実行日時: ${String(runCase.executed_at)}`);
           }
@@ -1708,8 +1750,9 @@ export const exportData = (payload: {
             caseEvidence.forEach((item) => {
               const storedPathRaw = formatOptional(item.stored_path);
               const storedPath = storedPathRaw ? storedPathRaw.replace(/\\/g, "/") : null;
-              if (storedPath && isImageAttachment(String(item.file_name ?? storedPath), item.mime_type)) {
-                lines.push(`  - ![${String(item.file_name ?? "evidence")}](${storedPath})`);
+              const embedded = toEmbeddedImageDataUrl(item);
+              if (embedded) {
+                lines.push(`  - ![${String(item.file_name ?? "evidence")}](${embedded})`);
                 return;
               }
               lines.push(`  - ${item.file_name}${storedPath ? ` (${storedPath})` : ""}`);
@@ -1799,7 +1842,7 @@ export const exportData = (payload: {
   }
 
   if (payload.entity === "test_runs") {
-    rows = (database
+    const rawRows = (database
       .prepare(
         `SELECT 
           test_runs.id as run_id,
@@ -1831,6 +1874,89 @@ export const exportData = (payload: {
         ORDER BY test_runs.updated_at DESC, run_scenarios.created_at, run_scenario_cases.created_at`
       )
       .all()) as Array<Record<string, any>>;
+    const scenarioEvidenceQuery = database.prepare(
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+    );
+    const caseEvidenceQuery = database.prepare(
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at"
+    );
+    const isImageAttachment = (fileName: string, mimeType?: string) => {
+      if (mimeType?.startsWith("image/")) {
+        return true;
+      }
+      return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName);
+    };
+    const runStatusLabel = (status: string) => {
+      if (status === "in_progress") return "実行中";
+      if (status === "completed") return "完了";
+      return "下書き";
+    };
+    const scenarioStatusLabel = (status: string) => {
+      if (status === "not_run") return "未実行";
+      if (status === "in_progress") return "実行中";
+      if (status === "completed_pass") return "実行済み";
+      if (status === "completed_fail") return "実行済み";
+      return status;
+    };
+    const caseStatusLabel = (status: string) => {
+      if (status === "not_run") return "未実行";
+      if (status === "pass") return "✅ 合格";
+      if (status === "fail") return "❌ 不合格";
+      if (status === "blocked") return "⚠️ ブロック";
+      if (status === "skip") return "スキップ";
+      return status;
+    };
+    const embeddedEvidence = (evidenceRows: Array<Record<string, any>>) => {
+      const embedded = evidenceRows.map((item) => {
+        const storedPath = typeof item.stored_path === "string" ? item.stored_path : "";
+        const fileName = String(item.file_name ?? storedPath ?? "evidence");
+        const mimeType = String(item.mime_type || inferMimeTypeFromName(fileName) || "");
+        const absPath = storedPath ? resolveAttachmentPath(projectPath, storedPath) : null;
+        const imageDataUrl =
+          absPath && fs.existsSync(absPath) && isImageAttachment(fileName, mimeType)
+            ? `data:${mimeType || "image/png"};base64,${fs.readFileSync(absPath).toString("base64")}`
+            : "";
+        return {
+          file_name: fileName,
+          mime_type: mimeType,
+          created_at: item.created_at ?? "",
+          embedded_data_url: imageDataUrl
+        };
+      });
+      if (payload.format === "json") {
+        return embedded;
+      }
+      return embedded
+        .map((item) => {
+          if (item.embedded_data_url) {
+            return `![${item.file_name}](${item.embedded_data_url})`;
+          }
+          return item.file_name;
+        })
+        .join(" / ");
+    };
+
+    const filteredRows = selectedRunIdSet
+      ? rawRows.filter((row) => selectedRunIdSet.has(String(row.run_id ?? "")))
+      : rawRows;
+    rows = filteredRows.map((row) => {
+      const scenarioEvidence =
+        row.run_scenario_id
+          ? (scenarioEvidenceQuery.all(row.run_scenario_id) as Array<Record<string, any>>)
+          : [];
+      const caseEvidence =
+        row.run_scenario_case_id
+          ? (caseEvidenceQuery.all(row.run_scenario_case_id) as Array<Record<string, any>>)
+          : [];
+      return {
+        ...row,
+        run_status: runStatusLabel(String(row.run_status ?? "")),
+        scenario_status: scenarioStatusLabel(String(row.scenario_status ?? "")),
+        case_status: caseStatusLabel(String(row.case_status ?? "")),
+        scenario_evidence: embeddedEvidence(scenarioEvidence),
+        case_evidence: embeddedEvidence(caseEvidence)
+      };
+    });
   }
 
   if (payload.format === "json") {

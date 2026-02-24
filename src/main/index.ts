@@ -318,11 +318,39 @@ ipcMain.handle("runCaseEvidence:remove", (_event, id: string) => removeRunScenar
 ipcMain.handle("runCaseEvidence:preview", (_event, id: string) => previewRunScenarioCaseEvidence(id));
 
 ipcMain.handle("export:save", async (_event, payload) => {
-  const content = exportData(payload);
   const ext = payload.format;
+  const runIds = Array.isArray(payload.runIds)
+    ? payload.runIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
+
+  if (payload.entity === "test_runs" && runIds.length > 1) {
+    const folderResult = await showOpenDialogForMainWindow({
+      title: "出力先フォルダを選択",
+      properties: ["openDirectory", "createDirectory"]
+    });
+    if (folderResult.canceled || folderResult.filePaths.length === 0) {
+      return null;
+    }
+    const targetDir = folderResult.filePaths[0];
+    const runMap = new Map(listRuns().map((run: any) => [run.id, run.name || run.id]));
+    runIds.forEach((runId) => {
+      const runNameRaw = runMap.get(runId) ?? runId;
+      const runName = String(runNameRaw).replace(/[\\/:*?"<>|]/g, "_").trim() || runId;
+      const content = exportData({ ...payload, runIds: [runId] });
+      fs.writeFileSync(path.join(targetDir, `${runName}.${ext}`), content, "utf-8");
+    });
+    return `${targetDir} (${runIds.length} files)`;
+  }
+
+  const defaultRunName =
+    payload.entity === "test_runs" && runIds.length === 1
+      ? (listRuns().find((run: any) => run.id === runIds[0])?.name ?? "test_run")
+      : "export";
+  const safeDefaultName = String(defaultRunName).replace(/[\\/:*?"<>|]/g, "_").trim() || "export";
+  const content = exportData(payload);
   const result = await dialog.showSaveDialog({
     title: "エクスポート先を選択",
-    defaultPath: `export.${ext}`,
+    defaultPath: `${safeDefaultName}.${ext}`,
     filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
   });
   if (result.canceled || !result.filePath) {

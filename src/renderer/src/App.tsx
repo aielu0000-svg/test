@@ -235,8 +235,8 @@ const runCaseStatusLabels: Record<RunCaseStatus, string> = {
 const runScenarioStatusLabels: Record<RunScenarioStatus, string> = {
   not_run: "未実行",
   in_progress: "実行中",
-  completed_pass: "実行済み（緑文字）",
-  completed_fail: "実行済み（赤文字）"
+  completed_pass: "実行済み",
+  completed_fail: "実行済み"
 };
 const completedRunCaseStatuses = new Set<RunCaseStatus>(["pass", "fail", "blocked"]);
 const remainingRunCaseStatuses = new Set<RunCaseStatus>(["not_run", "skip"]);
@@ -287,6 +287,24 @@ const summarizeRunCaseStatuses = (entries: Array<{ status?: string }>) => {
   });
 
   return { total, completed, remaining };
+};
+
+const deriveRunStatusFromScenarios = (entries: Array<{ status?: string }>) => {
+  if (!entries.length) {
+    return "draft" as const;
+  }
+  const statuses = entries.map((entry) => String(entry.status ?? ""));
+  if (statuses.every((status) => status === "not_run")) {
+    return "draft" as const;
+  }
+  if (
+    statuses.every((status) =>
+      status === "completed_pass" || status === "completed_fail"
+    )
+  ) {
+    return "completed" as const;
+  }
+  return "in_progress" as const;
 };
 const dataScopes = [
   { value: "common", label: "共通初期データ" },
@@ -589,6 +607,7 @@ export default function App() {
   >("test_cases");
   const [exportScope, setExportScope] = useState("common");
   const [exportFormat, setExportFormat] = useState<"csv" | "json" | "md">("csv");
+  const [exportRunIds, setExportRunIds] = useState<string[]>([]);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [importType, setImportType] = useState<"test_cases" | "scenarios" | "data_sets">(
     "test_cases"
@@ -608,6 +627,12 @@ export default function App() {
   } | null>(null);
   const [importPreviewErrorMessage, setImportPreviewErrorMessage] = useState<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const runScenarioAutoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const runScenarioCaseAutoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const runAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSyncingRunSelectionRef = useRef(false);
+  const selectedRunIdRef = useRef<string | null>(null);
+  const runDraftRef = useRef<RunDraft>(emptyRun());
 
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [resetDatabaseOpen, setResetDatabaseOpen] = useState(false);
@@ -663,6 +688,83 @@ export default function App() {
     return date.toISOString();
   };
 
+  const queueRunAutoSave = (nextStatus?: string) => {
+    const runId = selectedRunIdRef.current;
+    if (!runId || isSyncingRunSelectionRef.current) {
+      return;
+    }
+    if (runAutoSaveTimerRef.current) {
+      clearTimeout(runAutoSaveTimerRef.current);
+    }
+    runAutoSaveTimerRef.current = setTimeout(async () => {
+      const draft = runDraftRef.current;
+      try {
+        await window.api.runs.save({
+          id: runId,
+          name: draft.name,
+          environment: draft.environment,
+          buildVersion: draft.buildVersion,
+          tester: draft.tester,
+          status: nextStatus ?? draft.status,
+          startedAt: toIsoString(draft.startedAt),
+          finishedAt: toIsoString(draft.finishedAt),
+          notes: draft.notes
+        });
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : "テスト実行の自動保存に失敗しました。");
+      }
+    }, 600);
+  };
+
+  const queueRunScenarioAutoSave = (scenario: RunCase) => {
+    if (!selectedRunIdRef.current || isSyncingRunSelectionRef.current) {
+      return;
+    }
+    const key = scenario.id;
+    const existing = runScenarioAutoSaveTimersRef.current[key];
+    if (existing) {
+      clearTimeout(existing);
+    }
+    runScenarioAutoSaveTimersRef.current[key] = setTimeout(async () => {
+      try {
+        await window.api.runs.updateScenario({
+          id: scenario.id,
+          status: scenario.status,
+          assignee: scenario.assignee ?? "",
+          actualResult: scenario.actual_result ?? "",
+          notes: scenario.notes ?? "",
+          executedAt: toIsoString(scenario.executed_at ?? "")
+        });
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : "シナリオの自動保存に失敗しました。");
+      }
+    }, 600);
+  };
+
+  const queueRunScenarioCaseAutoSave = (runCase: RunScenarioCase) => {
+    if (!selectedRunIdRef.current || isSyncingRunSelectionRef.current) {
+      return;
+    }
+    const key = runCase.id;
+    const existing = runScenarioCaseAutoSaveTimersRef.current[key];
+    if (existing) {
+      clearTimeout(existing);
+    }
+    runScenarioCaseAutoSaveTimersRef.current[key] = setTimeout(async () => {
+      try {
+        await window.api.runs.updateScenarioCase({
+          id: runCase.id,
+          status: runCase.status,
+          actualResult: runCase.actual_result ?? "",
+          notes: runCase.notes ?? "",
+          executedAt: toIsoString(runCase.executed_at ?? "")
+        });
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : "テストケースの自動保存に失敗しました。");
+      }
+    }, 600);
+  };
+
   const isImageLike = (fileName: string, mimeType?: string) => {
     if (mimeType?.startsWith("image/")) {
       return true;
@@ -681,6 +783,24 @@ export default function App() {
     document.body.dataset.theme = theme;
     window.localStorage.setItem("the-test-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    selectedRunIdRef.current = selectedRunId;
+  }, [selectedRunId]);
+
+  useEffect(() => {
+    runDraftRef.current = runDraft;
+  }, [runDraft]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(runScenarioAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
+      Object.values(runScenarioCaseAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
+      if (runAutoSaveTimerRef.current) {
+        clearTimeout(runAutoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!project) {
@@ -1118,6 +1238,10 @@ export default function App() {
     return runs.filter((item) => item.name.toLowerCase().includes(term));
   }, [runs, runQuery]);
 
+  useEffect(() => {
+    setExportRunIds((prev) => prev.filter((id) => runs.some((run) => run.id === id)));
+  }, [runs]);
+
   const addableRunScenarios = useMemo(() => {
     const added = new Set(runScenarios.map((item) => item.scenario_id));
     const candidates = scenarios.filter((item) => !added.has(item.id));
@@ -1136,6 +1260,7 @@ export default function App() {
   }, [runScenarios, runScenarioCasesMap]);
 
   useEffect(() => {
+    const changedScenarios: RunCase[] = [];
     setRunScenarios((prev) => {
       let changed = false;
       const next = prev.map((item) => {
@@ -1148,11 +1273,25 @@ export default function App() {
           return item;
         }
         changed = true;
-        return { ...item, status: derivedStatus };
+        const updated = { ...item, status: derivedStatus };
+        changedScenarios.push(updated);
+        return updated;
       });
       return changed ? next : prev;
     });
+    if (!isSyncingRunSelectionRef.current) {
+      changedScenarios.forEach((scenario) => queueRunScenarioAutoSave(scenario));
+    }
   }, [runScenarioCasesMap]);
+
+  useEffect(() => {
+    const nextRunStatus = deriveRunStatusFromScenarios(runScenarios);
+    if (runDraft.status === nextRunStatus) {
+      return;
+    }
+    setRunDraft((prev) => ({ ...prev, status: nextRunStatus }));
+    queueRunAutoSave(nextRunStatus);
+  }, [runScenarios, runDraft.status]);
 
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
@@ -1333,33 +1472,46 @@ export default function App() {
   };
 
   const selectRun = async (id: string) => {
+    isSyncingRunSelectionRef.current = true;
+    Object.values(runScenarioAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
+    runScenarioAutoSaveTimersRef.current = {};
+    Object.values(runScenarioCaseAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
+    runScenarioCaseAutoSaveTimersRef.current = {};
+    if (runAutoSaveTimerRef.current) {
+      clearTimeout(runAutoSaveTimerRef.current);
+      runAutoSaveTimerRef.current = null;
+    }
     setSection("runs");
     setSelectedRunId(id);
     setRunMode("detail");
-    const data = (await window.api.runs.get(id)) as { run: TestRun; runScenarios: RunCase[] };
-    if (!data.run) {
-      return;
+    try {
+      const data = (await window.api.runs.get(id)) as { run: TestRun; runScenarios: RunCase[] };
+      if (!data.run) {
+        return;
+      }
+      setRunDraft({
+        name: data.run.name,
+        environment: data.run.environment ?? "",
+        buildVersion: data.run.build_version ?? "",
+        tester: data.run.tester ?? "",
+        status: data.run.status,
+        startedAt: toLocalInput(data.run.started_at ?? ""),
+        finishedAt: toLocalInput(data.run.finished_at ?? ""),
+        notes: data.run.notes ?? ""
+      });
+      setRunScenarios(data.runScenarios);
+      await loadRunScenarioCasesForIds(
+        data.runScenarios.map((item) => item.id),
+        { overwrite: true }
+      );
+      void ensureScenarioDetailsForIds(data.runScenarios.map((item) => item.scenario_id));
+      setSelectedRunScenarioId(null);
+      setRunScenarioAddQuery("");
+      setRunScenarioAddId("");
+      setEvidenceList([]);
+    } finally {
+      isSyncingRunSelectionRef.current = false;
     }
-    setRunDraft({
-      name: data.run.name,
-      environment: data.run.environment ?? "",
-      buildVersion: data.run.build_version ?? "",
-      tester: data.run.tester ?? "",
-      status: data.run.status,
-      startedAt: toLocalInput(data.run.started_at ?? ""),
-      finishedAt: toLocalInput(data.run.finished_at ?? ""),
-      notes: data.run.notes ?? ""
-    });
-    setRunScenarios(data.runScenarios);
-    await loadRunScenarioCasesForIds(
-      data.runScenarios.map((item) => item.id),
-      { overwrite: true }
-    );
-    void ensureScenarioDetailsForIds(data.runScenarios.map((item) => item.scenario_id));
-    setSelectedRunScenarioId(null);
-    setRunScenarioAddQuery("");
-    setRunScenarioAddId("");
-    setEvidenceList([]);
   };
 
   const selectRunScenario = async (id: string) => {
@@ -1554,18 +1706,28 @@ export default function App() {
     caseId: string,
     patch: Partial<RunScenarioCase>
   ) => {
+    let nextCaseForSave: RunScenarioCase | null = null;
     setRunScenarioCasesMap((prev) => {
       const cases = prev[runScenarioId] ?? [];
       if (!cases.length) {
         return prev;
       }
+      const nextCases = cases.map((entry) => {
+        if (entry.id !== caseId) {
+          return entry;
+        }
+        const updated = { ...entry, ...patch };
+        nextCaseForSave = updated;
+        return updated;
+      });
       return {
         ...prev,
-        [runScenarioId]: cases.map((entry) =>
-          entry.id === caseId ? { ...entry, ...patch } : entry
-        )
+        [runScenarioId]: nextCases
       };
     });
+    if (nextCaseForSave && !isSyncingRunSelectionRef.current) {
+      queueRunScenarioCaseAutoSave(nextCaseForSave);
+    }
   };
 
   const handleSaveRunScenarioCase = async (runScenarioId: string, runCase: RunScenarioCase) => {
@@ -1676,7 +1838,20 @@ export default function App() {
   };
 
   const updateRunScenarioDraft = (id: string, patch: Partial<RunCase>) => {
-    setRunScenarios((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    let nextScenarioForSave: RunCase | null = null;
+    setRunScenarios((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+        const updated = { ...item, ...patch };
+        nextScenarioForSave = updated;
+        return updated;
+      })
+    );
+    if (nextScenarioForSave && !isSyncingRunSelectionRef.current) {
+      queueRunScenarioAutoSave(nextScenarioForSave);
+    }
   };
 
   const handleAddEvidence = async () => {
@@ -1749,11 +1924,16 @@ export default function App() {
 
   const handleExport = async () => {
     setExportNotice(null);
+    if (exportType === "test_runs" && exportRunIds.length === 0) {
+      setExportNotice("テスト実行を1件以上選択してください。");
+      return;
+    }
     try {
       const payload = {
         entity: exportType,
         format: exportFormat,
-        scope: exportType === "data_sets" ? exportScope : undefined
+        scope: exportType === "data_sets" ? exportScope : undefined,
+        runIds: exportType === "test_runs" ? exportRunIds : undefined
       };
       const result = (await window.api.export.save(payload)) as string | null;
       if (!result) {
@@ -4979,15 +5159,6 @@ export default function App() {
 	                                          <div className="flex flex-wrap gap-2">
 	                                            <button
 	                                              type="button"
-	                                              className="rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
-	                                              onClick={() =>
-	                                                handleSaveRunScenarioCase(item.id, runCase)
-	                                              }
-	                                            >
-	                                              セーブ
-	                                            </button>
-	                                            <button
-	                                              type="button"
 	                                              className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
 	                                              onClick={() =>
 	                                                updateRunScenarioCaseDraft(item.id, runCase.id, {
@@ -5006,25 +5177,10 @@ export default function App() {
                               )}
                             </div>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button
-                              className="rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground"
-                              onClick={() =>
-                                handleUpdateRunScenario({
-                                  id: item.id,
-                                  status: scenarioStatus,
-                                  assignee: item.assignee ?? "",
-                                  actualResult: item.actual_result ?? "",
-                                  notes: item.notes ?? "",
-                                  executedAt: item.executed_at ? item.executed_at : nowLocalInput()
-                                })
-                              }
-                            >
-                              保存
-                            </button>
-                            <button
-                              className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
-                              onClick={() => {
+	                          <div className="mt-3 flex flex-wrap gap-2">
+	                            <button
+	                              className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200"
+	                              onClick={() => {
                                 updateRunScenarioDraft(item.id, { executed_at: nowLocalInput() });
                               }}
                             >
@@ -5111,7 +5267,15 @@ export default function App() {
                     id="export-type"
                     className={inputClass}
                     value={exportType}
-                    onChange={(event) => setExportType(event.target.value as typeof exportType)}
+                    onChange={(event) => {
+                      const nextType = event.target.value as typeof exportType;
+                      setExportType(nextType);
+                      if (nextType === "test_runs") {
+                        setExportRunIds((prev) => (prev.length ? prev : runs.map((run) => run.id)));
+                      } else {
+                        setExportRunIds([]);
+                      }
+                    }}
                   >
                     <option value="test_cases">テストケース</option>
                     <option value="scenarios">シナリオ</option>
@@ -5142,6 +5306,69 @@ export default function App() {
                     </>
                   )}
 
+                  {exportType === "test_runs" && (
+                    <div className="grid gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          出力対象のテスト実行
+                        </label>
+                        <div className="flex gap-2 text-xs">
+                          <button
+                            type="button"
+                            className={outlineButtonClass}
+                            onClick={() => setExportRunIds(runs.map((run) => run.id))}
+                          >
+                            全選択
+                          </button>
+                          <button
+                            type="button"
+                            className={outlineButtonClass}
+                            onClick={() => setExportRunIds([])}
+                          >
+                            解除
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "max-h-56 space-y-2 overflow-y-auto rounded-xl border p-3",
+                          theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/30"
+                        )}
+                      >
+                        {runs.length === 0 ? (
+                          <p className="text-xs text-slate-400">テスト実行がありません。</p>
+                        ) : (
+                          runs.map((run) => {
+                            const checked = exportRunIds.includes(run.id);
+                            return (
+                              <label
+                                key={`export-run-${run.id}`}
+                                className="flex cursor-pointer items-center gap-2 text-sm"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) => {
+                                    setExportRunIds((prev) => {
+                                      if (event.target.checked) {
+                                        return prev.includes(run.id) ? prev : [...prev, run.id];
+                                      }
+                                      return prev.filter((id) => id !== run.id);
+                                    });
+                                  }}
+                                />
+                                <span className="truncate">{run.name}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        複数選択時は各テスト実行を別ファイルで出力します。
+                      </p>
+                    </div>
+                  )}
+
                   <label htmlFor="export-format" className="text-xs font-semibold uppercase text-slate-400">
                     形式
                   </label>
@@ -5156,8 +5383,9 @@ export default function App() {
                     <option value="md">マークダウン</option>
                   </select>
                   <button
-                    className="w-fit rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                    className="w-fit rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={handleExport}
+                    disabled={exportType === "test_runs" && exportRunIds.length === 0}
                   >
                     エクスポート
                   </button>
