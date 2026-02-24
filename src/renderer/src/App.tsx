@@ -216,6 +216,12 @@ type DashboardStats = {
 
 const priorityOptions = ["高", "中", "低"] as const;
 const runStatusOptions = ["draft", "in_progress", "completed"] as const;
+type RunStatus = (typeof runStatusOptions)[number];
+const runStatusLabels: Record<RunStatus, string> = {
+  draft: "draft",
+  in_progress: "実行中",
+  completed: "完了"
+};
 const runCaseStatusOptions = ["not_run", "pass", "fail", "blocked", "skip"] as const;
 type RunCaseStatus = (typeof runCaseStatusOptions)[number];
 const runScenarioStatusOptions = [
@@ -1276,8 +1282,16 @@ export default function App() {
       return;
     }
     setRunDraft((prev) => ({ ...prev, status: nextRunStatus }));
+    if (selectedRunId) {
+      const now = new Date().toISOString();
+      setRuns((prev) =>
+        prev.map((entry) =>
+          entry.id === selectedRunId ? { ...entry, status: nextRunStatus, updated_at: now } : entry
+        )
+      );
+    }
     queueRunAutoSave(nextRunStatus);
-  }, [runScenarios, runDraft.status]);
+  }, [runScenarios, runDraft.status, selectedRunId]);
 
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
@@ -2266,9 +2280,7 @@ export default function App() {
   };
 
   const getRunStatusLabel = (status: string) => {
-    if (status === "in_progress") return "実行中";
-    if (status === "completed") return "完了";
-    return "下書き";
+    return runStatusLabels[(status as RunStatus) ?? "draft"] ?? String(status);
   };
 
   const getRunStatusClass = (status: string) => {
@@ -4173,7 +4185,7 @@ export default function App() {
 	                  {[
 	                    { key: "active" as const, label: "進行中" },
 	                    { key: "past" as const, label: "過去の実行" },
-	                    { key: "drafts" as const, label: "下書き" }
+	                    { key: "drafts" as const, label: "draft" }
 	                  ].map((tab) => {
 	                    const active = runTab === tab.key;
 	                    return (
@@ -4560,7 +4572,7 @@ export default function App() {
                   >
                     {runStatusOptions.map((option) => (
                       <option key={option} value={option}>
-                        {option}
+                        {runStatusLabels[option]}
                       </option>
                     ))}
                   </select>
