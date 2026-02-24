@@ -627,8 +627,6 @@ export default function App() {
   } | null>(null);
   const [importPreviewErrorMessage, setImportPreviewErrorMessage] = useState<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
-  const runScenarioAutoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const runScenarioCaseAutoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const runAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSyncingRunSelectionRef = useRef(false);
   const selectedRunIdRef = useRef<string | null>(null);
@@ -720,12 +718,7 @@ export default function App() {
     if (!selectedRunIdRef.current) {
       return;
     }
-    const key = scenario.id;
-    const existing = runScenarioAutoSaveTimersRef.current[key];
-    if (existing) {
-      clearTimeout(existing);
-    }
-    runScenarioAutoSaveTimersRef.current[key] = setTimeout(async () => {
+    void (async () => {
       try {
         await window.api.runs.updateScenario({
           id: scenario.id,
@@ -738,19 +731,14 @@ export default function App() {
       } catch (err) {
         setRunError(err instanceof Error ? err.message : "シナリオの自動保存に失敗しました。");
       }
-    }, 600);
+    })();
   };
 
   const queueRunScenarioCaseAutoSave = (runCase: RunScenarioCase) => {
     if (!selectedRunIdRef.current) {
       return;
     }
-    const key = runCase.id;
-    const existing = runScenarioCaseAutoSaveTimersRef.current[key];
-    if (existing) {
-      clearTimeout(existing);
-    }
-    runScenarioCaseAutoSaveTimersRef.current[key] = setTimeout(async () => {
+    void (async () => {
       try {
         await window.api.runs.updateScenarioCase({
           id: runCase.id,
@@ -762,7 +750,7 @@ export default function App() {
       } catch (err) {
         setRunError(err instanceof Error ? err.message : "テストケースの自動保存に失敗しました。");
       }
-    }, 600);
+    })();
   };
 
   const isImageLike = (fileName: string, mimeType?: string) => {
@@ -794,8 +782,6 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      Object.values(runScenarioAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
-      Object.values(runScenarioCaseAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
       if (runAutoSaveTimerRef.current) {
         clearTimeout(runAutoSaveTimerRef.current);
       }
