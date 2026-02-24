@@ -1473,14 +1473,7 @@ export default function App() {
 
   const selectRun = async (id: string) => {
     isSyncingRunSelectionRef.current = true;
-    Object.values(runScenarioAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
-    runScenarioAutoSaveTimersRef.current = {};
-    Object.values(runScenarioCaseAutoSaveTimersRef.current).forEach((timer) => clearTimeout(timer));
-    runScenarioCaseAutoSaveTimersRef.current = {};
-    if (runAutoSaveTimerRef.current) {
-      clearTimeout(runAutoSaveTimerRef.current);
-      runAutoSaveTimerRef.current = null;
-    }
+    selectedRunIdRef.current = id;
     setSection("runs");
     setSelectedRunId(id);
     setRunMode("detail");
