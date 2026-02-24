@@ -6,6 +6,7 @@
 
 1. `test_cases.csv` をインポート（種類: **テストケース** / 形式: **CSV**）
    - Markdown版: `test_cases.md`（種類: **テストケース** / 形式: **マークダウン**）
+   - 必要に応じて「取り込み先フォルダ」を指定できます（指定するとファイル内 `folder` より優先）。
 2. `scenarios.json` をインポート（種類: **シナリオ** / 形式: **JSON**）
    - Markdown版: `scenarios.md`（種類: **シナリオ** / 形式: **マークダウン**）
 3. `data_sets_common.csv` をインポート（種類: **初期データ** / スコープ: **共通初期データ** / 形式: **CSV**）
@@ -16,4 +17,5 @@
 ## 補足
 
 - `scenarios.json` は `case_titles`（テストケース名の配列）でシナリオにテストケースを紐づけます。先にテストケースを取り込んでください。
+- `test_cases.csv` / `test_cases.md` は `folder` 列を持てます。既存フォルダの「ID」または「名前」で指定可能です（未一致なら未分類）。
 - `test_cases.csv` の `steps`、`data_sets_*.csv` の `items` は **JSON文字列**（配列）です。CSVのセル内では `"` を `""` としてエスケープしています。

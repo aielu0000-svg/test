@@ -337,6 +337,7 @@ ipcMain.handle("import:run", async (_event, payload) => {
   const entity = payload.entity as "test_cases" | "scenarios" | "data_sets";
   const format = payload.format as "csv" | "json" | "md";
   const scopeOverride = payload.scopeOverride as string | undefined;
+  const caseFolderIdOverride = payload.caseFolderIdOverride as string | null | undefined;
 
   let filePath: string;
   let content: string;
@@ -358,7 +359,7 @@ ipcMain.handle("import:run", async (_event, payload) => {
     content = fs.readFileSync(filePath, "utf-8");
   }
 
-  const imported = importData({ entity, format, scopeOverride, content });
+  const imported = importData({ entity, format, scopeOverride, caseFolderIdOverride, content });
   return { imported, filePath };
 });
 

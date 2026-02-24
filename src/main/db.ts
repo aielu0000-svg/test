@@ -1852,6 +1852,7 @@ export const importData = (payload: {
   format: "csv" | "json" | "md";
   content: string;
   scopeOverride?: string;
+  caseFolderIdOverride?: string | null;
 }) => {
   const { db: database } = ensureDb();
   let records: Array<Record<string, any>> = [];
@@ -1875,18 +1876,42 @@ export const importData = (payload: {
   }
 
   if (payload.entity === "test_cases") {
+    const folderNameToId = new Map<string, string>();
+    const folderIdSet = new Set<string>();
+    listCaseFolders().forEach((folder: any) => {
+      if (typeof folder.id === "string" && folder.id.trim()) {
+        folderIdSet.add(folder.id);
+      }
+      if (typeof folder.name === "string" && folder.name.trim()) {
+        folderNameToId.set(folder.name.trim(), folder.id);
+      }
+    });
+    const hasFolderOverride = payload.caseFolderIdOverride !== undefined;
+    const folderOverrideId =
+      typeof payload.caseFolderIdOverride === "string" && payload.caseFolderIdOverride.trim()
+        ? payload.caseFolderIdOverride.trim()
+        : null;
+
     records.forEach((record) => {
       const steps = Array.isArray(record.steps)
         ? record.steps
         : typeof record.steps === "string" && record.steps.trim()
           ? safeJsonParse(record.steps)
           : [];
+      const folderRaw = record.folder_id ?? record.folderId ?? record.folder;
+      const folderText = typeof folderRaw === "string" ? folderRaw.trim() : "";
+      const folderIdFromRecord = folderText
+        ? folderIdSet.has(folderText)
+          ? folderText
+          : folderNameToId.get(folderText) ?? null
+        : null;
       saveTestCase({
         title: record.title || record.name || "Untitled",
         objective: record.objective || "",
         preconditions: record.preconditions || "",
         priority: record.priority || "",
         tags: record.tags || "",
+        folderId: hasFolderOverride ? folderOverrideId : folderIdFromRecord,
         steps: Array.isArray(steps)
           ? steps.map((step: any) => ({
               action: step.action ?? "",

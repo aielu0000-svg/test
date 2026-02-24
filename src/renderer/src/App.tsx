@@ -218,6 +218,13 @@ const priorityOptions = ["高", "中", "低"] as const;
 const runStatusOptions = ["draft", "in_progress", "completed"] as const;
 const runCaseStatusOptions = ["not_run", "pass", "fail", "blocked", "skip"] as const;
 type RunCaseStatus = (typeof runCaseStatusOptions)[number];
+const runScenarioStatusOptions = [
+  "not_run",
+  "in_progress",
+  "completed_pass",
+  "completed_fail"
+] as const;
+type RunScenarioStatus = (typeof runScenarioStatusOptions)[number];
 const runCaseStatusLabels: Record<RunCaseStatus, string> = {
   not_run: "未実行",
   pass: "✅ 合格",
@@ -225,8 +232,42 @@ const runCaseStatusLabels: Record<RunCaseStatus, string> = {
   blocked: "⚠️ ブロック",
   skip: "スキップ"
 };
+const runScenarioStatusLabels: Record<RunScenarioStatus, string> = {
+  not_run: "未実行",
+  in_progress: "実行中",
+  completed_pass: "実行済み（緑文字）",
+  completed_fail: "実行済み（赤文字）"
+};
 const completedRunCaseStatuses = new Set<RunCaseStatus>(["pass", "fail", "blocked"]);
 const remainingRunCaseStatuses = new Set<RunCaseStatus>(["not_run", "skip"]);
+
+const deriveRunScenarioStatus = (entries: Array<{ status?: string }>): RunScenarioStatus => {
+  if (!entries.length) {
+    return "not_run";
+  }
+
+  let enteredCount = 0;
+  let hasFailOrBlocked = false;
+
+  entries.forEach((entry) => {
+    const status = entry.status as RunCaseStatus | undefined;
+    if (!status || status === "not_run") {
+      return;
+    }
+    enteredCount += 1;
+    if (status === "fail" || status === "blocked") {
+      hasFailOrBlocked = true;
+    }
+  });
+
+  if (enteredCount === 0) {
+    return "not_run";
+  }
+  if (enteredCount < entries.length) {
+    return "in_progress";
+  }
+  return hasFailOrBlocked ? "completed_fail" : "completed_pass";
+};
 
 const summarizeRunCaseStatuses = (entries: Array<{ status?: string }>) => {
   let total = 0;
@@ -554,6 +595,7 @@ export default function App() {
   );
   const [importFormat, setImportFormat] = useState<"csv" | "json" | "md">("csv");
   const [importScope, setImportScope] = useState("common");
+  const [importCaseFolderId, setImportCaseFolderId] = useState("__KEEP__");
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [importStagedFile, setImportStagedFile] = useState<{ fileName: string; content: string } | null>(
     null
@@ -1092,6 +1134,25 @@ export default function App() {
     const aggregated = scenarioIds.flatMap((id) => runScenarioCasesMap[id] ?? []);
     return { ...summarizeRunCaseStatuses(aggregated), isLoading };
   }, [runScenarios, runScenarioCasesMap]);
+
+  useEffect(() => {
+    setRunScenarios((prev) => {
+      let changed = false;
+      const next = prev.map((item) => {
+        const scenarioCases = runScenarioCasesMap[item.id];
+        if (!scenarioCases) {
+          return item;
+        }
+        const derivedStatus = deriveRunScenarioStatus(scenarioCases);
+        if (item.status === derivedStatus) {
+          return item;
+        }
+        changed = true;
+        return { ...item, status: derivedStatus };
+      });
+      return changed ? next : prev;
+    });
+  }, [runScenarioCasesMap]);
 
   const tagOptions = useMemo(() => {
     const tags = new Set<string>();
@@ -1708,10 +1769,19 @@ export default function App() {
   const handleImport = async () => {
     setImportNotice(null);
     try {
+      const caseFolderIdOverride =
+        importType === "test_cases"
+          ? importCaseFolderId === "__KEEP__"
+            ? undefined
+            : importCaseFolderId === "__NONE__"
+              ? null
+              : importCaseFolderId
+          : undefined;
       const payload = {
         entity: importType,
         format: importFormat,
         scopeOverride: importType === "data_sets" ? importScope : undefined,
+        caseFolderIdOverride,
         content: importStagedFile?.content,
         fileName: importStagedFile?.fileName
       };
@@ -4152,7 +4222,7 @@ export default function App() {
 	                            if (!target) return;
 	                            void handleUpdateRunScenario({
 	                              id: target.id,
-	                              status: "draft",
+	                              status: "in_progress",
 	                              assignee: target.assignee ?? "",
 	                              actualResult: target.actual_result ?? "",
 	                              notes: target.notes ?? "",
@@ -4168,9 +4238,10 @@ export default function App() {
 	                          onClick={() => {
 	                            const target = runScenarios.find((item) => item.id === selectedRunScenarioId);
 	                            if (!target) return;
+	                            const scenarioCases = runScenarioCasesMap[target.id] ?? [];
 	                            void handleUpdateRunScenario({
 	                              id: target.id,
-	                              status: "completed",
+	                              status: deriveRunScenarioStatus(scenarioCases),
 	                              assignee: target.assignee ?? "",
 	                              actualResult: target.actual_result ?? "",
 	                              notes: target.notes ?? "",
@@ -4488,6 +4559,9 @@ export default function App() {
 	                      {runScenarios.map((item) => {
 	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
 	                        const scenarioCases = scenarioCasesRaw ?? [];
+	                        const scenarioStatus = scenarioCasesRaw
+	                          ? deriveRunScenarioStatus(scenarioCasesRaw)
+	                          : ((item.status as RunScenarioStatus) ?? "not_run");
 	                        const scenarioTotals = scenarioCasesRaw
 	                          ? summarizeRunCaseStatuses(scenarioCasesRaw)
 	                          : null;
@@ -4559,15 +4633,17 @@ export default function App() {
                             </label>
 	                            <select
 	                              id={`run-scenario-status-${item.id}`}
-	                              className={inputClass}
-	                              value={item.status}
-	                              onChange={(event) =>
-	                                updateRunScenarioDraft(item.id, { status: event.target.value })
-	                              }
+	                              className={cn(
+                                  inputClass,
+                                  scenarioStatus === "completed_pass" && "text-emerald-400",
+                                  scenarioStatus === "completed_fail" && "text-rose-400"
+                                )}
+	                              value={scenarioStatus}
+	                              disabled
 	                            >
-	                              {runCaseStatusOptions.map((option) => (
+	                              {runScenarioStatusOptions.map((option) => (
 	                                <option key={option} value={option}>
-	                                  {runCaseStatusLabels[option]}
+	                                  {runScenarioStatusLabels[option]}
 	                                </option>
 	                              ))}
 	                            </select>
@@ -4936,7 +5012,7 @@ export default function App() {
                               onClick={() =>
                                 handleUpdateRunScenario({
                                   id: item.id,
-                                  status: item.status,
+                                  status: scenarioStatus,
                                   assignee: item.assignee ?? "",
                                   actualResult: item.actual_result ?? "",
                                   notes: item.notes ?? "",
@@ -5108,6 +5184,7 @@ export default function App() {
                     value={importType}
                     onChange={(event) => {
                       setImportType(event.target.value as typeof importType);
+                      setImportCaseFolderId("__KEEP__");
                       setImportNotice(null);
                       setImportStagedFile(null);
                       setImportPreviewData(null);
@@ -5118,6 +5195,34 @@ export default function App() {
                     <option value="scenarios">シナリオ</option>
                     <option value="data_sets">初期データ</option>
                   </select>
+
+                  {importType === "test_cases" && (
+                    <>
+                      <label
+                        htmlFor="import-case-folder"
+                        className="text-xs font-semibold uppercase text-slate-400"
+                      >
+                        取り込み先フォルダ
+                      </label>
+                      <select
+                        id="import-case-folder"
+                        className={inputClass}
+                        value={importCaseFolderId}
+                        onChange={(event) => {
+                          setImportCaseFolderId(event.target.value);
+                          setImportNotice(null);
+                        }}
+                      >
+                        <option value="__KEEP__">ファイル指定を使う（未指定なら未分類）</option>
+                        <option value="__NONE__">未分類にする</option>
+                        {caseFolders.map((folder) => (
+                          <option key={`import-case-folder-${folder.id}`} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
 
                   {importType === "data_sets" && (
                     <>
