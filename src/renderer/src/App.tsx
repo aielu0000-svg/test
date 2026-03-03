@@ -415,6 +415,21 @@ const PlusIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const FolderIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z" />
+  </svg>
+);
+
 const NavIcon = ({ name, className }: { name: SectionKey; className?: string }) => {
   const shared = {
     className: cn("size-6", className),
@@ -496,6 +511,266 @@ const NavIcon = ({ name, className }: { name: SectionKey; className?: string }) 
         </svg>
       );
   }
+};
+
+const renderInlineMarkdown = (text: string, keyPrefix: string) => {
+  const chunks = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return chunks.map((chunk, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (chunk.startsWith("`") && chunk.endsWith("`") && chunk.length >= 2) {
+      return (
+        <code
+          key={key}
+          className="rounded bg-slate-900/80 px-1 py-0.5 font-mono text-[0.92em] text-slate-100"
+        >
+          {chunk.slice(1, -1)}
+        </code>
+      );
+    }
+    if (chunk.startsWith("**") && chunk.endsWith("**") && chunk.length >= 4) {
+      return <strong key={key}>{chunk.slice(2, -2)}</strong>;
+    }
+    if (chunk.startsWith("*") && chunk.endsWith("*") && chunk.length >= 2) {
+      return <em key={key}>{chunk.slice(1, -1)}</em>;
+    }
+    return <span key={key}>{chunk}</span>;
+  });
+};
+
+const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "dark" }) => {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const nodes: JSX.Element[] = [];
+  let index = 0;
+
+  const isBlockStart = (line: string) =>
+    /^```/.test(line) ||
+    /^#{1,6}\s+/.test(line) ||
+    /^[-*]\s+/.test(line) ||
+    /^\d+\.\s+/.test(line) ||
+    /^>\s?/.test(line);
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (/^```/.test(line)) {
+      const language = line.replace(/^```/, "").trim();
+      index += 1;
+      const codeLines: string[] = [];
+      while (index < lines.length && !/^```/.test(lines[index] ?? "")) {
+        codeLines.push(lines[index] ?? "");
+        index += 1;
+      }
+      if (index < lines.length && /^```/.test(lines[index] ?? "")) {
+        index += 1;
+      }
+      nodes.push(
+        <div key={`code-${index}`} className="space-y-1">
+          {language && (
+            <p className={cn("text-xs uppercase", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+              {language}
+            </p>
+          )}
+          <pre
+            className={cn(
+              "overflow-x-auto rounded-md border p-3 text-xs",
+              theme === "light"
+                ? "border-slate-300 bg-slate-100 text-slate-900"
+                : "border-slate-700 bg-slate-950 text-slate-100"
+            )}
+          >
+            <code>{codeLines.join("\n")}</code>
+          </pre>
+        </div>
+      );
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+      const headingClass = [null, "text-xl", "text-lg", "text-base", "text-sm", "text-sm", "text-sm"][level];
+      nodes.push(
+        <p key={`h-${index}`} className={cn("font-semibold", headingClass)}>
+          {renderInlineMarkdown(headingText, `h-${index}`)}
+        </p>
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index] ?? "")) {
+        items.push((lines[index] ?? "").replace(/^[-*]\s+/, ""));
+        index += 1;
+      }
+      nodes.push(
+        <ul key={`ul-${index}`} className="list-disc space-y-1 pl-5">
+          {items.map((item, listIndex) => (
+            <li key={`ul-item-${index}-${listIndex}`}>{renderInlineMarkdown(item, `ul-${index}-${listIndex}`)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index] ?? "")) {
+        items.push((lines[index] ?? "").replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+      nodes.push(
+        <ol key={`ol-${index}`} className="list-decimal space-y-1 pl-5">
+          {items.map((item, listIndex) => (
+            <li key={`ol-item-${index}-${listIndex}`}>{renderInlineMarkdown(item, `ol-${index}-${listIndex}`)}</li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quotes: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index] ?? "")) {
+        quotes.push((lines[index] ?? "").replace(/^>\s?/, ""));
+        index += 1;
+      }
+      nodes.push(
+        <blockquote
+          key={`quote-${index}`}
+          className={cn(
+            "border-l-4 pl-3 italic",
+            theme === "light" ? "border-slate-300 text-slate-700" : "border-slate-700 text-slate-300"
+          )}
+        >
+          {quotes.map((quote, quoteIndex) => (
+            <p key={`quote-line-${index}-${quoteIndex}`}>
+              {renderInlineMarkdown(quote, `quote-${index}-${quoteIndex}`)}
+            </p>
+          ))}
+        </blockquote>
+      );
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (index < lines.length) {
+      const nextLine = lines[index] ?? "";
+      if (!nextLine.trim() || isBlockStart(nextLine)) {
+        break;
+      }
+      paragraphLines.push(nextLine);
+      index += 1;
+    }
+    if (!paragraphLines.length) {
+      paragraphLines.push(line);
+      index += 1;
+    }
+    nodes.push(
+      <p key={`p-${index}`}>
+        {paragraphLines.map((paragraphLine, paragraphIndex) => (
+          <span key={`p-line-${index}-${paragraphIndex}`}>
+            {paragraphIndex > 0 && <br />}
+            {renderInlineMarkdown(paragraphLine, `p-${index}-${paragraphIndex}`)}
+          </span>
+        ))}
+      </p>
+    );
+  }
+
+  if (!nodes.length) {
+    return (
+      <p className={cn("text-sm", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+        プレビューする内容がありません。
+      </p>
+    );
+  }
+
+  return <div className="space-y-3">{nodes}</div>;
+};
+
+const MarkdownEditor = ({
+  id,
+  value,
+  onChange,
+  className,
+  placeholder,
+  theme
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  className: string;
+  placeholder?: string;
+  theme: "light" | "dark";
+}) => {
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          className={cn(
+            "rounded-md border px-2 py-1 text-xs font-semibold",
+            mode === "edit"
+              ? theme === "light"
+                ? "border-slate-400 bg-slate-100 text-slate-800"
+                : "border-slate-600 bg-slate-800 text-slate-100"
+              : theme === "light"
+                ? "border-slate-200 text-slate-500"
+                : "border-slate-700 text-slate-400"
+          )}
+          onClick={() => setMode("edit")}
+        >
+          編集
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "rounded-md border px-2 py-1 text-xs font-semibold",
+            mode === "preview"
+              ? theme === "light"
+                ? "border-slate-400 bg-slate-100 text-slate-800"
+                : "border-slate-600 bg-slate-800 text-slate-100"
+              : theme === "light"
+                ? "border-slate-200 text-slate-500"
+                : "border-slate-700 text-slate-400"
+          )}
+          onClick={() => setMode("preview")}
+        >
+          プレビュー
+        </button>
+      </div>
+      {mode === "edit" ? (
+        <textarea
+          id={id}
+          className={className}
+          value={value}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <div
+          id={id}
+          className={cn(
+            className,
+            "overflow-auto py-3",
+            theme === "light" ? "bg-slate-50" : "bg-slate-950/30"
+          )}
+        >
+          <MarkdownPreview value={value} theme={theme} />
+        </div>
+      )}
+    </div>
+  );
 };
 
 const emptyCase = (): CaseDraft => ({
@@ -664,7 +939,7 @@ export default function App() {
   );
 
   const inputClass = cn(
-    "w-full rounded-pill border px-4 py-2 text-sm",
+    "w-full rounded-md border px-4 py-2 text-sm",
     theme === "light"
       ? "border-input-light bg-background-light text-foreground-light placeholder:text-muted-foreground-light"
       : "border-input-dark bg-background-dark text-foreground-dark placeholder:text-muted-foreground-dark"
@@ -3002,11 +3277,16 @@ export default function App() {
                           <div
                             key={folder.id}
                             className={cn(
-                              "flex items-center justify-between text-xs",
-                              theme === "light" ? "text-slate-600" : "text-slate-300"
+                              "flex items-center justify-between rounded-lg border px-3 py-2 text-xs",
+                              theme === "light"
+                                ? "border-slate-200 bg-slate-50 text-slate-700"
+                                : "border-slate-800 bg-slate-900/50 text-slate-300"
                             )}
                           >
-                            <span>{folder.name}</span>
+                            <span className="inline-flex items-center gap-2">
+                              <FolderIcon className={theme === "light" ? "text-slate-600" : "text-slate-400"} />
+                              {folder.name}
+                            </span>
                             <button
                               className={cn(
                                 "rounded-full border px-2 py-1 text-[10px] font-semibold hover:opacity-90",
@@ -3076,21 +3356,23 @@ export default function App() {
 	                              ? "未分類"
 	                              : caseFolderMap[item.folder_id]?.name ?? "フォルダ";
 	                          return (
-	                            <div
-	                              key={item.id}
-	                              className={cn(
-	                                "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_220px] items-center text-sm",
-	                                borderClass,
-	                                "border-b last:border-b-0",
-	                                theme === "light"
-	                                  ? "divide-x divide-border-light hover:bg-muted-light"
-	                                  : "divide-x divide-border-dark hover:bg-muted-dark"
-	                              )}
-	                            >
+                            <div
+                              key={item.id}
+                              className={cn(
+                                "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_220px] items-center text-sm cursor-pointer",
+                                borderClass,
+                                "border-b last:border-b-0",
+                                theme === "light"
+                                  ? "divide-x divide-border-light hover:bg-muted-light"
+                                  : "divide-x divide-border-dark hover:bg-muted-dark"
+                              )}
+                              onClick={() => selectCase(item.id)}
+                            >
                                 <div className="flex items-center justify-center px-2 py-4">
                                   <input
                                     type="checkbox"
                                     checked={selectedCaseIds.includes(item.id)}
+                                    onClick={(event) => event.stopPropagation()}
                                     onChange={(event) => {
                                       setSelectedCaseIds((prev) => {
                                         if (event.target.checked) {
@@ -3103,13 +3385,9 @@ export default function App() {
                                   />
                                 </div>
 	                              <div className="px-5 py-4">
-                                  <button
-                                    type="button"
-                                    className="max-w-full truncate text-left text-pretty text-sm font-medium underline-offset-2 hover:underline"
-                                    onClick={() => selectCase(item.id)}
-                                  >
+                                  <p className="max-w-full truncate text-left text-pretty text-sm font-medium">
 	                                  {item.title}
-                                  </button>
+                                  </p>
 	                                <p className={cn("mt-1 truncate text-pretty text-sm", mutedForegroundClass)}>
 	                                  {item.objective || "—"}
 	                                </p>
@@ -3118,12 +3396,27 @@ export default function App() {
 	                                <p className="text-pretty text-sm">{item.priority || "—"}</p>
 	                              </div>
 	                              <div className="px-5 py-4">
-	                                <p className={cn("truncate text-pretty text-sm", mutedForegroundClass)}>
-	                                  {folderLabel}
-	                                </p>
+                                  <span
+                                    className={cn(
+                                      "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium",
+                                      theme === "light"
+                                        ? "border-slate-300 bg-slate-100 text-slate-700"
+                                        : "border-slate-700 bg-slate-900/50 text-slate-200"
+                                    )}
+                                  >
+                                    <FolderIcon className="size-3.5" />
+	                                  <span className="truncate">{folderLabel}</span>
+                                  </span>
 	                              </div>
 	                              <div className="flex flex-wrap items-center gap-2 px-5 py-4">
-	                                <button type="button" className={outlineButtonClass} onClick={() => selectCase(item.id)}>
+	                                <button
+                                    type="button"
+                                    className={outlineButtonClass}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void selectCase(item.id);
+                                    }}
+                                  >
 	                                  開く
 	                                </button>
 	                                <button
@@ -3134,7 +3427,10 @@ export default function App() {
 	                                      ? "border-destructive-light text-destructive-light"
 	                                      : "border-destructive-dark text-destructive-dark"
 	                                  )}
-	                                  onClick={() => setDeleteTarget({ type: "case", id: item.id })}
+	                                  onClick={(event) => {
+                                      event.stopPropagation();
+                                      setDeleteTarget({ type: "case", id: item.id });
+                                    }}
 	                                >
 	                                  削除
 	                                </button>
@@ -3285,11 +3581,12 @@ export default function App() {
                   <label htmlFor="case-objective" className="text-xs font-semibold uppercase text-slate-400">
                     目的
                   </label>
-                  <textarea
+                  <MarkdownEditor
                     id="case-objective"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={caseDraft.objective}
-                    onChange={(event) => setCaseDraft({ ...caseDraft, objective: event.target.value })}
+                    onChange={(value) => setCaseDraft({ ...caseDraft, objective: value })}
+                    theme={theme}
                   />
                   <label
                     htmlFor="case-preconditions"
@@ -3297,13 +3594,12 @@ export default function App() {
                   >
                     前提条件
                   </label>
-                  <textarea
+                  <MarkdownEditor
                     id="case-preconditions"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={caseDraft.preconditions}
-                    onChange={(event) =>
-                      setCaseDraft({ ...caseDraft, preconditions: event.target.value })
-                    }
+                    onChange={(value) => setCaseDraft({ ...caseDraft, preconditions: value })}
+                    theme={theme}
                   />
                   <label
                     htmlFor="case-view-location"
@@ -3311,14 +3607,13 @@ export default function App() {
                   >
                     見る場所
                   </label>
-                  <textarea
+                  <MarkdownEditor
                     id="case-view-location"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={caseDraft.viewLocation}
-                    onChange={(event) =>
-                      setCaseDraft({ ...caseDraft, viewLocation: event.target.value })
-                    }
+                    onChange={(value) => setCaseDraft({ ...caseDraft, viewLocation: value })}
                     placeholder="例: 画面右上のステータス表示"
+                    theme={theme}
                   />
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
@@ -3593,15 +3888,16 @@ export default function App() {
                           >
                             操作
                           </label>
-                          <textarea
+                          <MarkdownEditor
                             id={`case-step-action-${index}`}
                             className={cn(inputClass, "mt-2 min-h-[70px]")}
                             value={step.action}
-                            onChange={(event) => {
+                            onChange={(value) => {
                               const next = [...caseDraft.steps];
-                              next[index] = { ...step, action: event.target.value };
+                              next[index] = { ...step, action: value };
                               setCaseDraft({ ...caseDraft, steps: next });
                             }}
+                            theme={theme}
                           />
                           <label
                             htmlFor={`case-step-expected-${index}`}
@@ -3609,15 +3905,16 @@ export default function App() {
                           >
                             期待結果
                           </label>
-                          <textarea
+                          <MarkdownEditor
                             id={`case-step-expected-${index}`}
                             className={cn(inputClass, "mt-2 min-h-[70px]")}
                             value={step.expected}
-                            onChange={(event) => {
+                            onChange={(value) => {
                               const next = [...caseDraft.steps];
-                              next[index] = { ...step, expected: event.target.value };
+                              next[index] = { ...step, expected: value };
                               setCaseDraft({ ...caseDraft, steps: next });
                             }}
+                            theme={theme}
                           />
                         </div>
                       ))}
@@ -3877,13 +4174,12 @@ export default function App() {
                   >
                     目的
                   </label>
-                  <textarea
+                  <MarkdownEditor
                     id="scenario-objective"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={scenarioDraft.objective}
-                    onChange={(event) =>
-                      setScenarioDraft({ ...scenarioDraft, objective: event.target.value })
-                    }
+                    onChange={(value) => setScenarioDraft({ ...scenarioDraft, objective: value })}
+                    theme={theme}
                   />
 
                   {scenarioError && (
@@ -4054,13 +4350,12 @@ export default function App() {
                   >
                     説明
                   </label>
-                  <textarea
+                  <MarkdownEditor
                     id="data-description"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={dataDraft.description}
-                    onChange={(event) =>
-                      setDataDraft({ ...dataDraft, description: event.target.value })
-                    }
+                    onChange={(value) => setDataDraft({ ...dataDraft, description: value })}
+                    theme={theme}
                   />
 
                   {dataDraft.scope !== "common" && (
@@ -4469,10 +4764,10 @@ export default function App() {
 
 	                    return (
 	                      <div className="overflow-x-auto">
-	                        <div className="min-w-[920px]">
+	                        <div className="min-w-[820px]">
 	                          <div
 	                            className={cn(
-	                              "grid grid-cols-[minmax(0,1fr)_120px_140px_120px_140px] items-center text-sm",
+	                              "grid grid-cols-[minmax(0,1fr)_96px_120px_96px_124px] items-center text-sm",
 	                              borderClass,
 	                              "border-b",
 	                              theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
@@ -4497,22 +4792,19 @@ export default function App() {
                                 <div
                                   key={item.id}
                                   className={cn(
-                                    "grid w-full grid-cols-[minmax(0,1fr)_120px_140px_120px_140px] items-center text-sm",
+                                    "grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_96px_120px_96px_124px] items-center text-sm",
                                     borderClass,
                                     "border-b last:border-b-0",
                                     theme === "light"
-                                      ? "divide-x divide-border-light"
-                                      : "divide-x divide-border-dark"
+                                      ? "divide-x divide-border-light hover:bg-muted-light"
+                                      : "divide-x divide-border-dark hover:bg-muted-dark"
                                   )}
+                                  onClick={() => selectRun(item.id)}
                                 >
                                   <div className="px-5 py-4">
-                                    <button
-                                      type="button"
-                                      className="max-w-full truncate text-left text-pretty text-sm font-medium underline-offset-2 hover:underline"
-                                      onClick={() => selectRun(item.id)}
-                                    >
+                                    <p className="max-w-full truncate text-left text-pretty text-sm font-medium">
                                       {item.name}
-                                    </button>
+                                    </p>
                                   </div>
                                   <div className="px-5 py-4">
                                     <p className="text-pretty text-sm tabular-nums">{scenarioCount || "—"}</p>
@@ -4528,7 +4820,14 @@ export default function App() {
                                     </p>
                                   </div>
                                   <div className="flex items-center gap-2 px-5 py-4 whitespace-nowrap">
-                                    <button type="button" className={outlineButtonClass} onClick={() => selectRun(item.id)}>
+                                    <button
+                                      type="button"
+                                      className={outlineButtonClass}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void selectRun(item.id);
+                                      }}
+                                    >
                                       開く
                                     </button>
                                     <button
@@ -4539,7 +4838,10 @@ export default function App() {
                                           ? "border-destructive-light text-destructive-light"
                                           : "border-destructive-dark text-destructive-dark"
                                       )}
-                                      onClick={() => setDeleteTarget({ type: "run", id: item.id })}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setDeleteTarget({ type: "run", id: item.id });
+                                      }}
                                     >
                                       削除
                                     </button>
@@ -4821,11 +5123,12 @@ export default function App() {
                   <label htmlFor="run-notes" className="text-xs font-semibold uppercase text-slate-400">
                     メモ
                   </label>
-                  <textarea
+                  <MarkdownEditor
                     id="run-notes"
                     className={cn(inputClass, "min-h-[90px]")}
                     value={runDraft.notes}
-                    onChange={(event) => setRunDraft({ ...runDraft, notes: event.target.value })}
+                    onChange={(value) => setRunDraft({ ...runDraft, notes: value })}
+                    theme={theme}
                   />
 
                   {runError && (
@@ -5070,13 +5373,12 @@ export default function App() {
 	                            >
 	                              備考
                             </label>
-                            <textarea
+                            <MarkdownEditor
                               id={`run-scenario-notes-${item.id}`}
                               className={cn(inputClass, "min-h-[70px]")}
                               value={item.notes ?? ""}
-                              onChange={(event) =>
-                                updateRunScenarioDraft(item.id, { notes: event.target.value })
-                              }
+                              onChange={(value) => updateRunScenarioDraft(item.id, { notes: value })}
+                              theme={theme}
                             />
                             <label
                               htmlFor={`run-scenario-executed-${item.id}`}
@@ -5286,15 +5588,16 @@ export default function App() {
 	                                          >
 	                                            備考
 	                                          </label>
-	                                          <textarea
+	                                          <MarkdownEditor
 	                                            id={`run-case-notes-${runCase.id}`}
 	                                            className={cn(inputClass, "min-h-[70px]")}
 	                                            value={runCase.notes ?? ""}
-	                                            onChange={(event) =>
+	                                            onChange={(value) =>
 	                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
-	                                                notes: event.target.value
+	                                                notes: value
 	                                              })
 	                                            }
+                                              theme={theme}
 	                                          />
 	                                          <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-950/20 p-3">
 	                                            <div className="flex items-center justify-between gap-2">
