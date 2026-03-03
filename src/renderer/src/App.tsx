@@ -786,8 +786,8 @@ const MarkdownEditor = ({
   }, [autoResize, mode, value]);
 
   return (
-    <div className="grid gap-2">
-      <div className="flex items-center justify-end gap-2">
+    <div className="relative pt-1">
+      <div className="absolute right-0 -top-7 z-10 flex items-center gap-2">
         <button
           type="button"
           className={cn(
