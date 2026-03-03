@@ -1324,15 +1324,15 @@ export default function App() {
         <div className="mt-3 space-y-3 text-sm text-slate-300">
           <div>
             <p className="font-semibold text-slate-200">前提</p>
-            <p className="mt-1 whitespace-pre-wrap pl-3 text-slate-400">
-              {detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"}
-            </p>
+            <div className="mt-1 pl-3 text-slate-400">
+              <MarkdownPreview value={detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"} theme={theme} />
+            </div>
           </div>
           <div>
             <p className="font-semibold text-slate-200">見る場所</p>
-            <p className="mt-1 whitespace-pre-wrap pl-3 text-slate-400">
-              {detail.case.view_location?.trim() ? detail.case.view_location : "なし"}
-            </p>
+            <div className="mt-1 pl-3 text-slate-400">
+              <MarkdownPreview value={detail.case.view_location?.trim() ? detail.case.view_location : "なし"} theme={theme} />
+            </div>
           </div>
           <div>
             <p className="font-semibold text-slate-200">初期データ</p>
@@ -1381,13 +1381,13 @@ export default function App() {
               {detail.steps.map((step, index) => (
                 <li key={`${detail.case.id}-${index}`} className="space-y-1 rounded-lg bg-slate-900/40 p-2">
                   <p className="font-semibold text-slate-100">操作</p>
-                  <p className="whitespace-pre-wrap pl-3 text-slate-300">
-                    {step.action || "なし"}
-                  </p>
+                  <div className="pl-3 text-slate-300">
+                    <MarkdownPreview value={step.action || "なし"} theme={theme} />
+                  </div>
                   <p className="font-semibold text-slate-100">期待結果</p>
-                  <p className="whitespace-pre-wrap pl-3 text-slate-400">
-                    {step.expected || "なし"}
-                  </p>
+                  <div className="pl-3 text-slate-400">
+                    <MarkdownPreview value={step.expected || "なし"} theme={theme} />
+                  </div>
                 </li>
               ))}
             </ol>
@@ -5429,15 +5429,15 @@ export default function App() {
 		                                          <span>{runCase.case_title}</span>
                                           <div>
                                             <p className="text-sm font-semibold text-slate-200">前提</p>
-                                            <p className="mt-1 whitespace-pre-wrap pl-3 text-sm text-slate-400">
-                                              {runCase.preconditions?.trim() ? runCase.preconditions : "なし"}
-                                            </p>
+                                            <div className="mt-1 pl-3 text-sm text-slate-400">
+                                              <MarkdownPreview value={runCase.preconditions?.trim() ? runCase.preconditions : "なし"} theme={theme} />
+                                            </div>
                                           </div>
                                           <div>
                                             <p className="text-sm font-semibold text-slate-200">見る場所</p>
-                                            <p className="mt-1 whitespace-pre-wrap pl-3 text-sm text-slate-400">
-                                              {runCase.view_location?.trim() ? runCase.view_location : "なし"}
-                                            </p>
+                                            <div className="mt-1 pl-3 text-sm text-slate-400">
+                                              <MarkdownPreview value={runCase.view_location?.trim() ? runCase.view_location : "なし"} theme={theme} />
+                                            </div>
                                           </div>
                                           <div>
                                             <p className="text-sm font-semibold text-slate-200">初期データ</p>
@@ -5450,9 +5450,9 @@ export default function App() {
                                           {runCase.tags?.trim() && (
                                             <div>
                                               <p className="text-sm font-semibold text-slate-200">タグ</p>
-                                              <p className="mt-1 whitespace-pre-wrap pl-3 text-sm text-slate-400">
-                                                {runCase.tags}
-                                              </p>
+                                              <div className="mt-1 pl-3 text-sm text-slate-400">
+                                                <MarkdownPreview value={runCase.tags} theme={theme} />
+                                              </div>
                                             </div>
                                           )}
 	                                        </div>
@@ -5486,14 +5486,14 @@ export default function App() {
                                                     >
                                                       操作
                                                     </p>
-                                                    <p
+                                                    <div
                                                       className={cn(
-                                                        "whitespace-pre-wrap pl-3 text-sm",
+                                                        "pl-3 text-sm",
                                                         theme === "light" ? "text-slate-700" : "text-slate-300"
                                                       )}
                                                     >
-                                                      {step.action || "なし"}
-                                                    </p>
+                                                      <MarkdownPreview value={step.action || "なし"} theme={theme} />
+                                                    </div>
                                                     <p
                                                       className={cn(
                                                         "text-sm font-semibold",
@@ -5502,14 +5502,14 @@ export default function App() {
                                                     >
                                                       期待結果
                                                     </p>
-                                                    <p
+                                                    <div
                                                       className={cn(
-                                                        "whitespace-pre-wrap pl-3 text-sm",
+                                                        "pl-3 text-sm",
                                                         theme === "light" ? "text-slate-600" : "text-slate-400"
                                                       )}
                                                     >
-                                                      {step.expected || "なし"}
-                                                    </p>
+                                                      <MarkdownPreview value={step.expected || "なし"} theme={theme} />
+                                                    </div>
 	                                                  </li>
 	                                                ))}
 	                                              </ol>
