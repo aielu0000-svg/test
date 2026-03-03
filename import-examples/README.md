@@ -18,4 +18,5 @@
 
 - `scenarios.json` は `case_titles`（テストケース名の配列）でシナリオにテストケースを紐づけます。先にテストケースを取り込んでください。
 - `test_cases.csv` / `test_cases.md` は `folder` 列を持てます。既存フォルダの「ID」または「名前」で指定可能です（未一致なら未分類）。
+- `test_cases.csv` / `test_cases.md` は `view_location`（または `見る場所`）列も取り込めます。
 - `test_cases.csv` の `steps`、`data_sets_*.csv` の `items` は **JSON文字列**（配列）です。CSVのセル内では `"` を `""` としてエスケープしています。

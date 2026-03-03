@@ -4319,6 +4319,25 @@ export default function App() {
                   </div>
                 )}
 
+                {runMode !== "list" && (
+                  <button
+                    type="button"
+                    className={cn(
+                      "fixed bottom-6 right-8 z-40 rounded-pill bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-slate-950/40",
+                      isLoading && "opacity-60"
+                    )}
+                    disabled={isLoading}
+                    onClick={async () => {
+                      const id = await handleSaveRun();
+                      if (id && runMode !== "execute") {
+                        setRunMode("list");
+                      }
+                    }}
+                  >
+                    保存
+                  </button>
+                )}
+
 	              <div className={cn(panelClass, runMode !== "list" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">

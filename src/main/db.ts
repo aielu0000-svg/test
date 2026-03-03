@@ -2181,6 +2181,8 @@ export const importData = (payload: {
         title: record.title || record.name || "Untitled",
         objective: record.objective || "",
         preconditions: record.preconditions || "",
+        viewLocation:
+          record.view_location ?? record.viewLocation ?? record["見る場所"] ?? "",
         priority: record.priority || "",
         tags: record.tags || "",
         folderId: hasFolderOverride ? folderOverrideId : folderIdFromRecord,
