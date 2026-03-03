@@ -2752,8 +2752,27 @@ export default function App() {
 	              </div>
 	            )}
 
-	            {section === "cases" && (
+          {section === "cases" && (
 	              <div className="grid gap-6">
+                {caseMode === "detail" && (
+                  <button
+                    type="button"
+                    className={cn(
+                      "fixed bottom-6 right-8 z-40 rounded-pill bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-slate-950/40",
+                      isLoading && "opacity-60"
+                    )}
+                    disabled={isLoading}
+                    onClick={async () => {
+                      const savedId = await handleSaveCase();
+                      if (savedId) {
+                        setCaseMode("list");
+                      }
+                    }}
+                  >
+                    保存
+                  </button>
+                )}
+
 	              <div className={cn(panelClass, caseMode === "detail" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">
@@ -3145,38 +3164,6 @@ export default function App() {
 	                          : "新しいテストケースを作成します。"}
 	                      </p>
 	                    </div>
-	                  </div>
-	                  <div className="flex flex-wrap items-center gap-3">
-	                    <button
-	                      type="button"
-	                      className={outlineButtonClass}
-	                      onClick={async () => {
-	                        setCaseError(null);
-	                        if (selectedCaseId) {
-	                          await loadCaseById(selectedCaseId);
-	                        } else {
-	                          setSelectedCaseId(null);
-	                          setCaseDraft(emptyCase());
-	                          setCaseDataSets({});
-	                        }
-	                        setCaseMode("list");
-	                      }}
-	                    >
-	                      キャンセル
-	                    </button>
-	                    <button
-	                      type="button"
-	                      className={cn(primaryButtonClass, isLoading && "opacity-60")}
-	                      disabled={isLoading}
-	                      onClick={async () => {
-	                        const savedId = await handleSaveCase();
-	                        if (savedId) {
-	                          setCaseMode("list");
-	                        }
-	                      }}
-	                    >
-	                      保存
-	                    </button>
 	                  </div>
 	                </div>
                 <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
@@ -3570,6 +3557,25 @@ export default function App() {
 
 	          {section === "scenarios" && (
 	            <div className="grid gap-6">
+                {scenarioMode === "detail" && (
+                  <button
+                    type="button"
+                    className={cn(
+                      "fixed bottom-6 right-8 z-40 rounded-pill bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-slate-950/40",
+                      isLoading && "opacity-60"
+                    )}
+                    disabled={isLoading}
+                    onClick={async () => {
+                      await handleSaveScenario();
+                      if (scenarioDraft.title.trim()) {
+                        setScenarioMode("list");
+                      }
+                    }}
+                  >
+                    保存
+                  </button>
+                )}
+
 	              <div className={cn(panelClass, scenarioMode === "detail" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">
@@ -3729,38 +3735,6 @@ export default function App() {
 	                      </p>
 	                    </div>
 	                  </div>
-	                  <div className="flex flex-wrap items-center gap-3">
-	                    <button
-	                      type="button"
-	                      className={outlineButtonClass}
-	                      onClick={async () => {
-	                        setScenarioError(null);
-	                        if (selectedScenarioId) {
-	                          await selectScenario(selectedScenarioId);
-	                        } else {
-	                          setSelectedScenarioId(null);
-	                          setScenarioDraft(emptyScenario());
-	                          setScenarioDetail(null);
-	                        }
-	                        setScenarioMode("list");
-	                      }}
-	                    >
-	                      キャンセル
-	                    </button>
-	                    <button
-	                      type="button"
-	                      className={cn(primaryButtonClass, isLoading && "opacity-60")}
-	                      disabled={isLoading}
-	                      onClick={async () => {
-	                        await handleSaveScenario();
-	                        if (!scenarioTitleError) {
-	                          setScenarioMode("list");
-	                        }
-	                      }}
-	                    >
-	                      保存
-	                    </button>
-	                  </div>
 	                </div>
               {scenarioDetail ? (
                 <div className="mt-4 space-y-3">
@@ -3821,23 +3795,16 @@ export default function App() {
 
                   {isLoading && <p className="text-xs text-slate-400">保存中...</p>}
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      className="rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={handleSaveScenario}
-                      disabled={isLoading}
-                    >
-                      保存
-                    </button>
-                    {selectedScenarioId && (
+                  {selectedScenarioId && (
+                    <div className="flex flex-wrap gap-3">
                       <button
                         className="rounded-full border border-rose-500 px-4 py-2 text-sm font-semibold text-rose-200"
                         onClick={() => setDeleteTarget({ type: "scenario", id: selectedScenarioId })}
                       >
                         削除
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -4252,16 +4219,6 @@ export default function App() {
                           <>
                             <button
                               type="button"
-                              className={cn(outlineButtonClass, isLoading && "opacity-60")}
-                              disabled={isLoading}
-                              onClick={async () => {
-                                await handleSaveRun();
-                              }}
-                            >
-                              保存
-                            </button>
-                            <button
-                              type="button"
                               className={outlineButtonClass}
                               onClick={() => {
                                 const target = runScenarios.find((item) => item.id === selectedRunScenarioId);
@@ -4298,21 +4255,6 @@ export default function App() {
                               結果を確定
                             </button>
                           </>
-                        )}
-                        {runMode !== "execute" && (
-                          <button
-                            type="button"
-                            className={cn(primaryButtonClass, isLoading && "opacity-60")}
-                            disabled={isLoading}
-                            onClick={async () => {
-                              const id = await handleSaveRun();
-                              if (id) {
-                                setRunMode("list");
-                              }
-                            }}
-                          >
-                            保存
-                          </button>
                         )}
                       </div>
                     </div>
