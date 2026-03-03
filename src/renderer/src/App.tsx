@@ -614,6 +614,8 @@ export default function App() {
   const [exportScope, setExportScope] = useState("common");
   const [exportFormat, setExportFormat] = useState<"csv" | "json" | "md">("csv");
   const [exportRunIds, setExportRunIds] = useState<string[]>([]);
+  const [exportScenarioIds, setExportScenarioIds] = useState<string[]>([]);
+  const [exportCaseFolderIds, setExportCaseFolderIds] = useState<string[]>([]);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [importType, setImportType] = useState<"test_cases" | "scenarios" | "data_sets">(
     "test_cases"
@@ -1194,6 +1196,11 @@ export default function App() {
     return map;
   }, [caseFolders]);
 
+  const exportCaseFolderOptions = useMemo(
+    () => [...caseFolders.map((folder) => ({ id: folder.id, label: folder.name })), { id: "__NONE__", label: "未分類" }],
+    [caseFolders]
+  );
+
   const displayFolderKeys = useMemo(() => {
     return folderFilter === "all" ? folderOrder : [folderFilter];
   }, [folderFilter, folderOrder]);
@@ -1233,6 +1240,22 @@ export default function App() {
   useEffect(() => {
     setExportRunIds((prev) => prev.filter((id) => runs.some((run) => run.id === id)));
   }, [runs]);
+
+  useEffect(() => {
+    setExportScenarioIds((prev) => prev.filter((id) => scenarios.some((scenario) => scenario.id === id)));
+  }, [scenarios]);
+
+  useEffect(() => {
+    const validIds = new Set(exportCaseFolderOptions.map((item) => item.id));
+    setExportCaseFolderIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [exportCaseFolderOptions]);
+
+  useEffect(() => {
+    if (exportType !== "test_cases" || exportCaseFolderIds.length > 0) {
+      return;
+    }
+    setExportCaseFolderIds(exportCaseFolderOptions.map((item) => item.id));
+  }, [exportType, exportCaseFolderIds.length, exportCaseFolderOptions]);
 
   const addableRunScenarios = useMemo(() => {
     const added = new Set(runScenarios.map((item) => item.scenario_id));
@@ -1907,6 +1930,14 @@ export default function App() {
 
   const handleExport = async () => {
     setExportNotice(null);
+    if (exportType === "test_cases" && exportCaseFolderIds.length === 0) {
+      setExportNotice("テストケースの出力フォルダを1つ以上選択してください。");
+      return;
+    }
+    if (exportType === "scenarios" && exportScenarioIds.length === 0) {
+      setExportNotice("シナリオを1件以上選択してください。");
+      return;
+    }
     if (exportType === "test_runs" && exportRunIds.length === 0) {
       setExportNotice("テスト実行を1件以上選択してください。");
       return;
@@ -1916,6 +1947,8 @@ export default function App() {
         entity: exportType,
         format: exportFormat,
         scope: exportType === "data_sets" ? exportScope : undefined,
+        caseFolderIds: exportType === "test_cases" ? exportCaseFolderIds : undefined,
+        scenarioIds: exportType === "scenarios" ? exportScenarioIds : undefined,
         runIds: exportType === "test_runs" ? exportRunIds : undefined
       };
       const result = (await window.api.export.save(payload)) as string | null;
@@ -4341,7 +4374,17 @@ export default function App() {
               </div>
 
 	              <div className={cn(panelClass, runMode === "list" && "hidden")}>
-	                <div className="flex flex-wrap items-center justify-between gap-4">
+	                <div
+                    className={cn(
+                      "flex flex-wrap items-center justify-between gap-4",
+                      runMode === "execute" &&
+                        "sticky -mx-5 -mt-5 mb-5 border-b px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-opacity-70 z-20 top-0",
+                      runMode === "execute" &&
+                        (theme === "light"
+                          ? "border-slate-200 bg-card-light/95"
+                          : "border-slate-800 bg-card-dark/95")
+                    )}
+                  >
 	                  <div className="flex min-w-0 items-center gap-3">
 	                    <button
 	                      type="button"
@@ -4375,6 +4418,16 @@ export default function App() {
 	                  <div className="flex flex-wrap items-center gap-3">
 	                    {runMode === "execute" && selectedRunScenarioId && (
 	                      <>
+                          <button
+                            type="button"
+                            className={cn(outlineButtonClass, isLoading && "opacity-60")}
+                            disabled={isLoading}
+                            onClick={async () => {
+                              await handleSaveRun();
+                            }}
+                          >
+                            保存
+                          </button>
 	                        <button
 	                          type="button"
 	                          className={outlineButtonClass}
@@ -5252,9 +5305,21 @@ export default function App() {
                       const nextType = event.target.value as typeof exportType;
                       setExportType(nextType);
                       if (nextType === "test_runs") {
-                        setExportRunIds((prev) => (prev.length ? prev : runs.map((run) => run.id)));
+                        setExportRunIds(runs.map((run) => run.id));
+                        setExportScenarioIds([]);
+                        setExportCaseFolderIds([]);
+                      } else if (nextType === "scenarios") {
+                        setExportScenarioIds(scenarios.map((scenario) => scenario.id));
+                        setExportRunIds([]);
+                        setExportCaseFolderIds([]);
+                      } else if (nextType === "test_cases") {
+                        setExportCaseFolderIds(exportCaseFolderOptions.map((item) => item.id));
+                        setExportRunIds([]);
+                        setExportScenarioIds([]);
                       } else {
                         setExportRunIds([]);
+                        setExportScenarioIds([]);
+                        setExportCaseFolderIds([]);
                       }
                     }}
                   >
@@ -5263,6 +5328,119 @@ export default function App() {
                     <option value="data_sets">初期データ</option>
                     <option value="test_runs">テスト実行結果</option>
                   </select>
+
+                  {exportType === "test_cases" && (
+                    <div className="grid gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          出力対象のフォルダ
+                        </label>
+                        <div className="flex gap-2 text-xs">
+                          <button
+                            type="button"
+                            className={outlineButtonClass}
+                            onClick={() => setExportCaseFolderIds(exportCaseFolderOptions.map((item) => item.id))}
+                          >
+                            全選択
+                          </button>
+                          <button
+                            type="button"
+                            className={outlineButtonClass}
+                            onClick={() => setExportCaseFolderIds([])}
+                          >
+                            解除
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "max-h-56 space-y-2 overflow-y-auto rounded-xl border p-3",
+                          theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/30"
+                        )}
+                      >
+                        {exportCaseFolderOptions.map((folder) => {
+                          const checked = exportCaseFolderIds.includes(folder.id);
+                          return (
+                            <label key={`export-folder-${folder.id}`} className="flex cursor-pointer items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(event) => {
+                                  setExportCaseFolderIds((prev) => {
+                                    if (event.target.checked) {
+                                      return prev.includes(folder.id) ? prev : [...prev, folder.id];
+                                    }
+                                    return prev.filter((id) => id !== folder.id);
+                                  });
+                                }}
+                              />
+                              <span className="truncate">{folder.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {exportType === "scenarios" && (
+                    <div className="grid gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          出力対象のシナリオ
+                        </label>
+                        <div className="flex gap-2 text-xs">
+                          <button
+                            type="button"
+                            className={outlineButtonClass}
+                            onClick={() => setExportScenarioIds(scenarios.map((scenario) => scenario.id))}
+                          >
+                            全選択
+                          </button>
+                          <button
+                            type="button"
+                            className={outlineButtonClass}
+                            onClick={() => setExportScenarioIds([])}
+                          >
+                            解除
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "max-h-56 space-y-2 overflow-y-auto rounded-xl border p-3",
+                          theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/30"
+                        )}
+                      >
+                        {scenarios.length === 0 ? (
+                          <p className="text-xs text-slate-400">シナリオがありません。</p>
+                        ) : (
+                          scenarios.map((scenario) => {
+                            const checked = exportScenarioIds.includes(scenario.id);
+                            return (
+                              <label
+                                key={`export-scenario-${scenario.id}`}
+                                className="flex cursor-pointer items-center gap-2 text-sm"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) => {
+                                    setExportScenarioIds((prev) => {
+                                      if (event.target.checked) {
+                                        return prev.includes(scenario.id) ? prev : [...prev, scenario.id];
+                                      }
+                                      return prev.filter((id) => id !== scenario.id);
+                                    });
+                                  }}
+                                />
+                                <span className="truncate">{scenario.title}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {exportType === "data_sets" && (
                     <>
@@ -5366,7 +5544,11 @@ export default function App() {
                   <button
                     className="w-fit rounded-pill bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={handleExport}
-                    disabled={exportType === "test_runs" && exportRunIds.length === 0}
+                    disabled={
+                      (exportType === "test_cases" && exportCaseFolderIds.length === 0) ||
+                      (exportType === "scenarios" && exportScenarioIds.length === 0) ||
+                      (exportType === "test_runs" && exportRunIds.length === 0)
+                    }
                   >
                     エクスポート
                   </button>

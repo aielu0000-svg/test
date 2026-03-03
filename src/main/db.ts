@@ -1540,9 +1540,21 @@ export const exportData = (payload: {
   entity: "test_cases" | "scenarios" | "data_sets" | "test_runs";
   format: "csv" | "json" | "md";
   scope?: string;
+  caseFolderIds?: string[];
+  scenarioIds?: string[];
   runIds?: string[];
 }) => {
   const { db: database, projectPath } = ensureDb();
+  const caseFolderIds = Array.isArray(payload.caseFolderIds)
+    ? payload.caseFolderIds.filter(
+        (id): id is string => typeof id === "string" && id.trim().length > 0
+      )
+    : [];
+  const selectedCaseFolderIdSet = caseFolderIds.length ? new Set(caseFolderIds) : null;
+  const scenarioIds = Array.isArray(payload.scenarioIds)
+    ? payload.scenarioIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
+  const selectedScenarioIdSet = scenarioIds.length ? new Set(scenarioIds) : null;
   const runIds = Array.isArray(payload.runIds)
     ? payload.runIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
@@ -1766,18 +1778,144 @@ export const exportData = (payload: {
     return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
   }
 
+  if (payload.entity === "scenarios" && payload.format === "md") {
+    const scenarios = database
+      .prepare("SELECT id, title, objective FROM scenarios ORDER BY updated_at DESC")
+      .all() as Array<Record<string, any>>;
+    const filteredScenarios = selectedScenarioIdSet
+      ? scenarios.filter((scenario) => selectedScenarioIdSet.has(String(scenario.id ?? "")))
+      : scenarios;
+    if (!filteredScenarios.length) {
+      return "# シナリオ\n\nデータがありません。";
+    }
+
+    const scenarioCasesQuery = database.prepare(
+      `SELECT
+        test_cases.id,
+        test_cases.title,
+        test_cases.objective,
+        test_cases.preconditions
+      FROM scenario_cases
+      JOIN test_cases ON test_cases.id = scenario_cases.case_id
+      WHERE scenario_cases.scenario_id = ?
+      ORDER BY scenario_cases.position`
+    );
+    const caseStepsQuery = database.prepare(
+      "SELECT action, expected FROM test_steps WHERE case_id = ? ORDER BY sort_order"
+    );
+    const textOrDefault = (value: unknown, fallback = "なし") => {
+      const text = typeof value === "string" ? value.trim() : "";
+      return text.length ? text : fallback;
+    };
+
+    const lines: string[] = [];
+    filteredScenarios.forEach((scenario, scenarioIndex) => {
+      lines.push(`# ${textOrDefault(scenario.title, "シナリオ")}`);
+      lines.push(`- 目的：${textOrDefault(scenario.objective)}`);
+
+      const cases = scenarioCasesQuery.all(scenario.id) as Array<Record<string, any>>;
+      if (!cases.length) {
+        lines.push("");
+        lines.push("## テストケースなし");
+        lines.push("- 目的：なし");
+        lines.push("- 前提：なし");
+        lines.push("");
+        lines.push("### 手順");
+        lines.push("1. なし。");
+        lines.push("");
+        lines.push("### 期待結果");
+        lines.push("- なし");
+      } else {
+        cases.forEach((testCase) => {
+          lines.push("");
+          lines.push(`## ${textOrDefault(testCase.title, "テストケース")}`);
+          lines.push(`- 目的：${textOrDefault(testCase.objective)}`);
+          lines.push(`- 前提：${textOrDefault(testCase.preconditions)}`);
+          lines.push("");
+          lines.push("### 手順");
+
+          const steps = caseStepsQuery.all(testCase.id) as Array<Record<string, any>>;
+          const actions = steps
+            .map((step) => textOrDefault(step.action, ""))
+            .filter((text) => text.length > 0);
+          if (!actions.length) {
+            lines.push("1. なし。");
+          } else {
+            actions.forEach((action, index) => {
+              lines.push(`${index + 1}. ${action}`);
+            });
+          }
+
+          lines.push("");
+          lines.push("### 期待結果");
+          const expectedList = steps
+            .map((step) => textOrDefault(step.expected, ""))
+            .filter((text) => text.length > 0);
+          if (!expectedList.length) {
+            lines.push("- なし");
+          } else {
+            expectedList.forEach((expected) => {
+              lines.push(`- ${expected}`);
+            });
+          }
+        });
+      }
+
+      if (scenarioIndex < filteredScenarios.length - 1) {
+        lines.push("");
+        lines.push("---");
+        lines.push("");
+      }
+    });
+
+    return lines.join("\n").trimEnd();
+  }
+
   let rows: Array<Record<string, any>> = [];
 
   if (payload.entity === "test_cases") {
-    rows = database
-      .prepare("SELECT id, title, objective, preconditions, priority, tags FROM test_cases ORDER BY updated_at DESC")
+    const testCases = database
+      .prepare(
+        "SELECT id, title, objective, preconditions, priority, folder_id FROM test_cases ORDER BY updated_at DESC"
+      )
       .all() as Array<Record<string, any>>;
+    const expectedQuery = database.prepare(
+      "SELECT expected FROM test_steps WHERE case_id = ? ORDER BY sort_order"
+    );
+    const filteredCases = selectedCaseFolderIdSet
+      ? testCases.filter((item) => {
+          const folderKey =
+            item.folder_id == null || String(item.folder_id).trim() === ""
+              ? "__NONE__"
+              : String(item.folder_id);
+          return selectedCaseFolderIdSet.has(folderKey);
+        })
+      : testCases;
+    rows = filteredCases.map((item) => {
+      const expectedValues = (expectedQuery.all(item.id) as Array<{ expected?: string }>)
+        .map((entry) => (entry.expected ?? "").trim())
+        .filter((entry) => entry.length > 0);
+      const expectedText =
+        expectedValues.length > 1
+          ? expectedValues.map((entry) => `- ${entry}`).join("\n")
+          : expectedValues[0] ?? "";
+      return {
+        タイトル: item.title ?? "",
+        目的: item.objective ?? "",
+        前提条件: item.preconditions ?? "",
+        期待結果: expectedText,
+        優先度: item.priority ?? ""
+      };
+    });
   }
 
   if (payload.entity === "scenarios") {
     const scenarios = database
       .prepare("SELECT id, title, objective, preconditions FROM scenarios ORDER BY updated_at DESC")
       .all() as Array<Record<string, any>>;
+    const filteredScenarios = selectedScenarioIdSet
+      ? scenarios.filter((scenario) => selectedScenarioIdSet.has(String(scenario.id ?? "")))
+      : scenarios;
     const latestRunScenarioQuery = database.prepare(
       `SELECT
         id,
@@ -1797,7 +1935,7 @@ export const exportData = (payload: {
       "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
     );
 
-    rows = scenarios.map((scenario) => {
+    rows = filteredScenarios.map((scenario) => {
       const latest = latestRunScenarioQuery.get(scenario.id) as Record<string, any> | undefined;
       const runName = latest?.run_id
         ? ((runNameQuery.get(latest.run_id) as { name?: string } | undefined)?.name ?? "")
