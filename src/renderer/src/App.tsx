@@ -1045,15 +1045,19 @@ export default function App() {
           <span className="text-slate-100">{detail.case.title}</span>
           <span className="text-[11px] text-slate-400">{detail.steps.length} 手順</span>
         </summary>
-        <div className="mt-3 space-y-2 text-xs text-slate-300">
-          <p className="text-slate-400">
-            <span className="font-semibold text-slate-200">前提: </span>
-            {detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"}
-          </p>
-          <p className="whitespace-pre-wrap text-slate-400">
-            <span className="font-semibold text-slate-200">見る場所: </span>
-            {detail.case.view_location?.trim() ? detail.case.view_location : "なし"}
-          </p>
+        <div className="mt-3 space-y-3 text-sm text-slate-300">
+          <div>
+            <p className="font-semibold text-slate-200">前提</p>
+            <p className="mt-1 whitespace-pre-wrap pl-3 text-slate-400">
+              {detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"}
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-slate-200">見る場所</p>
+            <p className="mt-1 whitespace-pre-wrap pl-3 text-slate-400">
+              {detail.case.view_location?.trim() ? detail.case.view_location : "なし"}
+            </p>
+          </div>
           <div>
             <p className="font-semibold text-slate-200">初期データ</p>
             {detail.dataSets.length ? (
@@ -1097,14 +1101,15 @@ export default function App() {
           </div>
           <div>
             <p className="font-semibold text-slate-200">手順</p>
-            <ol className="mt-2 space-y-2 text-[12px]">
+            <ol className="mt-2 space-y-2 text-sm">
               {detail.steps.map((step, index) => (
                 <li key={`${detail.case.id}-${index}`} className="space-y-1 rounded-lg bg-slate-900/40 p-2">
-                  <p className="text-slate-300 whitespace-pre-wrap">
-                    <span className="font-semibold text-slate-100">操作:</span> {step.action || "なし"}
+                  <p className="font-semibold text-slate-100">操作</p>
+                  <p className="whitespace-pre-wrap pl-3 text-slate-300">
+                    {step.action || "なし"}
                   </p>
-                  <p className="text-slate-400 whitespace-pre-wrap">
-                    <span className="font-semibold text-slate-100">期待結果:</span>{" "}
+                  <p className="font-semibold text-slate-100">期待結果</p>
+                  <p className="whitespace-pre-wrap pl-3 text-slate-400">
                     {step.expected || "なし"}
                   </p>
                 </li>
@@ -2798,6 +2803,41 @@ export default function App() {
 
           {section === "cases" && (
 	              <div className="grid gap-6">
+                {caseMode === "list" && (
+                  <div className="fixed bottom-6 right-8 z-40 grid gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex h-11 items-center justify-center gap-2 rounded-pill border px-5 text-sm font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40",
+                        theme === "light"
+                          ? "border-destructive-light bg-background-light text-destructive-light"
+                          : "border-destructive-dark bg-background-dark text-destructive-dark"
+                      )}
+                      disabled={selectedFilteredCaseCount === 0}
+                      onClick={handleDeleteSelectedCases}
+                    >
+                      選択削除 ({selectedFilteredCaseCount})
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-pill bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                      onClick={() => {
+                        setSelectedCaseId(null);
+                        const draft = emptyCase();
+                        draft.folderId =
+                          folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
+                        setCaseDraft(draft);
+                        setCaseDataSets({});
+                        setCaseError(null);
+                        setCaseMode("detail");
+                      }}
+                    >
+                      <PlusIcon className="size-5" />
+                      新規テストケース
+                    </button>
+                  </div>
+                )}
+
                 {caseMode === "detail" && (
                   <button
                     type="button"
@@ -2825,22 +2865,6 @@ export default function App() {
 	                      テストケースを管理・整理します。
 	                    </p>
 	                  </div>
-	                  <button
-	                    type="button"
-	                    className={primaryButtonClass}
-	                    onClick={() => {
-	                      setSelectedCaseId(null);
-	                      const draft = emptyCase();
-	                      draft.folderId = folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
-	                      setCaseDraft(draft);
-	                      setCaseDataSets({});
-	                      setCaseError(null);
-	                      setCaseMode("detail");
-	                    }}
-	                  >
-	                    <PlusIcon className="size-5" />
-	                    新規テストケース
-	                  </button>
 	                </div>
 	                <input
 	                  id="case-search"
@@ -3101,39 +3125,7 @@ export default function App() {
 	                    </div>
 	                  )}
 
-	                  <div className={cn("flex h-[68px] items-center justify-between border-t px-5", borderClass)}>
-                        <button
-                          type="button"
-                          className={cn(
-                            "inline-flex h-10 items-center justify-center gap-2 rounded-pill border px-4 text-sm font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40",
-                            theme === "light"
-                              ? "border-destructive-light text-destructive-light"
-                              : "border-destructive-dark text-destructive-dark"
-                          )}
-                          disabled={selectedFilteredCaseCount === 0}
-                          onClick={handleDeleteSelectedCases}
-                        >
-                          選択削除 ({selectedFilteredCaseCount})
-                        </button>
-	                    <button
-	                      type="button"
-	                      className={primaryButtonClass}
-	                      onClick={() => {
-	                        setSelectedCaseId(null);
-	                        const draft = emptyCase();
-	                        draft.folderId =
-	                          folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
-	                        setCaseDraft(draft);
-	                        setCaseDataSets({});
-	                        setCaseError(null);
-	                        setCaseMode("detail");
-	                      }}
-	                    >
-	                      <PlusIcon className="size-5" />
-	                      新規テストケース
-	                    </button>
-	                  </div>
-	                </div>
+                </div>
 
 	                <div className="hidden mt-4 space-y-3">
 	                  {hasCasesInView ? (
@@ -4459,7 +4451,7 @@ export default function App() {
 	                        <div className="min-w-[920px]">
 	                          <div
 	                            className={cn(
-	                              "grid grid-cols-[minmax(0,1fr)_120px_140px_120px] items-center text-sm",
+	                              "grid grid-cols-[minmax(0,1fr)_120px_140px_120px_140px] items-center text-sm",
 	                              borderClass,
 	                              "border-b",
 	                              theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
@@ -4470,6 +4462,7 @@ export default function App() {
 	                            <div className="px-5 py-4">シナリオ</div>
 	                            <div className="px-5 py-4">状態</div>
 	                            <div className="px-5 py-4">進捗</div>
+                              <div className="px-5 py-4">操作</div>
 	                          </div>
 
 	                          {runsForTab.map((item) => {
@@ -4480,37 +4473,52 @@ export default function App() {
 	                              ? Math.round((completedCases / totalCases) * 100)
 	                              : 0;
 	                            return (
-	                              <button
-	                                key={item.id}
-	                                type="button"
-	                                className={cn(
-	                                  "grid w-full grid-cols-[minmax(0,1fr)_120px_140px_120px] items-center text-left text-sm",
-	                                  borderClass,
-	                                  "border-b last:border-b-0",
-	                                  theme === "light"
-	                                    ? "divide-x divide-border-light hover:bg-muted-light"
-	                                    : "divide-x divide-border-dark hover:bg-muted-dark"
-	                                )}
-	                                onClick={() => selectRun(item.id)}
-	                              >
-	                                <div className="px-5 py-4">
-	                                  <p className="truncate text-pretty text-sm font-medium">{item.name}</p>
-	                                </div>
-	                                <div className="px-5 py-4">
-	                                  <p className="text-pretty text-sm tabular-nums">{scenarioCount || "—"}</p>
-	                                </div>
-	                                <div className="px-5 py-4">
-	                                  <p className={cn("text-pretty text-sm font-medium", getRunStatusClass(item.status))}>
-	                                    {getRunStatusLabel(item.status)}
-	                                  </p>
-	                                </div>
-	                                <div className="px-5 py-4">
-	                                  <p className="text-pretty text-sm font-medium tabular-nums">
-	                                    {totalCases ? `${progressPercent}%` : "—"}
-	                                  </p>
-	                                </div>
-	                              </button>
-	                            );
+                                <div
+                                  key={item.id}
+                                  className={cn(
+                                    "grid w-full grid-cols-[minmax(0,1fr)_120px_140px_120px_140px] items-center text-sm",
+                                    borderClass,
+                                    "border-b last:border-b-0",
+                                    theme === "light"
+                                      ? "divide-x divide-border-light"
+                                      : "divide-x divide-border-dark"
+                                  )}
+                                >
+                                  <div className="px-5 py-4">
+                                    <p className="truncate text-pretty text-sm font-medium">{item.name}</p>
+                                  </div>
+                                  <div className="px-5 py-4">
+                                    <p className="text-pretty text-sm tabular-nums">{scenarioCount || "—"}</p>
+                                  </div>
+                                  <div className="px-5 py-4">
+                                    <p className={cn("text-pretty text-sm font-medium", getRunStatusClass(item.status))}>
+                                      {getRunStatusLabel(item.status)}
+                                    </p>
+                                  </div>
+                                  <div className="px-5 py-4">
+                                    <p className="text-pretty text-sm font-medium tabular-nums">
+                                      {totalCases ? `${progressPercent}%` : "—"}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+                                    <button type="button" className={outlineButtonClass} onClick={() => selectRun(item.id)}>
+                                      開く
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "inline-flex h-10 items-center justify-center rounded-pill border px-4 text-sm font-medium hover:opacity-90",
+                                        theme === "light"
+                                          ? "border-destructive-light text-destructive-light"
+                                          : "border-destructive-dark text-destructive-dark"
+                                      )}
+                                      onClick={() => setDeleteTarget({ type: "run", id: item.id })}
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                </div>
+                              );
 	                          })}
 	                        </div>
 	                      </div>
@@ -5061,11 +5069,11 @@ export default function App() {
 		                          </div>
 		                          <div className="mt-4 rounded-2xl border border-slate-800/70 p-3">
 		                            <div className="flex items-center justify-between">
-		                              <p className="text-xs font-semibold uppercase text-slate-400">ケース結果</p>
+		                              <p className="text-sm font-semibold uppercase text-slate-400">ケース結果</p>
 		                            </div>
 		                            <div className="mt-3 space-y-3">
                               {scenarioCases.length === 0 ? (
-                                <p className="text-xs text-slate-500">
+                                <p className="text-sm text-slate-500">
                                   {runScenarioCasesMap[item.id]
                                     ? "このシナリオに含まれるケースはありません。"
                                     : "ケース情報を読み込んでいます..."}
@@ -5090,19 +5098,19 @@ export default function App() {
 		                                      <summary className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 text-sm font-semibold">
 		                                        <div className="min-w-0 space-y-1 text-slate-100">
 		                                          <span>{runCase.case_title}</span>
-	                                          <p className="text-[11px] text-slate-400">
+	                                          <p className="text-sm text-slate-400">
 	                                            前提:{" "}
 	                                            {runCase.preconditions?.trim()
 	                                              ? runCase.preconditions
 	                                              : "なし"}
 	                                          </p>
-                                          <p className="whitespace-pre-wrap text-[11px] text-slate-400">
+                                          <p className="whitespace-pre-wrap text-sm text-slate-400">
                                             見る場所:{" "}
                                             {runCase.view_location?.trim()
                                               ? runCase.view_location
                                               : "なし"}
                                           </p>
-	                                          <p className="break-words text-[11px] text-slate-400">
+	                                          <p className="break-words text-sm text-slate-400">
 	                                            初期データ:{" "}
 	                                            {caseDetail?.dataSets.length
 	                                              ? caseDetail.dataSets
@@ -5111,23 +5119,23 @@ export default function App() {
 	                                              : "初期データなし"}
 	                                          </p>
                                           {runCase.tags?.trim() && (
-                                            <p className="text-[11px] text-slate-400">
+                                            <p className="text-sm text-slate-400">
                                               タグ: {runCase.tags}
                                             </p>
                                           )}
 	                                        </div>
-		                                        <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold text-slate-100">
+		                                        <span className="shrink-0 rounded-full border px-2 py-0.5 text-sm font-semibold text-slate-100">
 		                                          {runCaseStatusLabels[runCase.status as RunCaseStatus] ?? runCase.status}
 		                                        </span>
 		                                      </summary>
-	                                      <div className="mt-3 grid gap-4 text-xs text-slate-300">
+	                                      <div className="mt-3 grid gap-4 text-sm text-slate-300">
 	                                        <div>
-	                                          <p className="text-[11px] font-semibold uppercase text-slate-400">
+	                                          <p className="text-sm font-semibold uppercase text-slate-400">
 	                                            手順
 	                                          </p>
 	                                          {caseDetail ? (
 	                                            caseDetail.steps.length ? (
-	                                              <ol className="mt-2 space-y-2 text-[12px]">
+	                                              <ol className="mt-2 space-y-2 text-sm">
 	                                                {caseDetail.steps.map((step, index) => (
 	                                                  <li
 	                                                    key={`${runCase.id}-step-${index}`}
@@ -5182,12 +5190,12 @@ export default function App() {
 	                                                ))}
 	                                              </ol>
 	                                            ) : (
-	                                              <p className="mt-2 text-xs text-slate-500">
+	                                              <p className="mt-2 text-sm text-slate-500">
 	                                                手順がありません。
 	                                              </p>
 	                                            )
 	                                          ) : (
-	                                            <p className="mt-2 text-xs text-slate-500">
+	                                            <p className="mt-2 text-sm text-slate-500">
 	                                              手順を読み込んでいます...
 	                                            </p>
 	                                          )}
@@ -5195,7 +5203,7 @@ export default function App() {
 
 	                                        <div className="grid gap-2">
 	                                          <fieldset className="grid gap-2">
-	                                            <legend className="text-[11px] font-semibold uppercase text-slate-400">
+	                                            <legend className="text-sm font-semibold uppercase text-slate-400">
 	                                              結果詳細
 	                                            </legend>
 	                                            <div className="flex flex-wrap gap-2">
@@ -5205,7 +5213,7 @@ export default function App() {
 	                                                  <label
 	                                                    key={`${runCase.id}-status-${option}`}
 	                                                    className={cn(
-	                                                      "cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold",
+	                                                      "cursor-pointer rounded-full border px-3 py-1 text-sm font-semibold",
 	                                                      theme === "light"
 	                                                        ? checked
 	                                                          ? "border-sky-300 bg-sky-50 text-slate-900"
@@ -5235,7 +5243,7 @@ export default function App() {
 	                                          </fieldset>
 	                                          <label
 	                                            htmlFor={`run-case-executed-${runCase.id}`}
-	                                            className="text-[11px] font-semibold uppercase text-slate-400"
+	                                            className="text-sm font-semibold uppercase text-slate-400"
 	                                          >
 	                                            実行日時
 	                                          </label>
@@ -5252,7 +5260,7 @@ export default function App() {
 	                                          />
 	                                          <label
 	                                            htmlFor={`run-case-notes-${runCase.id}`}
-	                                            className="text-[11px] font-semibold uppercase text-slate-400"
+	                                            className="text-sm font-semibold uppercase text-slate-400"
 	                                          >
 	                                            備考
 	                                          </label>
@@ -5268,7 +5276,7 @@ export default function App() {
 	                                          />
 	                                          <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-950/20 p-3">
 	                                            <div className="flex items-center justify-between gap-2">
-	                                              <p className="text-[11px] font-semibold uppercase text-slate-400">
+	                                              <p className="text-sm font-semibold uppercase text-slate-400">
 	                                                証跡
 	                                              </p>
 	                                              <div className="flex flex-wrap gap-2">
