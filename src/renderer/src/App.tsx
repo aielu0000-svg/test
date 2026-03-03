@@ -563,6 +563,7 @@ export default function App() {
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
   const [caseDataSets, setCaseDataSets] = useState<
     Record<string, { dataSet: DataSet; items: DataItem[] }>
@@ -1038,7 +1039,7 @@ export default function App() {
             <span className="font-semibold text-slate-200">前提: </span>
             {detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"}
           </p>
-          <p className="text-slate-400">
+          <p className="whitespace-pre-wrap text-slate-400">
             <span className="font-semibold text-slate-200">見る場所: </span>
             {detail.case.view_location?.trim() ? detail.case.view_location : "なし"}
           </p>
@@ -1175,6 +1176,13 @@ export default function App() {
     const term = caseQuery.toLowerCase();
     return items.filter((item) => item.title.toLowerCase().includes(term));
   }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter]);
+
+  const allFilteredCaseIds = useMemo(() => filteredCases.map((item) => item.id), [filteredCases]);
+  const selectedFilteredCaseCount = useMemo(
+    () => selectedCaseIds.filter((id) => allFilteredCaseIds.includes(id)).length,
+    [selectedCaseIds, allFilteredCaseIds]
+  );
+  const allFilteredSelected = allFilteredCaseIds.length > 0 && selectedFilteredCaseCount === allFilteredCaseIds.length;
 
   const caseGroups = useMemo(() => {
     const result: Record<string, TestCase[]> = {};
@@ -1460,6 +1468,11 @@ export default function App() {
     }
   }, [selectedCaseId]);
 
+  useEffect(() => {
+    const validIds = new Set(testCases.map((item) => item.id));
+    setSelectedCaseIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [testCases]);
+
   const selectScenario = async (id: string) => {
     setSelectedScenarioId(id);
     setScenarioMode("detail");
@@ -1596,6 +1609,26 @@ export default function App() {
       setCaseDraft({ ...caseDraft, folderId: null });
     }
     await loadCases();
+  };
+
+  const handleDeleteSelectedCases = async () => {
+    const targets = selectedCaseIds.filter((id) => allFilteredCaseIds.includes(id));
+    if (!targets.length) {
+      return;
+    }
+    const confirmed = window.confirm(`選択した ${targets.length} 件のテストケースを削除します。`);
+    if (!confirmed) {
+      return;
+    }
+    await Promise.all(targets.map((id) => window.api.testCases.delete(id)));
+    await loadCases();
+    setSelectedCaseIds((prev) => prev.filter((id) => !targets.includes(id)));
+    if (selectedCaseId && targets.includes(selectedCaseId)) {
+      setSelectedCaseId(null);
+      setCaseDraft(emptyCase());
+      setCaseDataSets({});
+      setCaseMode("list");
+    }
   };
 
   const handleSaveScenario = async () => {
@@ -2957,16 +2990,30 @@ export default function App() {
 	                    </div>
 	                  ) : (
 	                    <div className="overflow-x-auto">
-	                      <div className="min-w-[860px]">
+	                      <div className="min-w-[920px]">
 	                        <div
 	                          className={cn(
-	                            "grid grid-cols-[minmax(0,1fr)_140px_200px_220px] items-center text-sm",
+	                            "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_220px] items-center text-sm",
 	                            borderClass,
 	                            "border-b",
 	                            theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
 	                            mutedForegroundClass
 	                          )}
 	                        >
+	                          <div className="flex items-center justify-center px-2 py-4">
+                              <input
+                                type="checkbox"
+                                checked={allFilteredSelected}
+                                onChange={(event) => {
+                                  if (event.target.checked) {
+                                    setSelectedCaseIds((prev) => Array.from(new Set([...prev, ...allFilteredCaseIds])));
+                                  } else {
+                                    setSelectedCaseIds((prev) => prev.filter((id) => !allFilteredCaseIds.includes(id)));
+                                  }
+                                }}
+                                aria-label="表示中のテストケースを全選択"
+                              />
+                            </div>
 	                          <div className="px-5 py-4">テストケース</div>
 	                          <div className="px-5 py-4">優先度</div>
 	                          <div className="px-5 py-4">フォルダ</div>
@@ -2982,7 +3029,7 @@ export default function App() {
 	                            <div
 	                              key={item.id}
 	                              className={cn(
-	                                "grid grid-cols-[minmax(0,1fr)_140px_200px_220px] items-center text-sm",
+	                                "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_220px] items-center text-sm",
 	                                borderClass,
 	                                "border-b last:border-b-0",
 	                                theme === "light"
@@ -2990,6 +3037,21 @@ export default function App() {
 	                                  : "divide-x divide-border-dark hover:bg-muted-dark"
 	                              )}
 	                            >
+                                <div className="flex items-center justify-center px-2 py-4">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCaseIds.includes(item.id)}
+                                    onChange={(event) => {
+                                      setSelectedCaseIds((prev) => {
+                                        if (event.target.checked) {
+                                          return prev.includes(item.id) ? prev : [...prev, item.id];
+                                        }
+                                        return prev.filter((id) => id !== item.id);
+                                      });
+                                    }}
+                                    aria-label={`${item.title} を選択`}
+                                  />
+                                </div>
 	                              <div className="px-5 py-4">
 	                                <p className="truncate text-pretty text-sm font-medium">{item.title}</p>
 	                                <p className={cn("mt-1 truncate text-pretty text-sm", mutedForegroundClass)}>
@@ -3028,7 +3090,20 @@ export default function App() {
 	                    </div>
 	                  )}
 
-	                  <div className={cn("flex h-[68px] items-center justify-end border-t px-5", borderClass)}>
+	                  <div className={cn("flex h-[68px] items-center justify-between border-t px-5", borderClass)}>
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex h-10 items-center justify-center gap-2 rounded-pill border px-4 text-sm font-medium hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40",
+                            theme === "light"
+                              ? "border-destructive-light text-destructive-light"
+                              : "border-destructive-dark text-destructive-dark"
+                          )}
+                          disabled={selectedFilteredCaseCount === 0}
+                          onClick={handleDeleteSelectedCases}
+                        >
+                          選択削除 ({selectedFilteredCaseCount})
+                        </button>
 	                    <button
 	                      type="button"
 	                      className={primaryButtonClass}
@@ -3212,9 +3287,9 @@ export default function App() {
                   >
                     見る場所
                   </label>
-                  <input
+                  <textarea
                     id="case-view-location"
-                    className={inputClass}
+                    className={cn(inputClass, "min-h-[90px]")}
                     value={caseDraft.viewLocation}
                     onChange={(event) =>
                       setCaseDraft({ ...caseDraft, viewLocation: event.target.value })
@@ -5010,7 +5085,7 @@ export default function App() {
 	                                              ? runCase.preconditions
 	                                              : "なし"}
 	                                          </p>
-                                          <p className="text-[11px] text-slate-400">
+                                          <p className="whitespace-pre-wrap text-[11px] text-slate-400">
                                             見る場所:{" "}
                                             {runCase.view_location?.trim()
                                               ? runCase.view_location

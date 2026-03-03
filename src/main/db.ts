@@ -1533,9 +1533,13 @@ const rowsToObjects = (rows: string[][]) => {
   }
   const headers = rows[0].map((header) => header.trim());
   return rows.slice(1).map((row) => {
+    const normalized =
+      row.length > headers.length
+        ? [...row.slice(0, headers.length - 1), row.slice(headers.length - 1).join("|")]
+        : row;
     const record: Record<string, string> = {};
     headers.forEach((header, index) => {
-      record[header] = row[index] ?? "";
+      record[header] = normalized[index] ?? "";
     });
     return record;
   });
@@ -2164,7 +2168,7 @@ export const importData = (payload: {
         ? payload.caseFolderIdOverride.trim()
         : null;
 
-    records.forEach((record) => {
+    [...records].reverse().forEach((record) => {
       const steps = Array.isArray(record.steps)
         ? record.steps
         : typeof record.steps === "string" && record.steps.trim()
