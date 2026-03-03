@@ -12,6 +12,7 @@ type TestCase = {
   title: string;
   objective: string;
   preconditions: string;
+  view_location: string;
   priority: string;
   tags: string;
   folder_id?: string | null;
@@ -131,6 +132,7 @@ type RunScenarioCase = {
   case_id: string;
   case_title: string;
   preconditions: string;
+  view_location: string;
   tags: string;
   status: string;
   actual_result: string;
@@ -157,6 +159,7 @@ type CaseDraft = {
   title: string;
   objective: string;
   preconditions: string;
+  viewLocation: string;
   priority: string;
   tags: string;
   steps: TestStep[];
@@ -499,6 +502,7 @@ const emptyCase = (): CaseDraft => ({
   title: "",
   objective: "",
   preconditions: "",
+  viewLocation: "",
   priority: String(priorityOptions[1]),
   tags: "",
   steps: [{ action: "", expected: "" }],
@@ -1034,6 +1038,10 @@ export default function App() {
             <span className="font-semibold text-slate-200">前提: </span>
             {detail.case.preconditions?.trim() ? detail.case.preconditions : "なし"}
           </p>
+          <p className="text-slate-400">
+            <span className="font-semibold text-slate-200">見る場所: </span>
+            {detail.case.view_location?.trim() ? detail.case.view_location : "なし"}
+          </p>
           <div>
             <p className="font-semibold text-slate-200">初期データ</p>
             {detail.dataSets.length ? (
@@ -1423,6 +1431,7 @@ export default function App() {
       title: data.testCase.title,
       objective: data.testCase.objective ?? "",
       preconditions: data.testCase.preconditions ?? "",
+      viewLocation: data.testCase.view_location ?? "",
       priority: data.testCase.priority || priorityOptions[1],
       tags: data.testCase.tags ?? "",
       steps: data.steps.length
@@ -1551,6 +1560,7 @@ export default function App() {
         title: caseDraft.title.trim(),
         objective: caseDraft.objective,
         preconditions: caseDraft.preconditions,
+        viewLocation: caseDraft.viewLocation,
         priority: caseDraft.priority,
         tags: caseDraft.tags,
         steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
@@ -3209,6 +3219,21 @@ export default function App() {
                       setCaseDraft({ ...caseDraft, preconditions: event.target.value })
                     }
                   />
+                  <label
+                    htmlFor="case-view-location"
+                    className="text-xs font-semibold uppercase text-slate-400"
+                  >
+                    見る場所
+                  </label>
+                  <input
+                    id="case-view-location"
+                    className={inputClass}
+                    value={caseDraft.viewLocation}
+                    onChange={(event) =>
+                      setCaseDraft({ ...caseDraft, viewLocation: event.target.value })
+                    }
+                    placeholder="例: 画面右上のステータス表示"
+                  />
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label
@@ -4182,6 +4207,118 @@ export default function App() {
 
 	          {section === "runs" && (
 	            <div className="grid gap-6">
+                {runMode !== "list" && (
+                  <div
+                    className={cn(
+                      "sticky top-0 z-30 -mx-8 border-b px-8 py-4 backdrop-blur supports-[backdrop-filter]:bg-opacity-70",
+                      theme === "light"
+                        ? "border-slate-200 bg-background-light/95"
+                        : "border-slate-800 bg-background-dark/95"
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <button
+                          type="button"
+                          className={outlineButtonClass}
+                          onClick={() => {
+                            setRunMode("list");
+                            setSelectedRunScenarioId(null);
+                            setRunError(null);
+                          }}
+                        >
+                          戻る
+                        </button>
+                        <div className="min-w-0">
+                          <h2 className="truncate text-balance text-lg font-semibold">
+                            {runMode === "execute"
+                              ? `${runDraft.name || "テスト実行"} - ${
+                                  runScenarios.find((item) => item.id === selectedRunScenarioId)?.title ??
+                                  "シナリオ"
+                                }`
+                              : "テスト実行詳細"}
+                          </h2>
+                          <p className={cn("text-pretty mt-1 text-sm", mutedForegroundClass)}>
+                            {runMode === "execute"
+                              ? "テストケースを実行して結果を記録します。"
+                              : selectedRunId
+                                ? "実行の詳細を編集し、シナリオを管理します。"
+                                : "新しいテスト実行を作成します。"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {runMode === "execute" && selectedRunScenarioId && (
+                          <>
+                            <button
+                              type="button"
+                              className={cn(outlineButtonClass, isLoading && "opacity-60")}
+                              disabled={isLoading}
+                              onClick={async () => {
+                                await handleSaveRun();
+                              }}
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              className={outlineButtonClass}
+                              onClick={() => {
+                                const target = runScenarios.find((item) => item.id === selectedRunScenarioId);
+                                if (!target) return;
+                                void handleUpdateRunScenario({
+                                  id: target.id,
+                                  status: "in_progress",
+                                  assignee: target.assignee ?? "",
+                                  actualResult: target.actual_result ?? "",
+                                  notes: target.notes ?? "",
+                                  executedAt: nowLocalInput()
+                                });
+                              }}
+                            >
+                              一時停止
+                            </button>
+                            <button
+                              type="button"
+                              className={primaryButtonClass}
+                              onClick={() => {
+                                const target = runScenarios.find((item) => item.id === selectedRunScenarioId);
+                                if (!target) return;
+                                const scenarioCases = runScenarioCasesMap[target.id] ?? [];
+                                void handleUpdateRunScenario({
+                                  id: target.id,
+                                  status: deriveRunScenarioStatus(scenarioCases),
+                                  assignee: target.assignee ?? "",
+                                  actualResult: target.actual_result ?? "",
+                                  notes: target.notes ?? "",
+                                  executedAt: nowLocalInput()
+                                });
+                              }}
+                            >
+                              結果を確定
+                            </button>
+                          </>
+                        )}
+                        {runMode !== "execute" && (
+                          <button
+                            type="button"
+                            className={cn(primaryButtonClass, isLoading && "opacity-60")}
+                            disabled={isLoading}
+                            onClick={async () => {
+                              const id = await handleSaveRun();
+                              if (id) {
+                                setRunMode("list");
+                              }
+                            }}
+                          >
+                            保存
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
 	              <div className={cn(panelClass, runMode !== "list" && "hidden")}>
 	                <div className="flex flex-wrap items-start justify-between gap-4">
 	                  <div className="min-w-0">
@@ -4374,15 +4511,7 @@ export default function App() {
               </div>
 
 	              <div className={cn(panelClass, runMode === "list" && "hidden")}>
-	                <div
-                    className={cn(
-                      "flex flex-wrap items-center justify-between gap-4",
-                      "sticky -mx-5 -mt-5 mb-5 border-b px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-opacity-70 z-20 top-0",
-                      theme === "light"
-                        ? "border-slate-200 bg-card-light/95"
-                        : "border-slate-800 bg-card-dark/95"
-                    )}
-                  >
+	                <div className="hidden">
 	                  <div className="flex min-w-0 items-center gap-3">
 	                    <button
 	                      type="button"
@@ -4920,6 +5049,12 @@ export default function App() {
 	                                              ? runCase.preconditions
 	                                              : "なし"}
 	                                          </p>
+                                          <p className="text-[11px] text-slate-400">
+                                            見る場所:{" "}
+                                            {runCase.view_location?.trim()
+                                              ? runCase.view_location
+                                              : "なし"}
+                                          </p>
 	                                          <p className="break-words text-[11px] text-slate-400">
 	                                            初期データ:{" "}
 	                                            {caseDetail?.dataSets.length

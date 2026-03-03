@@ -272,6 +272,7 @@ const initSchema = (database: Database.Database) => {
   `);
 
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
+  ensureColumn(database, "test_cases", "view_location", "TEXT");
   ensureColumn(database, "data_sets", "folder_id", "TEXT");
 };
 
@@ -495,6 +496,7 @@ export const saveTestCase = (payload: {
   title: string;
   objective?: string;
   preconditions?: string;
+  viewLocation?: string;
   priority?: string;
   severity?: string;
   tags?: string;
@@ -521,12 +523,13 @@ export const saveTestCase = (payload: {
     if (existing) {
       database
         .prepare(
-          "UPDATE test_cases SET title = ?, objective = ?, preconditions = ?, priority = ?, severity = ?, tags = ?, folder_id = ?, updated_at = ? WHERE id = ?"
+          "UPDATE test_cases SET title = ?, objective = ?, preconditions = ?, view_location = ?, priority = ?, severity = ?, tags = ?, folder_id = ?, updated_at = ? WHERE id = ?"
         )
         .run(
           payload.title,
           payload.objective ?? "",
           payload.preconditions ?? "",
+          payload.viewLocation ?? "",
           payload.priority ?? "",
           payload.severity ?? "",
           payload.tags ?? "",
@@ -537,13 +540,14 @@ export const saveTestCase = (payload: {
     } else {
       database
         .prepare(
-          "INSERT INTO test_cases (id, title, objective, preconditions, priority, severity, tags, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO test_cases (id, title, objective, preconditions, view_location, priority, severity, tags, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .run(
           id,
           payload.title,
           payload.objective ?? "",
           payload.preconditions ?? "",
+          payload.viewLocation ?? "",
           payload.priority ?? "",
           payload.severity ?? "",
           payload.tags ?? "",
@@ -1142,6 +1146,7 @@ export const listRunScenarioCases = (runScenarioId: string) => {
         run_scenario_cases.*,
         test_cases.title as case_title,
         test_cases.preconditions,
+        test_cases.view_location,
         test_cases.tags
       FROM run_scenario_cases
       JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
@@ -1794,7 +1799,8 @@ export const exportData = (payload: {
         test_cases.id,
         test_cases.title,
         test_cases.objective,
-        test_cases.preconditions
+        test_cases.preconditions,
+        test_cases.view_location
       FROM scenario_cases
       JOIN test_cases ON test_cases.id = scenario_cases.case_id
       WHERE scenario_cases.scenario_id = ?
@@ -1819,6 +1825,7 @@ export const exportData = (payload: {
         lines.push("## テストケースなし");
         lines.push("- 目的：なし");
         lines.push("- 前提：なし");
+        lines.push("- 見る場所；なし");
         lines.push("");
         lines.push("### 手順");
         lines.push("1. なし。");
@@ -1831,6 +1838,7 @@ export const exportData = (payload: {
           lines.push(`## ${textOrDefault(testCase.title, "テストケース")}`);
           lines.push(`- 目的：${textOrDefault(testCase.objective)}`);
           lines.push(`- 前提：${textOrDefault(testCase.preconditions)}`);
+          lines.push(`- 見る場所；${textOrDefault(testCase.view_location)}`);
           lines.push("");
           lines.push("### 手順");
 
