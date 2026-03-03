@@ -541,12 +541,93 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
   const lines = value.replace(/\r\n/g, "\n").split("\n");
   const nodes: JSX.Element[] = [];
   let index = 0;
+  type ParsedListItem = { text: string; ordered: boolean; indent: number; children: ParsedListItem[] };
+
+  const parseListLine = (line: string) => {
+    const match = line.match(/^(\s*)([-*]|\d+\.)\s+(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const indent = match[1].replace(/\t/g, "  ").length;
+    const marker = match[2];
+    const text = match[3];
+    return { indent, ordered: /^\d+\.$/.test(marker), text };
+  };
+
+  const renderListTree = (items: ParsedListItem[], keyPrefix: string): JSX.Element[] => {
+    const groups: Array<{ ordered: boolean; items: ParsedListItem[] }> = [];
+    items.forEach((item) => {
+      const lastGroup = groups[groups.length - 1];
+      if (lastGroup && lastGroup.ordered === item.ordered) {
+        lastGroup.items.push(item);
+      } else {
+        groups.push({ ordered: item.ordered, items: [item] });
+      }
+    });
+
+    return groups.map((group, groupIndex) => {
+      const ListTag = group.ordered ? "ol" : "ul";
+      return (
+        <ListTag
+          key={`${keyPrefix}-group-${groupIndex}`}
+          className={cn(group.ordered ? "list-decimal" : "list-disc", "space-y-1 pl-5")}
+        >
+          {group.items.map((item, itemIndex) => (
+            <li key={`${keyPrefix}-item-${groupIndex}-${itemIndex}`}>
+              {renderInlineMarkdown(item.text, `${keyPrefix}-txt-${groupIndex}-${itemIndex}`)}
+              {item.children.length > 0 && (
+                <div className="mt-1">
+                  {renderListTree(item.children, `${keyPrefix}-child-${groupIndex}-${itemIndex}`)}
+                </div>
+              )}
+            </li>
+          ))}
+        </ListTag>
+      );
+    });
+  };
+
+  const parseListBlock = (startIndex: number) => {
+    let cursor = startIndex;
+    const roots: ParsedListItem[] = [];
+    const stack: ParsedListItem[] = [];
+
+    while (cursor < lines.length) {
+      const raw = lines[cursor] ?? "";
+      if (!raw.trim()) {
+        break;
+      }
+      const parsed = parseListLine(raw);
+      if (!parsed) {
+        break;
+      }
+      const item: ParsedListItem = {
+        text: parsed.text,
+        ordered: parsed.ordered,
+        indent: parsed.indent,
+        children: []
+      };
+
+      while (stack.length > 0 && parsed.indent <= stack[stack.length - 1].indent) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        roots.push(item);
+      } else {
+        stack[stack.length - 1].children.push(item);
+      }
+      stack.push(item);
+      cursor += 1;
+    }
+
+    return { roots, nextIndex: cursor };
+  };
 
   const isBlockStart = (line: string) =>
     /^```/.test(line) ||
     /^#{1,6}\s+/.test(line) ||
-    /^[-*]\s+/.test(line) ||
-    /^\d+\.\s+/.test(line) ||
+    /^\s*[-*]\s+/.test(line) ||
+    /^\s*\d+\.\s+/.test(line) ||
     /^>\s?/.test(line);
 
   while (index < lines.length) {
@@ -604,35 +685,14 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
       continue;
     }
 
-    if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^[-*]\s+/.test(lines[index] ?? "")) {
-        items.push((lines[index] ?? "").replace(/^[-*]\s+/, ""));
-        index += 1;
-      }
+    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
+      const { roots, nextIndex } = parseListBlock(index);
       nodes.push(
-        <ul key={`ul-${index}`} className="list-disc space-y-1 pl-5">
-          {items.map((item, listIndex) => (
-            <li key={`ul-item-${index}-${listIndex}`}>{renderInlineMarkdown(item, `ul-${index}-${listIndex}`)}</li>
-          ))}
-        </ul>
+        <div key={`list-${index}`} className="space-y-1">
+          {renderListTree(roots, `list-${index}`)}
+        </div>
       );
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\d+\.\s+/.test(lines[index] ?? "")) {
-        items.push((lines[index] ?? "").replace(/^\d+\.\s+/, ""));
-        index += 1;
-      }
-      nodes.push(
-        <ol key={`ol-${index}`} className="list-decimal space-y-1 pl-5">
-          {items.map((item, listIndex) => (
-            <li key={`ol-item-${index}-${listIndex}`}>{renderInlineMarkdown(item, `ol-${index}-${listIndex}`)}</li>
-          ))}
-        </ol>
-      );
+      index = nextIndex;
       continue;
     }
 
