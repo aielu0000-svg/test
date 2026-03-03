@@ -541,17 +541,18 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
   const lines = value.replace(/\r\n/g, "\n").split("\n");
   const nodes: JSX.Element[] = [];
   let index = 0;
-  type ParsedListItem = { text: string; ordered: boolean; indent: number; children: ParsedListItem[] };
+  type ParsedListItem = { text: string; ordered: boolean; depth: number; children: ParsedListItem[] };
 
   const parseListLine = (line: string) => {
     const match = line.match(/^(\s*)([-*]|\d+\.)\s+(.*)$/);
     if (!match) {
       return null;
     }
-    const indent = match[1].replace(/\t/g, "  ").length;
+    const indentWidth = match[1].replace(/\t/g, "  ").length;
     const marker = match[2];
     const text = match[3];
-    return { indent, ordered: /^\d+\.$/.test(marker), text };
+    const depth = Math.floor(indentWidth / 3);
+    return { depth, ordered: /^\d+\.$/.test(marker), text };
   };
 
   const renderListTree = (items: ParsedListItem[], keyPrefix: string): JSX.Element[] => {
@@ -604,11 +605,11 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
       const item: ParsedListItem = {
         text: parsed.text,
         ordered: parsed.ordered,
-        indent: parsed.indent,
+        depth: parsed.depth,
         children: []
       };
 
-      while (stack.length > 0 && parsed.indent <= stack[stack.length - 1].indent) {
+      while (stack.length > 0 && parsed.depth <= stack[stack.length - 1].depth) {
         stack.pop();
       }
       if (stack.length === 0) {
@@ -762,7 +763,8 @@ const MarkdownEditor = ({
   onChange,
   className,
   placeholder,
-  theme
+  theme,
+  autoResize = false
 }: {
   id: string;
   value: string;
@@ -770,8 +772,18 @@ const MarkdownEditor = ({
   className: string;
   placeholder?: string;
   theme: "light" | "dark";
+  autoResize?: boolean;
 }) => {
   const [mode, setMode] = useState<"edit" | "preview">("edit");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!autoResize || mode !== "edit" || !textareaRef.current) {
+      return;
+    }
+    textareaRef.current.style.height = "0px";
+    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  }, [autoResize, mode, value]);
 
   return (
     <div className="grid gap-2">
@@ -811,8 +823,9 @@ const MarkdownEditor = ({
       </div>
       {mode === "edit" ? (
         <textarea
+          ref={textareaRef}
           id={id}
-          className={className}
+          className={cn(className, autoResize && "resize-none overflow-hidden")}
           value={value}
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
@@ -981,6 +994,7 @@ export default function App() {
   const isSyncingRunSelectionRef = useRef(false);
   const selectedRunIdRef = useRef<string | null>(null);
   const runDraftRef = useRef<RunDraft>(emptyRun());
+  const mainScrollRef = useRef<HTMLElement | null>(null);
 
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [resetDatabaseOpen, setResetDatabaseOpen] = useState(false);
@@ -1139,6 +1153,13 @@ export default function App() {
   useEffect(() => {
     runDraftRef.current = runDraft;
   }, [runDraft]);
+
+  useEffect(() => {
+    if (section !== "cases" || caseMode !== "detail") {
+      return;
+    }
+    mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [section, caseMode, selectedCaseId]);
 
   useEffect(() => {
     return () => {
@@ -2944,7 +2965,7 @@ export default function App() {
 	            )}
 	          </header>
 
-	          <main className="min-w-0 flex-1 overflow-y-auto px-8 pb-8">
+	          <main ref={mainScrollRef} className="min-w-0 flex-1 overflow-y-auto px-8 pb-8">
 	            {section === "dashboard" && (
 	              <div className="grid gap-4">
 	                {dashboardStatsError && (
@@ -3647,6 +3668,7 @@ export default function App() {
                     value={caseDraft.objective}
                     onChange={(value) => setCaseDraft({ ...caseDraft, objective: value })}
                     theme={theme}
+                    autoResize
                   />
                   <label
                     htmlFor="case-preconditions"
@@ -3660,6 +3682,7 @@ export default function App() {
                     value={caseDraft.preconditions}
                     onChange={(value) => setCaseDraft({ ...caseDraft, preconditions: value })}
                     theme={theme}
+                    autoResize
                   />
                   <label
                     htmlFor="case-view-location"
@@ -3674,6 +3697,7 @@ export default function App() {
                     onChange={(value) => setCaseDraft({ ...caseDraft, viewLocation: value })}
                     placeholder="例: 画面右上のステータス表示"
                     theme={theme}
+                    autoResize
                   />
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
@@ -3958,6 +3982,7 @@ export default function App() {
                               setCaseDraft({ ...caseDraft, steps: next });
                             }}
                             theme={theme}
+                            autoResize
                           />
                           <label
                             htmlFor={`case-step-expected-${index}`}
@@ -3975,6 +4000,7 @@ export default function App() {
                               setCaseDraft({ ...caseDraft, steps: next });
                             }}
                             theme={theme}
+                            autoResize
                           />
                         </div>
                       ))}
