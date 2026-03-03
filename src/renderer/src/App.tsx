@@ -542,6 +542,7 @@ const emptyRun = (): RunDraft => ({
 
 export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [fontSizePx, setFontSizePx] = useState(21);
   const [projectName, setProjectName] = useState("ザ・テスト");
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -778,12 +779,22 @@ export default function App() {
     if (saved === "light" || saved === "dark") {
       setTheme(saved);
     }
+    const savedFontSize = Number(window.localStorage.getItem("the-test-font-size"));
+    if (Number.isFinite(savedFontSize) && savedFontSize >= 14 && savedFontSize <= 36) {
+      setFontSizePx(Math.round(savedFontSize));
+    }
   }, []);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
     window.localStorage.setItem("the-test-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const size = Math.min(36, Math.max(14, Math.round(fontSizePx)));
+    document.documentElement.style.setProperty("--app-font-size", `${size}px`);
+    window.localStorage.setItem("the-test-font-size", String(size));
+  }, [fontSizePx]);
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -6011,6 +6022,21 @@ export default function App() {
                   >
                     ダーク
                   </button>
+                </div>
+                <div className="mt-5 grid gap-2">
+                  <label htmlFor="font-size-slider" className="text-xs font-semibold uppercase text-slate-400">
+                    文字サイズ
+                  </label>
+                  <input
+                    id="font-size-slider"
+                    type="range"
+                    min={14}
+                    max={36}
+                    step={1}
+                    value={fontSizePx}
+                    onChange={(event) => setFontSizePx(Number(event.target.value))}
+                  />
+                  <p className="text-sm text-slate-400">{fontSizePx}px</p>
                 </div>
               </div>
 

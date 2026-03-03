@@ -1,0 +1,744 @@
+[
+  {
+    "title": "TP-1-01 Authorization Code + PKCE（Confidential/Public）",
+    "objective": "認可コードフローが正常動作し、state/nonceが正しく検証されることを確認する",
+    "preconditions": "- Client-A（Confidential）/ Client-B（Public）を用意（redirect_uri 登録済）\n  - PKCE有効（code_challenge / code_verifier が利用可能）\n  - Consent が有効な場合は同意画面が表示される",
+    "view_location": "* `Events`：`Auth Success` が出るか（`keycloak.onAuthSuccess` が書かれている）\n* `Result`：`Show Token` / `Show ID Token` / `Show Refresh Token` の出力（ボタンあり）\n* DevTools → Network：\n\n  * `.../protocol/openid-connect/auth`（認可リクエスト）\n  * `.../protocol/openid-connect/token`（トークン交換）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. js-console で **Login** を押してログインする\n2. リダイレクト後、`Events` に **Auth Success** が出ることを確認\n3. js-console で以下を順に押して `Result` に出る内容を確認\n\n   * **Show Token**（Access Token のパース内容）\n   * **Show ID Token**（ID Token のパース内容）\n   * **Show Refresh Token**（Refresh Token のパース内容）\n1. DevTools → Network で `token` を開き、Request Payload（Form Data）を確認\n\n   * `grant_type=authorization_code` になっている\n   * `code_verifier` が送られている（PKCE）\n   * **initOptions に pkceMethod=S256 / flow=standard / responseMode=fragment** が指定されているので、その設計どおりの挙動になっていることを確認\n1. （nonce確認）**Show ID Token** の出力内に `nonce` があるかを確認（あればその値を控える）",
+        "expected": "  - ログインできる。"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-02 同意画面（Consent）表示／スコープ検証",
+    "objective": "同意画面の表示内容（scope）が要求と一致し、同意内容がトークンに反映されることを確認する",
+    "preconditions": "Consent有効、scope/client scope設定済",
+    "view_location": "* Keycloak の **Consent画面**（ログイン後に出る同意ページ）\n* js-console の `Show Token` 出力（scopeやクレーム）\n* Network の `auth` リクエスト（scopeが送られているか）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 事前に Keycloak 側で「Consent required」等を有効化（前提どおり）\n2. js-console で Login\n3. Consent 画面が出たら、表示される scope を目視確認\n4. 同意してログイン完了後、**Show Token** を押して scope（または同等の反映箇所）を確認\n5. DevTools → Network で `auth` リクエストの Query を見て、`scope` が意図どおりか確認",
+        "expected": "  - 同意画面に想定外のスコープが表示されない\n  - 要求したスコープが欠落しない\n  - 同意後に発行されるトークンの `scope`（または該当クレーム）が同意内容に準拠する"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-03 同意画面（Consent）拒否／中断",
+    "objective": "同意拒否時に認可が中断されることを確認する",
+    "preconditions": "Consent有効",
+    "view_location": "* Consent画面の操作結果（Deny/Cancel後の遷移）\n* js-console の `Result` / `Events`\n* Network：`token` リクエストが **発生していない** こと",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Login → Consent画面を出す\n2. Consent画面で **Deny / Cancel** を選ぶ\n3. 期待挙動の確認\n\n   * js-console 側が「Authenticated」にならない（`Result` が Not Authenticated のまま等）\n   * Network に `.../token` が出ない（=トークン交換に進んでいない）",
+        "expected": "  - 認可が中断される\n  - 認可コードやトークンが発行されない\n  - クライアントにエラーが返る（戻りパラメータ/画面表示は仕様に準拠）"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-04 同意画面（Consent）再同意・再表示条件",
+    "objective": "再同意要否の設定に従って同意画面の表示/非表示が切り替わることを確認する",
+    "preconditions": "Consent有効、再同意要否の設定が存在",
+    "view_location": "* 2回目ログイン時に Consent が出るかどうか\n* Keycloak 側の「同意の記録」（ユーザーのconsentを消した/保持した）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 1回目：Login → Consent が出る → 同意してログイン\n2. 2回目：いったん Logout（js-console の Logout ボタン）\n3. 再度 Login\n4. Consent の **再表示有無** が設定どおりか確認\n\n**再同意を強制したい場合（よくやる手）**\n\n* Keycloak の Account Console（ユーザー側）で当該クライアントの同意を取り消す／または管理側でユーザーのconsentを削除 → 再ログインで Consent 再表示になるか確認\n  （具体画面は環境差がありますが、やりたいことは「過去同意の削除→再表示確認」です）",
+        "expected": "  - 初回は同意画面が表示される\n  - 以後は設定（再同意要否）に従って表示/非表示が切り替わる"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-05 異常系（PKCE：code_verifier不正）",
+    "objective": "PKCEの検証に失敗する場合に token 発行が拒否されることを確認する",
+    "preconditions": "認可で code を取得済",
+    "view_location": "* token endpoint のレスポンス（HTTP 400 と `invalid_grant`）\n* Keycloak のログ（必要なら）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "ログイン後ページが戻った瞬間に“読み込み停止”して code を抜く\njs-consoleが /token を叩く前に止めて、codeを未使用のまま確保する\n1. ログイン\n2. redirect_uri に戻ってきた瞬間に すぐ Esc（または読み込み停止）\n3. アドレスバーから #code=... を抜き出す\n4. すぐ bastion で curl（code_verifier を間違える）\n\n\n\n```bash\ncurl -k -sS -o - -w '\\nHTTP:%{http_code}\\n' -X POST \\\n  'https://rhbk-op-ocid-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/protocol/openid-connect/token' \\\n  -H 'Content-Type: application/x-www-form-urlencoded' \\\n  --data-urlencode 'grant_type=authorization_code' \\\n  --data-urlencode 'client_id=js-console' \\\n  --data-urlencode 'redirect_uri=https://<JS_CONSOLE_ROUTE>/' \\\n  --data-urlencode 'code=<さっき控えたcode>' \\\n  --data-urlencode 'code_verifier=WRONG_VERIFIER'\n\n```",
+        "expected": "  - トークン発行が拒否される\n  - `invalid_grant` エラーが返却される"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-06 異常系（state不一致/欠落）",
+    "objective": "state 検証がクライアント側で正しく機能することを確認する",
+    "preconditions": "クライアントが state を検証する実装/設定である",
+    "view_location": "* js-console `Events`：`Auth Error` 等（エラーイベントが出る場合）\n* `Result`：Authenticated にならない\n* Network：token交換に進まない、もしくは進んでもアプリ側が受理しない\n* Show Token を押しても Token が出ない（未認証のまま）\n* 改ざん後のURL（stateが変わっているのが分かる状態）と、`Result/Events`",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Login を開始し、ログイン情報を入力して「ログイン実行」\n2. js-console へ戻ってきた直後、アドレスバーに `#...state=...` が見えたら\n\n   * **読み込みを止める（Esc）**（早めに）\n   * アドレスバーの `state=` の値を適当に書き換える、または `state` 部分を削除\n1. Enter で確定 → 再読み込み\n2. 期待：クライアント側で検証失敗し、ログイン完了扱いにならない",
+        "expected": "  - クライアント側で検証に失敗し、認可処理を中断する（トークン利用に進まない）"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-07 異常系（nonce不一致/欠落）",
+    "objective": "nonce 検証がクライアント側で正しく機能することを確認する",
+    "preconditions": "クライアントが nonce を検証する実装/設定である",
+    "view_location": "nonce は **「そのログイン試行のレスポンス（ID Token）を正しいものとして受理するか」**の検証なので、nonce を改ざんした “その1回” は拒否される（＝未認証のまま）\nその後、Login ボタンを押すと 新しいログイン試行が始まり、keycloak-js が新しい nonce を作って保存し、戻ってくる nonce と一致するので成功するという流れになります。keycloak-js 側には nonce を使う挙動（useNonce 等）があり、initOptions で制御できます。\n* js-console の **Show Login URL** ボタン出力（ログインURLを表示できる）\n* js-console `Events`：Auth Error\n* `Result`：Authenticated にならない／ID Token が表示できない\n* DevTools → Network で /token が成功していない（または成功しても ID Token 処理で落ちている兆候）\n* 改ざんしたログインURL（nonceが変わっているのが分かるもの）\n* ログイン後の `Result/Events`（Auth Error や Not Authenticated）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. js-console を開いた状態で、まず **Show Login URL** を押してログインURLを `Result` に表示\n2. `Result` に出たURLをコピーしてメモ帳に貼る\n3. そのURLのクエリ中に `nonce=` があれば、**nonce の値だけ別の値に書き換える**（または nonce パラメータを削除）\n4. 書き換えたURLをブラウザで開いてログイン\n5. 期待：クライアント側の nonce 検証に失敗し、**ID Token を拒否（ログイン完了扱いにしない）**",
+        "expected": "  - クライアント側で検証に失敗し、ID Token を拒否する（ログイン完了扱いにしない）"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-08 異常系（redirect_uri不一致/未登録）",
+    "objective": "redirect_uri が未登録または不一致の場合に、認可開始/トークン交換が拒否されることを確認する",
+    "preconditions": "登録済redirect_uriと、未登録/微差のredirect_uriを用意できる",
+    "view_location": "* ブラウザ画面（Keycloakエラーページ/クライアント画面）\n* DevTools → Network → `.../protocol/openid-connect/auth` のレスポンス\n* （token交換まで進める場合）`.../protocol/openid-connect/token` のレスポンス\n* Keycloakログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "**public**\n1. **正常系で使用している登録済 `redirect_uri`** を確認する（例：`https://<JS_CONSOLE_ROUTE>/`）。\n2. DevToolsを開いてjs-consoleでログインする\n3. 正常にログインできることを確認する\n4. 確認後もう一度ログアウト⇒ログインでkeycloakのログイン画面に行ったらリンクのリダイレクトURIを変更してログインを実行する\n5. DevTools → Network で `auth` リクエストを開き、payloadからリダイレクトURIを確認する。\n\n**confidential**\n1. publicと同様",
+        "expected": "  * 認可開始または交換が拒否される（エラーが明確）\n  * 意図しない redirect_uri へ遷移しない"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-09 異常系（クライアント種別の取り違え）",
+    "objective": "Public/Confidential の扱いを誤った場合に、正しく拒否されることを確認する",
+    "preconditions": "Public/Confidential のクライアントを用意できる",
+    "view_location": "* token endpoint のレスポンス（HTTPステータス、`error`、`error_description`）\n* Keycloakログ（必要時）\n* クライアント設定画面（Client authentication ON/OFF, Access Type相当）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Public クライアントのcodeとverifierを取得する\n2. Public クライアントの token 交換で、意図的に `basic` を付けて送信する。\n```bash\n(async () => {\n  const tokenUrl = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/protocol/openid-connect/token\";\n\n  const body = new URLSearchParams({\n    grant_type: \"authorization_code\",\n    client_id: \"js-console\",\n    code: \"<code>\",\n    redirect_uri: \"<URI>\",\n    code_verifier: \"<verifier>\"\n  });\n\n  // 間違い例：PublicなのにBasicを付ける（値はダミーでもOK）\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(\"js-console-conf:dummy\")\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n})();\n```\n1. レスポンスの `error` と HTTPステータスを確認する。\n2. Confidential クライアントのcodeとverifierを取得する。\n3. Confidential クライアントの token 交換で、`client_secret` を付けずに送信する。\n```bash\n(async () => {\n  const tokenUrl =\n    \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/protocol/openid-connect/token\";\n\n  // ▼この4つだけ自分の値に置き換え（必ず「未使用のcode」）\n  const clientId = \"js-console-conf\"; // Confidential client\n  const code = \"<code>\"; // 未使用の認可コード（毎回取り直し）\n  const redirectUri = \"https://kc-exchange-ninsho-dev.apps.ocp01.stg.jrqss.local/callback.html\"; // /authと完全一致\n  const codeVerifier = \"<verifier>\"; // /authと同じ（PKCE）\n\n  // 異常系：Confidentialなのに client 認証（Basic/secret）なしで token 交換 → 拒否される\n  const body = new URLSearchParams({\n    grant_type: \"authorization_code\",\n    client_id: clientId,\n    code,\n    redirect_uri: redirectUri,\n    code_verifier: codeVerifier\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/x-www-form-urlencoded\" }, // Authorizationを付けない\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"HTTP\", res.status); // 401/400 を期待\n  console.log(text);              // invalid_client / unauthorized_client などを期待\n})();\n```\n1. レスポンスの `error` と HTTPステータスを確認する。",
+        "expected": "  * 設定に反する要求は `invalid_client` 等で拒否される（エラー内容が把握できる）"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-10 異常系（認可コード再利用）",
+    "objective": "同一の認可コードを複数回交換できないことを確認する",
+    "preconditions": "code を確保できる（1回目のtoken交換を手動で行える）",
+    "view_location": "* 1回目/2回目の token endpoint レスポンス差分\n* Keycloakログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 普通にログインする。\n2. /tokenを確認してcodeを控える。\n3. ２で控えたcodeを使用して次のコマンドを実行する。\n```bash\n(async () => {\n  const tokenUrl =\n    \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/protocol/openid-connect/token\";\n\n  const clientId = \"js-console\";\n  const code = new URLSearchParams(location.search).get(\"code\"); // response_mode=query の場合\n  const redirectUri = \"<URI>\";\n  const codeVerifier = window.__pkce.verifier;\n\n  const body = new URLSearchParams({\n    grant_type: \"authorization_code\",\n    client_id: clientId,\n    code,\n    redirect_uri: redirectUri,\n    code_verifier: codeVerifier\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: { \"Content-Type\": \"application/x-www-form-urlencoded\" },\n    body\n  });\n\n  console.log(\"HTTP\", res.status);\n  console.log(await res.text());\n})();\n```\n1. 2回目が拒否されることを確認する。",
+        "expected": "  * 2回目は `invalid_grant` で拒否される"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-11 異常系（認可コード期限切れ）",
+    "objective": "期限切れの認可コードが拒否されることを確認する",
+    "preconditions": "認可コードの短TTL等により期限切れを再現できる",
+    "view_location": "* token endpoint のレスポンス（HTTPステータス、`invalid_grant`）\n* Realm/Client のコード有効期限設定（事前確認）\n* 待機時間",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. テスト前に、realm Setting⇒token⇒client Login Timeoutを1秒にする\n2. codeを発行する。\n3. 認可コード有効期限を **超えるまで待機** する。\n4. token endpoint に `code` を送って交換を試みる。\n5. レスポンスが拒否されることを確認する。",
+        "expected": "  * `invalid_grant` で拒否される"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-12 scope異常（未許可scope/必須scope欠落）",
+    "objective": "未許可scope要求や必須scope欠落時の挙動が設定どおりであることを確認する",
+    "preconditions": "クライアントスコープ（任意/必須）設定がある",
+    "view_location": "* `auth` リクエストの Query（`scope`）\n* Consent画面（表示scope）\n* tokenレスポンス／トークン中の `scope`（または関連クレーム）\n* Keycloakログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 対象クライアントの「Default/Optional Client Scopes」「必須相当のscope設定」を管理コンソールで確認し、期待値をメモする。\n2. **未許可scopeパターン**として、`scope=openid profile email <UNKNOWN_SCOPE>` を付けた認可リクエストを作成して実行する。\n3. トークン発行が拒否されることを確認する。\n4. 発行された場合は Access Token（または tokenレスポンスの `scope`）に未許可scopeが含まれていないことを確認する。\n5. **必須scope欠落パターン**として、最小の `scope=openid` で認可リクエストを実行する。\n6. 発行されたトークンの `scope` またはクレームを確認し、必須scopeが欠落していない（自動付与）ことを確認する。",
+        "expected": "  * 未許可scopeは拒否、またはトークンに反映されない\n  * 必須scopeは欠落しない（自動反映）"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-13 Discovery（.well-known）整合性",
+    "objective": "Discovery が正しい issuer/endpoint を返すことを確認する",
+    "preconditions": "realm が公開されている",
+    "view_location": "* `/.well-known/openid-configuration` のJSON\n* `issuer` / `authorization_endpoint` / `token_endpoint` / `jwks_uri`\n* 公開ドメイン・パス設計書（期待値）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Discovery エンドポイントに GET する。\n```bash\n(async () => {\n  const url = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/.well-known/openid-configuration\";\n  const res = await fetch(url, { method: \"GET\" });\n  console.log(\"HTTP\", res.status);\n  const json = await res.json();\n  console.log(json);\n  window.__discovery = json; // 後続の検証用\n})();\n```\n1. HTTP 200 と JSON で返ることを確認する。\n2. `issuer` が公開ドメイン・realm名と一致することを確認する。\n```bash\n(() => {\n  const d = window.__discovery;\n  const expectedIssuer = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm\";\n  console.log(\"issuer =\", d.issuer);\n  console.log(\"expected =\", expectedIssuer);\n  console.log(\"MATCH =\", d.issuer === expectedIssuer);\n})();\n```\n1. `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` / `jwks_uri` のホスト・スキーム（https）・パスが期待どおりか確認する。\n  - u.origin が期待と一致\n  - https: である\n  - pathname が /realms/<REALM>/protocol/openid-connect/... になっている\n```bash\n(() => {\n  const d = window.__discovery;\n  const expectedOrigin = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"; // scheme + host\n  const must = [\n    \"authorization_endpoint\",\n    \"token_endpoint\",\n    \"userinfo_endpoint\",\n    \"jwks_uri\"\n  ];\n\n  for (const k of must) {\n    const v = d[k];\n    const u = new URL(v);\n    console.log(`== ${k} ==`);\n    console.log(\"value:\", v);\n    console.log(\"origin ok:\", u.origin === expectedOrigin);\n    console.log(\"https ok:\", u.protocol === \"https:\");\n    console.log(\"path:\", u.pathname);\n  }\n})();\n```\n1. `response_types_supported`、`grant_types_supported`、`code_challenge_methods_supported` に必要な値（例：`code`、`authorization_code`、`S256`）が含まれるか確認する。\n```bash\n(() => {\n  const d = window.__discovery;\n\n  const has = (arr, v) => Array.isArray(arr) && arr.includes(v);\n\n  console.log(\"response_types_supported has code:\", has(d.response_types_supported, \"code\"));\n  console.log(\"grant_types_supported has authorization_code:\", has(d.grant_types_supported, \"authorization_code\"));\n  console.log(\"code_challenge_methods_supported has S256:\", has(d.code_challenge_methods_supported, \"S256\"));\n\n  // 参考：一覧出力\n  console.log(\"response_types_supported:\", d.response_types_supported);\n  console.log(\"grant_types_supported:\", d.grant_types_supported);\n  console.log(\"code_challenge_methods_supported:\", d.code_challenge_methods_supported);\n})();\n```",
+        "expected": "  * 値が想定（公開ドメイン/パス）と一致する"
+      }
+    ]
+  },
+  {
+    "title": "TP-1-14 UserInfo（sub/クレーム整合）",
+    "objective": "UserInfo の sub とクレームが ID Token 等と整合することを確認する",
+    "preconditions": "access_token を取得できる",
+    "view_location": "* tokenレスポンス（`id_token` / `access_token`）\n* UserInfo レスポンスJSON",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 正常ログインで `access_token` と `id_token` を取得する。\n2. `id_token` をデコードして `sub` と比較対象クレーム（例：email, preferred_username）を控える。\n3. `userinfo` エンドポイントを呼び出す。\n4. UserInfo の `sub` が ID Token の `sub` と一致することを確認する。\n5. 仕様対象のクレーム（必須/任意）が期待どおりに存在・値整合しているか確認する。\n\n例：",
+        "expected": "  * sub が一致し、クレームが仕様どおり"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-01 ID Token 検証",
+    "objective": "ID Token の署名・期限・必須クレームが妥当であることを確認する",
+    "preconditions": "JWK Set を取得可能",
+    "view_location": "* `id_token` のヘッダ/ペイロード（`kid`, `alg`, `iss`, `aud`, `exp`, `iat`, `sub`, `nonce`）\n* JWK Set (`jwks_uri`)\n* 検証コマンドの終了コード/エラー内容",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 正常ログインで `id_token` を取得する。\n2. Discovery から `jwks_uri` を取得し、検証を行う。\n```bash\n(async () => {\n  // ====== ここだけ置き換え ======\n  const ID_TOKEN = \"eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJxZDQtZmlzTlhzR29LSE10Ry10NFhMaHRDU25Db21TNTJ5OTRTdW4zUldrIn0.eyJleHAiOjE3NzIxNzMwOTIsImlhdCI6MTc3MjE3Mjc5MiwiYXV0aF90aW1lIjoxNzcyMTcyMTM0LCJqdGkiOiJhMTVlOWVjNC04ZmJiLTBiZWUtY2U2Yi00NDMxNzg5MmY0MWQiLCJpc3MiOiJodHRwczovL3JoYmstb3Atbmluc2hvLWRldi5hcHBzLm9jcDAxLnN0Zy5qcnFzcy5sb2NhbC9yZWFsbXMvdGVzdC1yZWFsbSIsImF1ZCI6ImpzLWNvbnNvbGUiLCJzdWIiOiJiNDdjMDE3OS1kYjc3LTRlOGYtYWIxMy1hMjJhMTQ1Njg2NWEiLCJ0eXAiOiJJRCIsImF6cCI6ImpzLWNvbnNvbGUiLCJub25jZSI6IjQzNTQ0NDM3LTBjNTQtNGQ3NS04MzI2LThkNWJkY2U2NGE0NyIsInNpZCI6IjFjZTMzOTUxLWFjNzktZDk5Mi1mNzU0LTY0ZWEzZDg0Y2M1OCIsImF0X2hhc2giOiIweExNQnRDZC03bnlUanVhRkZCRUtRIiwiYWNyIjoiMCIsImVtYWlsX3ZlcmlmaWVkIjpmYWxzZSwibmFtZSI6ImEgYSIsInByZWZlcnJlZF91c2VybmFtZSI6ImFkbWluIiwiZ2l2ZW5fbmFtZSI6ImEiLCJmYW1pbHlfbmFtZSI6ImEifQ.ZOTRvYwPMWrGkuGKMG8lfPEeFFrBNBOZhws-Iyo3oCRCvlTXNRepFejHmevWsqdulV7VVwEPR7gn68sNCU2QF0KhRiD5YPxUfJkPzSkotqPTpRQobgykboymRhyHv2lLaSKnppYpWlhHTHSpD0Qp7n5ULlgdpDfyqtrrwJ5T8IQvIAHqjha5se7IcjnHOwgJ3fEIfo9nomqycOCxujJZLurmFm67qE1aC3_13IxPeJdcqkqsMaexFatkFEDHLlQBJBzHFsMGR24h8DibbSbj7i1ubCymcngiT_x8jCcnGa15_mU_NExOIcvkAAw5zpN7s57zEWmBKN3Eqlg8elnGSQ\";\n  const DISCOVERY_URL = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/.well-known/openid-configuration\";\n  // ==============================\n\n  // ---- base64url utilities ----\n  const b64urlToBytes = (s) => {\n    s = s.replace(/-/g, \"+\").replace(/_/g, \"/\");\n    s += \"=\".repeat((4 - (s.length % 4)) % 4);\n    const bin = atob(s);\n    return Uint8Array.from(bin, (c) => c.charCodeAt(0));\n  };\n  const b64urlToJson = (s) => JSON.parse(new TextDecoder().decode(b64urlToBytes(s)));\n\n  const splitJwt = (jwt) => {\n    const parts = jwt.split(\".\");\n    if (parts.length !== 3) throw new Error(\"Not a JWT (expected 3 parts)\");\n    return { h: parts[0], p: parts[1], s: parts[2], signingInput: `${parts[0]}.${parts[1]}` };\n  };\n\n  // ---- 1) decode header/payload ----\n  const { h, p, s, signingInput } = splitJwt(ID_TOKEN);\n  const header = b64urlToJson(h);\n  const payload = b64urlToJson(p);\n\n  console.log(\"=== header ===\");\n  console.log(header);\n  console.log(\"=== payload ===\");\n  console.log(payload);\n\n  // 必須観点（目視用）\n  const must = [\"iss\", \"aud\", \"exp\", \"iat\", \"sub\"];\n  console.log(\"=== required claims ===\");\n  for (const k of must) console.log(k, payload[k]);\n\n  // ---- 2) time validation (exp/iat) ----\n  const now = Math.floor(Date.now() / 1000);\n  console.log(\"=== time check ===\");\n  console.log(\"now\", now, new Date(now * 1000).toISOString());\n  console.log(\"iat\", payload.iat, payload.iat ? new Date(payload.iat * 1000).toISOString() : null);\n  console.log(\"exp\", payload.exp, payload.exp ? new Date(payload.exp * 1000).toISOString() : null);\n  console.log(\"not expired =\", typeof payload.exp === \"number\" ? (now < payload.exp) : \"N/A\");\n\n  // ---- 3) fetch discovery -> jwks_uri ----\n  const discRes = await fetch(DISCOVERY_URL);\n  if (!discRes.ok) throw new Error(`Discovery fetch failed: HTTP ${discRes.status}`);\n  const discovery = await discRes.json();\n  const jwksUri = discovery.jwks_uri;\n  console.log(\"jwks_uri =\", jwksUri);\n\n  // ---- 4) fetch JWKS & select key by kid ----\n  const jwksRes = await fetch(jwksUri);\n  if (!jwksRes.ok) throw new Error(`JWKS fetch failed: HTTP ${jwksRes.status}`);\n  const jwks = await jwksRes.json();\n\n  const kid = header.kid;\n  const alg = header.alg;\n  console.log(\"kid =\", kid, \"alg =\", alg);\n\n  const jwk = (jwks.keys || []).find((k) => k.kid === kid);\n  if (!jwk) throw new Error(`No matching JWK for kid=${kid}`);\n\n  console.log(\"matched jwk =\", jwk);\n\n  // ---- 5) signature verification (RS256 only) ----\n  if (alg !== \"RS256\") {\n    throw new Error(`This script supports RS256 only. token alg=${alg}`);\n  }\n\n  const cryptoKey = await crypto.subtle.importKey(\n    \"jwk\",\n    jwk,\n    { name: \"RSASSA-PKCS1-v1_5\", hash: \"SHA-256\" },\n    false,\n    [\"verify\"]\n  );\n\n  const sigBytes = b64urlToBytes(s);\n  const dataBytes = new TextEncoder().encode(signingInput);\n\n  const verified = await crypto.subtle.verify(\n    { name: \"RSASSA-PKCS1-v1_5\" },\n    cryptoKey,\n    sigBytes,\n    dataBytes\n  );\n\n  console.log(\"=== signature verify ===\");\n  console.log(\"verified =\", verified);\n\n// ---- tamper test: payload を1文字改ざん（確実に verify 失敗） ----\nconst parts = ID_TOKEN.split(\".\");\nconst payloadPart = parts[1];\n\n// payloadの先頭1文字を確実に変える（base64urlの文字を別の文字に）\nconst flip = (ch) => (ch === \"a\" ? \"b\" : \"a\");\nconst tamperedPayload = flip(payloadPart[0]) + payloadPart.slice(1);\n\nconst tamperedJwt = `${parts[0]}.${tamperedPayload}.${parts[2]}`;\n\nconst t = splitJwt(tamperedJwt);\nconst tamperedVerified = await crypto.subtle.verify(\n  { name: \"RSASSA-PKCS1-v1_5\" },\n  cryptoKey,\n  b64urlToBytes(t.s),\n  new TextEncoder().encode(t.signingInput)\n);\n\nconsole.log(\"tampered verified (should be false) =\", tamperedVerified);\n\n\n  // ---- summary ----\n  console.log(\"=== RESULT SUMMARY ===\");\n  console.log({\n    verified,\n    notExpired: typeof payload.exp === \"number\" ? now < payload.exp : null,\n    kid,\n    alg,\n    iss: payload.iss,\n    aud: payload.aud,\n    sub: payload.sub,\n    nonce: payload.nonce ?? null\n  });\n})();\n```\n- 署名検証\nverified = true → JWKでの署名検証成功（有効なID Tokenとして正しい）\n- kid/alg 整合\nalg = RS256\nkid が JWKS に存在し matched jwk も取れている → 鍵選択もOK\n- 改ざん検知\ntampered verified = false → 改ざんしたJWTは検証失敗（期待どおり）\n- 期限チェック\nnot expired = false は トークンが期限切れ",
+        "expected": "  * 有効な ID Token のみ検証に成功する\n  * 改ざんや期限切れ、必須クレーム不正は拒否される"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-02 Access Token 検証",
+    "objective": "Access Token の署名・期限・必須クレームが妥当であることを確認する",
+    "preconditions": "JWK Set を取得可能",
+    "view_location": "* `access_token` のヘッダ/ペイロード（`kid`, `alg`, `iss`, `aud`, `exp`, `iat`, `scope`）\n* JWK Set\n* （任意）保護API応答",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 正常ログインで `access_token` を取得する。\n2. 2-1と同様に検証する\n```bash\n(async () => {\n  // ===== ここだけ置き換え =====\n  const TOKEN_RESPONSE_JSON = `{\"access_token\":\"<PASTE_ACCESS_TOKEN>\",\"token_type\":\"Bearer\"}`;\n  const DISCOVERY_URL = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/.well-known/openid-configuration\";\n  // （Discoveryが使えない場合はこれを使う）\n  // const JWKS_URL = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/protocol/openid-connect/certs\";\n  // ============================\n\n  const WHICH = \"access_token\";\n  const tokenObj = JSON.parse(TOKEN_RESPONSE_JSON);\n  const JWT = tokenObj[WHICH];\n  if (!JWT || typeof JWT !== \"string\") throw new Error(`${WHICH} not found in token response`);\n\n  // ---- base64url utilities ----\n  const b64urlToBytes = (s) => {\n    s = s.replace(/-/g, \"+\").replace(/_/g, \"/\");\n    s += \"=\".repeat((4 - (s.length % 4)) % 4);\n    const bin = atob(s);\n    return Uint8Array.from(bin, (c) => c.charCodeAt(0));\n  };\n  const b64urlToJson = (s) => JSON.parse(new TextDecoder().decode(b64urlToBytes(s)));\n  const splitJwt = (jwt) => {\n    const parts = jwt.split(\".\");\n    if (parts.length !== 3) throw new Error(\"Not a JWT (expected 3 parts)\");\n    return { h: parts[0], p: parts[1], s: parts[2], signingInput: `${parts[0]}.${parts[1]}` };\n  };\n\n  // ---- 1) decode header/payload ----\n  const { h, p, s, signingInput } = splitJwt(JWT);\n  const header = b64urlToJson(h);\n  const payload = b64urlToJson(p);\n\n  console.log(\"=== header ===\");\n  console.log(header);\n  console.log(\"=== payload ===\");\n  console.log(payload);\n\n  // ---- 2) required claims for AT ----\n  const must = [\"iss\", \"aud\", \"exp\", \"iat\"];\n  console.log(\"=== required claims ===\");\n  for (const k of must) console.log(k, payload[k]);\n  console.log(\"scope\", payload.scope ?? \"(none)\");\n  console.log(\"azp\", payload.azp ?? \"(none)\");\n\n  // ---- 3) time check ----\n  const now = Math.floor(Date.now() / 1000);\n  console.log(\"=== time check ===\");\n  console.log(\"now\", now, new Date(now * 1000).toISOString());\n  console.log(\"iat\", payload.iat, payload.iat ? new Date(payload.iat * 1000).toISOString() : null);\n  console.log(\"exp\", payload.exp, payload.exp ? new Date(payload.exp * 1000).toISOString() : null);\n  console.log(\"not expired =\", typeof payload.exp === \"number\" ? (now < payload.exp) : \"N/A\");\n\n  // ---- 4) fetch jwks_uri ----\n  let jwksUri;\n  if (typeof JWKS_URL !== \"undefined\" && JWKS_URL) {\n    jwksUri = JWKS_URL;\n  } else {\n    const discRes = await fetch(DISCOVERY_URL);\n    if (!discRes.ok) throw new Error(`Discovery fetch failed: HTTP ${discRes.status}`);\n    const discovery = await discRes.json();\n    jwksUri = discovery.jwks_uri;\n  }\n  console.log(\"jwks_uri =\", jwksUri);\n\n  // ---- 5) fetch JWKS & select key by kid ----\n  const jwksRes = await fetch(jwksUri);\n  if (!jwksRes.ok) throw new Error(`JWKS fetch failed: HTTP ${jwksRes.status}`);\n  const jwks = await jwksRes.json();\n\n  const kid = header.kid;\n  const alg = header.alg;\n  console.log(\"kid =\", kid, \"alg =\", alg);\n\n  const jwk = (jwks.keys || []).find((k) => k.kid === kid);\n  if (!jwk) throw new Error(`No matching JWK for kid=${kid}`);\n  console.log(\"matched jwk =\", jwk);\n\n  // ---- 6) signature verification (RS256) ----\n  if (alg !== \"RS256\") throw new Error(`This script supports RS256 only. alg=${alg}`);\n\n  const cryptoKey = await crypto.subtle.importKey(\n    \"jwk\",\n    jwk,\n    { name: \"RSASSA-PKCS1-v1_5\", hash: \"SHA-256\" },\n    false,\n    [\"verify\"]\n  );\n\n  const verified = await crypto.subtle.verify(\n    { name: \"RSASSA-PKCS1-v1_5\" },\n    cryptoKey,\n    b64urlToBytes(s),\n    new TextEncoder().encode(signingInput)\n  );\n\n  console.log(\"=== signature verify ===\");\n  console.log(\"verified =\", verified);\n\n  // ---- 7) tamper test (payload改ざん → 必ず false) ----\n  const parts = JWT.split(\".\");\n  const flip = (ch) => (ch === \"a\" ? \"b\" : \"a\");\n  const tamperedPayload = flip(parts[1][0]) + parts[1].slice(1);\n  const tamperedJwt = `${parts[0]}.${tamperedPayload}.${parts[2]}`;\n\n  const t = splitJwt(tamperedJwt);\n  const tamperedVerified = await crypto.subtle.verify(\n    { name: \"RSASSA-PKCS1-v1_5\" },\n    cryptoKey,\n    b64urlToBytes(t.s),\n    new TextEncoder().encode(t.signingInput)\n  );\n\n  console.log(\"=== tamper test ===\");\n  console.log(\"tampered verified (should be false) =\", tamperedVerified);\n\n  // ---- summary ----\n  console.log(\"=== RESULT SUMMARY ===\");\n  console.log({\n    verified,\n    notExpired: typeof payload.exp === \"number\" ? now < payload.exp : null,\n    kid,\n    alg,\n    iss: payload.iss,\n    aud: payload.aud,\n    azp: payload.azp ?? null,\n    scope: payload.scope ?? null\n  });\n})();\n```\n正常AT\n- verified=true\n- notExpired=true\n- iss/aud/exp/iat が妥当\n- scope が期待どおり\n- azp（ある場合）が期待どおり\n\n改ざんAT\n- tampered verified=false",
+        "expected": "  * 有効な Access Token のみ検証に成功する\n  * 改ざんや期限切れ、必須クレーム不正は拒否される"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-03 Refresh Token による Access Token 更新（AT期限切れ後）",
+    "objective": "AT期限切れ後でも RT により新ATを取得できることを確認する",
+    "preconditions": "RT発行済、AT期限を短くしたテスト設定が望ましい",
+    "view_location": "* token endpoint（refresh_token grant）レスポンス\n* 新旧 Access Token の差分（`exp`, `iat`, 文字列）\n* （任意）保護API応答",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 正常ログインで `access_token` と `refresh_token` を取得し、保存する。\n2. `access_token` の `exp` を確認し、有効期限まで待機する（または短TTL設定で再現）。\n```bash\n(() => {\n  // ===== ここだけ置き換え =====\n  window.__rt = {\n    KC_HOST: \"https://<KC_HOST>\",\n    REALM: \"<REALM>\",\n    CLIENT_ID: \"<CLIENT_ID>\",\n    CLIENT_SECRET: \"<CLIENT_SECRET>\",\n    ACCESS_TOKEN_OLD: \"<ACCESS_TOKEN_OLD>\",\n    REFRESH_TOKEN: \"<REFRESH_TOKEN>\"\n  };\n  // ============================\n\n  // JWT payload decode（署名検証はTP-2-02で実施済み想定）\n  const payload = JSON.parse(atob(__rt.ACCESS_TOKEN_OLD.split(\".\")[1].replace(/-/g, \"+\").replace(/_/g, \"/\")));\n  const now = Math.floor(Date.now() / 1000);\n\n  console.log(\"old exp =\", payload.exp, new Date(payload.exp * 1000).toISOString());\n  console.log(\"now     =\", now, new Date(now * 1000).toISOString());\n  console.log(\"seconds until exp =\", payload.exp - now);\n})();\n```\n\n1. `refresh_token` grant を実行して新しい `access_token` を取得する。\n```bash\n(async () => {\n  const tokenUrl = `${__rt.KC_HOST}/realms/${__rt.REALM}/protocol/openid-connect/token`;\n\n  const body = new URLSearchParams({\n    grant_type: \"refresh_token\",\n    client_id: __rt.CLIENT_ID,\n    refresh_token: __rt.REFRESH_TOKEN\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(`${__rt.CLIENT_ID}:${__rt.CLIENT_SECRET}`)\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n\n  if (!res.ok) return;\n\n  const json = JSON.parse(text);\n  window.__rt.REFRESH_RESPONSE = json;\n  window.__rt.ACCESS_TOKEN_NEW = json.access_token;\n  window.__rt.REFRESH_TOKEN_NEW = json.refresh_token || null; // ローテ有無で変わる\n  window.__rt.ID_TOKEN_NEW = json.id_token || null;\n\n  console.log(\"saved: __rt.ACCESS_TOKEN_NEW / __rt.REFRESH_TOKEN_NEW / __rt.ID_TOKEN_NEW\");\n})();\n```\n\n1. レスポンスのHTTP 200 と新AT（必要に応じ新IDT/RT）を確認する。\n```bash\n(() => {\n  const decodePayload = (jwt) =>\n    JSON.parse(atob(jwt.split(\".\")[1].replace(/-/g, \"+\").replace(/_/g, \"/\")));\n\n  const oldP = decodePayload(__rt.ACCESS_TOKEN_OLD);\n  const newP = decodePayload(__rt.ACCESS_TOKEN_NEW);\n\n  console.log(\"=== compare access_token ===\");\n  console.log(\"old iat/exp:\", oldP.iat, oldP.exp, new Date(oldP.exp * 1000).toISOString());\n  console.log(\"new iat/exp:\", newP.iat, newP.exp, new Date(newP.exp * 1000).toISOString());\n\n  console.log(\"iat updated =\", newP.iat > oldP.iat);\n  console.log(\"exp updated =\", newP.exp > oldP.exp);\n  console.log(\"token string changed =\", __rt.ACCESS_TOKEN_NEW !== __rt.ACCESS_TOKEN_OLD);\n\n  // 参考：sub/iss/audが変わってないことも確認\n  console.log(\"sub old/new =\", oldP.sub, newP.sub);\n  console.log(\"iss old/new =\", oldP.iss, newP.iss);\n  console.log(\"aud old/new =\", oldP.aud, newP.aud);\n})();\n```\n- refresh_token grant が HTTP 200\n- access_token が新しく発行される\n- 新ATの iat/exp が更新される（new > old）",
+        "expected": "  * 新しい Access Token（必要に応じて ID Token も）が発行される\n  * 以後のAPIアクセスが正常に行える"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-04 Refresh Token ローテーション（設定に準拠）",
+    "objective": "RTローテーション設定の挙動が仕様どおりであることを確認する",
+    "preconditions": "ローテ設定（有効/無効）を事前に確認できる",
+    "view_location": "* Realm/Client の RT ローテーション設定\n* refresh_token grant の1回目/2回目レスポンス\n* 旧RT再利用時のエラー（`invalid_grant` 等）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. テスト前にrealm setting⇒token⇒Refresh tokensのRevoke Refresh TokenをenableにしてRefresh Token Max Reuseを０にする。\n2. 正常ログインで初期 `refresh_token`（RT1）を取得する。\n```bash\n(() => {\n  window.__rt = {\n    KC_HOST: \"https://<KC_HOST>\",\n    REALM: \"<REALM>\",\n    CLIENT_ID: \"<CONF_CLIENT_ID>\",\n    CLIENT_SECRET: \"<CLIENT_SECRET>\",\n    REFRESH_TOKEN: \"<RT1>\"\n  };\n  console.log(\"RT1 set:\", __rt.REFRESH_TOKEN.slice(0, 20) + \"...\");\n})();\n```\n1. RT1 で refresh_token grant を実行し、新しい `access_token` と `refresh_token`（RT2）を取得する。\n```bash\n(async () => {\n  const tokenUrl = `${__rt.KC_HOST}/realms/${__rt.REALM}/protocol/openid-connect/token`;\n\n  const body = new URLSearchParams({\n    grant_type: \"refresh_token\",\n    client_id: __rt.CLIENT_ID,\n    refresh_token: __rt.REFRESH_TOKEN // RT1\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(`${__rt.CLIENT_ID}:${__rt.CLIENT_SECRET}`)\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"=== refresh #1 (RT1 -> ?) ===\");\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n\n  if (!res.ok) return;\n\n  const json = JSON.parse(text);\n  window.__rt.RT1 = __rt.REFRESH_TOKEN;\n  window.__rt.R1 = json; // 証跡用に保存\n  window.__rt.AT2 = json.access_token;\n  window.__rt.RT2 = json.refresh_token || null;\n\n  console.log(\"RT1 saved as __rt.RT1\");\n  console.log(\"RT2 =\", __rt.RT2 ? (__rt.RT2.slice(0, 20) + \"...\") : \"(no refresh_token in response)\");\n})();\n```\n- HTTP 200\n- access_token は必ず返る\n\n1. 旧RT1を使って再度 refresh_token grant を実行する。\n```bash\n(async () => {\n  const tokenUrl = `${__rt.KC_HOST}/realms/${__rt.REALM}/protocol/openid-connect/token`;\n\n  const body = new URLSearchParams({\n    grant_type: \"refresh_token\",\n    client_id: __rt.CLIENT_ID,\n    refresh_token: __rt.RT1 // 旧RT1を再利用\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(`${__rt.CLIENT_ID}:${__rt.CLIENT_SECRET}`)\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"=== refresh #2 (reuse RT1) ===\");\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n\n  // 判定補助（error抽出）\n  try {\n    const j = JSON.parse(text);\n    console.log(\"error =\", j.error, \"desc =\", j.error_description || \"\");\n  } catch {}\n})();\n```\n1. 拒否されること（`invalid_grant` ,HTTP 400）を確認する。\n\n1. 必要に応じて RT2 でも refresh を行い、継続利用可否を確認する。\n```bash\n(async () => {\n  if (!__rt.RT2) {\n    console.log(\"RT2 is null. (No refresh_token returned in refresh #1 response.)\");\n    return;\n  }\n\n  const tokenUrl = `${__rt.KC_HOST}/realms/${__rt.REALM}/protocol/openid-connect/token`;\n\n  const body = new URLSearchParams({\n    grant_type: \"refresh_token\",\n    client_id: __rt.CLIENT_ID,\n    refresh_token: __rt.RT2\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(`${__rt.CLIENT_ID}:${__rt.CLIENT_SECRET}`)\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"=== refresh #3 (RT2) ===\");\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n})();\n```",
+        "expected": "  * 更新前RTでの再更新は `invalid_grant`"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-05 異常系（期限切れ RT）",
+    "objective": "期限切れRT使用時に適切に拒否されることを確認する",
+    "preconditions": "RT期限切れを作れる（短TTL設定等）",
+    "view_location": "* token endpoint（refresh_token grant）のレスポンス\n* RTの有効期限設定（事前確認）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. realm setting⇒session⇒SSO session maxを１分にする\n2. 正常ログインで `refresh_token` を取得する。\n```bash\n(() => {\n  window.__rt = {\n    KC_HOST: \"https://<KC_HOST>\",\n    REALM: \"<REALM>\",\n    CLIENT_ID: \"<CONF_CLIENT_ID>\",\n    CLIENT_SECRET: \"<CLIENT_SECRET>\",\n    REFRESH_TOKEN: \"<RT1>\"\n  };\n  console.log(\"RT1 set:\", __rt.REFRESH_TOKEN.slice(0, 20) + \"...\");\n})();\n```\n1. RT有効期限を超えるまで待機する（TTL + 余裕）。\n2. 期限切れRTで refresh_token grant を実行する。\n```bash\n(async () => {\n  const tokenUrl = `${__rt.KC_HOST}/realms/${__rt.REALM}/protocol/openid-connect/token`;\n\n  const body = new URLSearchParams({\n    grant_type: \"refresh_token\",\n    client_id: __rt.CLIENT_ID,\n    refresh_token: __rt.REFRESH_TOKEN // 期限切れを想定\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(`${__rt.CLIENT_ID}:${__rt.CLIENT_SECRET}`)\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n\n  // error抽出（runに貼りやすい）\n  try {\n    const j = JSON.parse(text);\n    console.log(\"error =\", j.error, \"desc =\", j.error_description || \"\");\n  } catch {}\n})();\n```\n1. `error=invalid_grant` と HTTP 400 を確認する。",
+        "expected": "  * `invalid_grant` エラーが返却される"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-06 JWKローテーション/複数kid対応",
+    "objective": "鍵ローテーション後も検証が成立し、新旧 kid が混在しても破綻しないことを確認する",
+    "preconditions": "ローテーション（またはkid変更）を再現できる",
+    "view_location": "* JWK Set（ローテ前後の `kid` 一覧）\n* 旧トークン/新トークンのJWTヘッダ `kid`\n* 検証結果（旧kid・新kidともに）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. kidの一覧を取得する。\n```bash\n(async () => {\n  const JWKS_URL = \"https://<KC_HOST>/realms/<REALM>/protocol/openid-connect/certs\";\n  const res = await fetch(JWKS_URL);\n  console.log(\"JWKS HTTP\", res.status);\n  const jwks = await res.json();\n\n  const kids = (jwks.keys || []).map(k => ({ kid: k.kid, alg: k.alg, kty: k.kty, use: k.use }));\n  console.table(kids);\n\n  window.__jwks_before = { fetchedAt: new Date().toISOString(), kids, raw: jwks };\n  console.log(\"saved window.__jwks_before\");\n})();\n```\n1. アクセストークンの `kid` を保存する。\n```bash\n(() => {\n  const OLD_JWT = \"<PASTE_OLD_TOKEN_HERE>\"; // old id_token or access_token\n  const header = JSON.parse(atob(OLD_JWT.split(\".\")[0].replace(/-/g, \"+\").replace(/_/g, \"/\")));\n  console.log(\"OLD kid =\", header.kid, \"alg =\", header.alg);\n  window.__old = { jwt: OLD_JWT, kid: header.kid, alg: header.alg };\n})();\n```\n\n1. 鍵ローテーションを実施する。\n  realm setting⇒keys⇒providers⇒add providers⇒rsa-generatedでpriorityを10000000にして新しいキーを作成する。\n1. ローテーション後に再度正常ログインしてトークン（新kid）を取得する。\n2. JWK Set を再取得し、新 `kid` が増えている/切り替わっていることを確認する。\n```bash\n(async () => {\n  const JWKS_URL = \"https://<KC_HOST>/realms/<REALM>/protocol/openid-connect/certs\";\n  const res = await fetch(JWKS_URL);\n  console.log(\"JWKS HTTP\", res.status);\n  const jwks = await res.json();\n\n  const kids = (jwks.keys || []).map(k => k.kid);\n  window.__jwks_after = { fetchedAt: new Date().toISOString(), kids, raw: jwks };\n\n  console.log(\"before kids:\", (window.__jwks_before?.kids || []).map(x => x.kid));\n  console.log(\"after kids :\", kids);\n\n  const beforeSet = new Set((window.__jwks_before?.kids || []).map(x => x.kid));\n  const added = kids.filter(k => !beforeSet.has(k));\n  console.log(\"added kids:\", added);\n\n  console.log(\"saved window.__jwks_after\");\n})();\n```\n1. 旧トークン、新トークンをJWK Setで検証し成功することを確認する（有効期限内）。\n```bash\n(async () => {\n  const JWKS_URL = \"https://<KC_HOST>/realms/<REALM>/protocol/openid-connect/certs\";\n  const jwksRes = await fetch(JWKS_URL);\n  const jwks = await jwksRes.json();\n\n  const b64urlToBytes = (s) => {\n    s = s.replace(/-/g, \"+\").replace(/_/g, \"/\");\n    s += \"=\".repeat((4 - (s.length % 4)) % 4);\n    const bin = atob(s);\n    return Uint8Array.from(bin, (c) => c.charCodeAt(0));\n  };\n  const b64urlToJson = (s) => JSON.parse(new TextDecoder().decode(b64urlToBytes(s)));\n  const splitJwt = (jwt) => {\n    const parts = jwt.split(\".\");\n    if (parts.length !== 3) throw new Error(\"Not a JWT (expected 3 parts)\");\n    return { h: parts[0], p: parts[1], s: parts[2], signingInput: `${parts[0]}.${parts[1]}` };\n  };\n\n  async function verifyJwt(jwt) {\n    const { h, p, s, signingInput } = splitJwt(jwt);\n    const header = b64urlToJson(h);\n    const payload = b64urlToJson(p);\n\n    const jwk = (jwks.keys || []).find(k => k.kid === header.kid);\n    if (!jwk) return { ok: false, reason: `kid not found in JWKS: ${header.kid}`, header, payload };\n\n    if (header.alg !== \"RS256\") return { ok: false, reason: `unsupported alg: ${header.alg}`, header, payload };\n\n    const key = await crypto.subtle.importKey(\n      \"jwk\",\n      jwk,\n      { name: \"RSASSA-PKCS1-v1_5\", hash: \"SHA-256\" },\n      false,\n      [\"verify\"]\n    );\n\n    const verified = await crypto.subtle.verify(\n      { name: \"RSASSA-PKCS1-v1_5\" },\n      key,\n      b64urlToBytes(s),\n      new TextEncoder().encode(signingInput)\n    );\n\n    const now = Math.floor(Date.now() / 1000);\n    const notExpired = typeof payload.exp === \"number\" ? now < payload.exp : null;\n\n    return { ok: verified, verified, notExpired, kid: header.kid, iss: payload.iss, aud: payload.aud, exp: payload.exp, iat: payload.iat };\n  }\n\n  const oldJwt = window.__old?.jwt || \"<PASTE_OLD_TOKEN_HERE>\";\n  const newJwt = window.__new?.jwt || \"<PASTE_NEW_TOKEN_HERE>\";\n\n  const r1 = await verifyJwt(oldJwt);\n  const r2 = await verifyJwt(newJwt);\n\n  console.log(\"=== verify old token with AFTER JWKS ===\");\n  console.log(r1);\n  console.log(\"=== verify new token with AFTER JWKS ===\");\n  console.log(r2);\n\n  console.log(\"=== SUMMARY ===\");\n  console.log({\n    old: { kid: r1.kid, verified: r1.verified, notExpired: r1.notExpired, reason: r1.reason },\n    new: { kid: r2.kid, verified: r2.verified, notExpired: r2.notExpired, reason: r2.reason }\n  });\n})();\n```\n\n1. 旧 `kid` をJWK Setから除去後の期待挙動（旧kidを使用したアクセストークンのみfalse）を確認する。\n```bash\n(async () => {\n  const JWKS_URL = \"https://<KC_HOST>/realms/<REALM>/protocol/openid-connect/certs\";\n  const jwksRes = await fetch(JWKS_URL);\n  const jwks = await jwksRes.json();\n\n  const b64urlToBytes = (s) => {\n    s = s.replace(/-/g, \"+\").replace(/_/g, \"/\");\n    s += \"=\".repeat((4 - (s.length % 4)) % 4);\n    const bin = atob(s);\n    return Uint8Array.from(bin, (c) => c.charCodeAt(0));\n  };\n  const b64urlToJson = (s) => JSON.parse(new TextDecoder().decode(b64urlToBytes(s)));\n  const splitJwt = (jwt) => {\n    const parts = jwt.split(\".\");\n    if (parts.length !== 3) throw new Error(\"Not a JWT (expected 3 parts)\");\n    return { h: parts[0], p: parts[1], s: parts[2], signingInput: `${parts[0]}.${parts[1]}` };\n  };\n\n  async function verifyJwt(jwt) {\n    const { h, p, s, signingInput } = splitJwt(jwt);\n    const header = b64urlToJson(h);\n    const payload = b64urlToJson(p);\n\n    const jwk = (jwks.keys || []).find(k => k.kid === header.kid);\n    if (!jwk) return { ok: false, reason: `kid not found in JWKS: ${header.kid}`, header, payload };\n\n    if (header.alg !== \"RS256\") return { ok: false, reason: `unsupported alg: ${header.alg}`, header, payload };\n\n    const key = await crypto.subtle.importKey(\n      \"jwk\",\n      jwk,\n      { name: \"RSASSA-PKCS1-v1_5\", hash: \"SHA-256\" },\n      false,\n      [\"verify\"]\n    );\n\n    const verified = await crypto.subtle.verify(\n      { name: \"RSASSA-PKCS1-v1_5\" },\n      key,\n      b64urlToBytes(s),\n      new TextEncoder().encode(signingInput)\n    );\n\n    const now = Math.floor(Date.now() / 1000);\n    const notExpired = typeof payload.exp === \"number\" ? now < payload.exp : null;\n\n    return { ok: verified, verified, notExpired, kid: header.kid, iss: payload.iss, aud: payload.aud, exp: payload.exp, iat: payload.iat };\n  }\n\n  const oldJwt = window.__old?.jwt || \"<PASTE_OLD_TOKEN_HERE>\";\n  const newJwt = window.__new?.jwt || \"<PASTE_NEW_TOKEN_HERE>\";\n\n  const r1 = await verifyJwt(oldJwt);\n  const r2 = await verifyJwt(newJwt);\n\n  console.log(\"=== verify old token with AFTER JWKS ===\");\n  console.log(r1);\n  console.log(\"=== verify new token with AFTER JWKS ===\");\n  console.log(r2);\n\n  console.log(\"=== SUMMARY ===\");\n  console.log({\n    old: { kid: r1.kid, verified: r1.verified, notExpired: r1.notExpired, reason: r1.reason },\n    new: { kid: r2.kid, verified: r2.verified, notExpired: r2.notExpired, reason: r2.reason }\n  });\n})();\n```",
+        "expected": "  * 有効期間内の旧kid/新kidトークンが検証可能（kid選択が正しい）"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-07 異常系（audience/azp不一致）",
+    "objective": "aud/azp 不整合なトークンが拒否されることを確認する",
+    "preconditions": "複数クライアントでトークンを取得できる",
+    "view_location": "* クライアントAで発行したATの `aud` / `azp`\n* クライアントBの保護APIレスポンス（401/403）\n* APIサーバ側ログ（ある場合）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. クライアントBでenvを入れる\n```bash\noc -n ninsho-dev set env deploy/js-console-bff EXPECTED_AUD=js-console-bff EXPECTED_AZP=js-console-bff\n```\n1. クライアントAでログインし、A向けの Access Token を取得する。\n2. AのATをデコードし、`aud` と `azp` を確認する（Aに紐づく値であることを記録）。\n3. クライアントBの保護APIに、AのATをBearerで送ってアクセスする。\n```bash\n(async () => {\n  const API = \"https://js-console-bff-ninsho-dev.apps.ocp01.stg.jrqss.local/me\";\n\n  const call = async (label, token) => {\n    const res = await fetch(API, { headers: { Authorization: `Bearer ${token}` } });\n    const text = await res.text();\n    console.log(label, \"HTTP\", res.status, text);\n  };\n\n  await call(\"A token -> /me (expect 401/403)\", \"<PASTE_ACCESS_TOKEN_A>\");\n  await call(\"B token -> /me (expect 200)\", \"<PASTE_ACCESS_TOKEN_B>\");\n})();\n```\n1. API側が `aud` / `azp` を検証していることを前提に、拒否されることを確認する。\n2. 比較用に、クライアントBで正しいATを取得して同じAPIを呼び、成功することを確認する。\n- AのATで /me → 401/403（拒否）\n- BのATで /me → 200（成功）\n- 併せて aud/azp の値が A と B で異なることを run に記録",
+        "expected": "  * 不整合トークンは検証失敗またはAPIで拒否（401/403）"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-08 異常系（権限制御：トークンなし）",
+    "objective": "Authorizationヘッダなしで保護APIが未認証として拒否されることを確認する",
+    "preconditions": "保護対象APIが認証必須である",
+    "view_location": "* 保護APIのHTTPステータス（401）\n* APIサーバログ（未認証アクセス）\n* `WWW-Authenticate` ヘッダ（必要に応じて）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Authorizationヘッダを付けずに保護APIを呼び出す。\n```bash\n# コンフィデンシャルクライアント\n(async () => {\n  const API = \"https://js-console-bff-ninsho-dev.apps.ocp01.stg.jrqss.local/me\";\n\n  const res = await fetch(API, { method: \"GET\" }); // Authorizationなし\n  const text = await res.text();\n\n  console.log(\"HTTP\", res.status);\n  console.log(\"Body\", text);\n\n  // 参考：WWW-Authenticate を見る（無い場合もある）\n  console.log(\"WWW-Authenticate\", res.headers.get(\"www-authenticate\"));\n})();\n\n# パブリッククライアント\n(async () => {\n  const API = \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local/realms/test-realm/protocol/openid-connect/userinfo\";\n\n  const res = await fetch(API, { method: \"GET\" }); // Authorizationなし\n  const text = await res.text();\n\n  console.log(\"HTTP\", res.status);\n  console.log(\"Body\", text);\n\n  // 参考：WWW-Authenticate を見る（無い場合もある）\n  console.log(\"WWW-Authenticate\", res.headers.get(\"www-authenticate\"));\n})();\n```\n\n1. HTTP 401（または仕様どおりの未認証応答）を確認する。",
+        "expected": "  * トークンなしアクセスは未認証として拒否される（401等）"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-09 ログアウト/セッション削除後のRT失効",
+    "objective": "ログアウトや管理操作でセッションが終了した後、RT による更新ができないことを確認する",
+    "preconditions": "RT 発行済、セッション終了手段（ログアウト/管理削除）がある",
+    "view_location": "* ログアウト後の refresh_token grant 応答（`invalid_grant` 等）\n* Keycloakセッション一覧（Admin Console）\n* Keycloakログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 正常ログインして `refresh_token` を取得し保存する。\n2. 方式A（RP Initiated Logout）または方式B（Admin Consoleでセッション削除）で対象セッションを終了する。\n3. セッション一覧から対象ユーザの該当セッションが消えていることを確認する（管理操作の場合）。\n4. 取得済みRTで refresh_token grant を実行する。\n```bash\n# リフレッシュトークンの保存\n(() => {\n  window.__rt = {\n    KC_HOST: \"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\",\n    REALM: \"<REALM>\",\n    CLIENT_ID: \"<CONF_CLIENT_ID>\",\n    CLIENT_SECRET: \"<CLIENT_SECRET>\",\n    REFRESH_TOKEN: \"<RT1>\"\n  };\n  console.log(\"RT1 set:\", __rt.REFRESH_TOKEN.slice(0, 20) + \"...\");\n})();\n\n# refresh_token grant\n(async () => {\n  const tokenUrl = `${__rt.KC_HOST}/realms/${__rt.REALM}/protocol/openid-connect/token`;\n\n  const body = new URLSearchParams({\n    grant_type: \"refresh_token\",\n    client_id: __rt.CLIENT_ID,\n    refresh_token: __rt.REFRESH_TOKEN // RT1\n  });\n\n  const res = await fetch(tokenUrl, {\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/x-www-form-urlencoded\",\n      \"Authorization\": \"Basic \" + btoa(`${__rt.CLIENT_ID}:${__rt.CLIENT_SECRET}`)\n    },\n    body\n  });\n\n  const text = await res.text();\n  console.log(\"=== refresh #1 (RT1 -> ?) ===\");\n  console.log(\"HTTP\", res.status);\n  console.log(text);\n\n  if (!res.ok) return;\n\n  const json = JSON.parse(text);\n  window.__rt.RT1 = __rt.REFRESH_TOKEN;\n  window.__rt.R1 = json; // 証跡用に保存\n  window.__rt.AT2 = json.access_token;\n  window.__rt.RT2 = json.refresh_token || null;\n\n  console.log(\"RT1 saved as __rt.RT1\");\n  console.log(\"RT2 =\", __rt.RT2 ? (__rt.RT2.slice(0, 20) + \"...\") : \"(no refresh_token in response)\");\n})();\n```\n- HTTP 400\n\n1. refresh が拒否されることを確認する。",
+        "expected": "  * refresh が拒否される（invalid_grant 等）"
+      }
+    ]
+  },
+  {
+    "title": "TP-2-10 ブルートフォース/ロック（失敗連打）",
+    "objective": "ブルートフォース保護（ロック/待機）が設定どおり動作することを確認する",
+    "preconditions": "保護機能が有効、閾値/解除条件を把握している",
+    "view_location": "* ログイン画面のエラー表示\n* 管理コンソールのユーザ状態（一時ロック等）\n* Keycloakイベント/ログ（LOGIN_ERROR, brute force関連）\n* 解除後の正常ログイン可否",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. テスト前に設定を次の画像のように変更しrun記録に記載する。\n  realm Setting⇒Security Difence⇒Burute force detectionに移動\n  Brute Force Mode ：Lockout temporarily\n  Max login failures ：5\n  Strategy to increase wait time ：Multiple\n  Wait increment ：5 Minutes\n  Max wait ：15 Minutes\n  Failure reset time ：12 Hours\n  Quick login check milliseconds：200\n  Minimum quick login wait ：1 minutes\n2. 対象ユーザでログイン画面を開く。\n3. 誤パスワードを連続入力し、失敗回数を1回ずつ数えながら実行する。\n4. 閾値到達時点で、追加試行時の挙動（待機/ロック/エラーメッセージ変化）を確認する。\n5. 管理コンソールで、対象ユーザがロック状態になっていることを確認する。\n  user⇒対象ユーザーを確認。\n6. 正しいパスワードでも即時ログインできない（ロック/待機が効いている）ことを確認する。\n7. 解除条件（時間経過または管理解除）を満たす。\n8. 正しいパスワードで再ログインし、復帰することを確認する。",
+        "expected": "  * 設定どおりにロック/待機/復帰が行われる"
+      }
+    ]
+  },
+  {
+    "title": "TP-3-01 RP Initiated Logout",
+    "objective": "ログアウト要求でセッションが終了することを確認する",
+    "preconditions": "ログイン済",
+    "view_location": "* js-console `Events` / `Result`\n* ブラウザ遷移先（post_logout_redirect_uri）\n* 再アクセス時のログイン要求有無\n* Keycloakセッション一覧（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. js-console でログインし、`Auth Success` とトークン表示可能状態を確認する。\n2. js-console の **Logout** を押す（またはRP initiated logout URLを実行）。\n3. ログアウト後の遷移先（アプリ画面/指定URL）を確認する。\n4. 同じ画面で再度 Login を実行、または保護画面へ再アクセスする。\n5. Keycloakログイン画面が表示され、再認証が必要になることを確認する。",
+        "expected": "  * ログアウト後、再アクセス時にログイン要求が発生する"
+      }
+    ]
+  },
+  {
+    "title": "TP-3-02 Front/Backchannel Logout",
+    "objective": "複数クライアントのセッション終了が同期されることを確認する",
+    "preconditions": "連携クライアントを準備",
+    "view_location": "* クライアントA/Bのログイン状態表示\n* Aでログアウト後のBの状態（自動/再アクセス時）\n* 各クライアントのログ（logout endpoint受信ログがあれば）\n* Keycloakセッション状態",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. ブラウザでクライアントAにログインする。\n2. 同一ブラウザ（または別タブ）でクライアントBにもログインする。\n3. A/Bともに認証済み状態であることを画面表示で確認する。\n4. クライアントAからログアウトする。\n5. クライアントBに戻り、画面更新または保護操作を実行する。\n6. Bがログアウト済みになっている（または再認証要求になる）ことを確認する。\n7. クライアントAとBを別ブラウザで開いて同様の手順を行う",
+        "expected": "  * 連携クライアントのセッションも終了している"
+      }
+    ]
+  },
+  {
+    "title": "TP-3-03 Cookie 属性（Secure/HttpOnly/SameSite）",
+    "objective": "Cookie属性が意図どおりであることを確認する",
+    "preconditions": "HTTPS到達",
+    "view_location": "* DevTools → Network → 認証関連レスポンスの `Set-Cookie`\n* DevTools → Application/Storage → Cookies\n* 属性：`Secure`, `HttpOnly`, `SameSite`, `Path`, `Domain`",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. ブラウザでDevToolsを開き、Networkタブを有効化してログ保持（Preserve log）をONにする。\n2. js-console（または対象クライアント）でログインを実施する。\n3. Keycloak関連レスポンス（ログイン/認証後のリダイレクト応答）を選択し、`Set-Cookie` を確認する（/authなどからsetcookieを探す）。\n4. 対象Cookie（KEYCLOAK_*、AUTH_SESSION_ID など環境依存）について `Secure` / `HttpOnly` / `SameSite` を確認する。\n5. Application/Storage タブでも同じCookieが保持されていること、および属性値が一致することを確認する。",
+        "expected": "storageで各Cookieの列で以下を確認（画面に列が出ます）\n  * Secure（チェック）\n  * HttpOnly（チェック）\n  * SameSite\n  * Domain / Path\n  * Expires/Max-Age\n期待：Networkで見た属性と 概ね一致していること\n  * HTTPS時にSecureが付与される\n  * HttpOnlyが有効\n  * SameSite設定が意図どおり"
+      }
+    ]
+  },
+  {
+    "title": "TP-3-04 セッションタイムアウト（SSO idle/max）",
+    "objective": "SSOセッションの idle/max 設定に従い、期限後に再認証が必要になることを確認する",
+    "preconditions": "短TTL等により期限を再現できる",
+    "view_location": "* Realmの SSO Session Idle / SSO Session Max 設定値\n* 期限前アクセス時の挙動（継続）\n* 期限後アクセス時の挙動（再認証要求）\n* Keycloakイベント/ログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. テスト前に Realm の `SSO Session Idle`（３０秒） / `SSO Session Max`（１分） を確認し、値を記録する。\n2. ログインして認証済み状態を確認する。\n3. **idle確認**：\n\n   1. 何も操作せず `SSO Session Idle` を超えるまで待機する。\n   2. 保護画面へアクセスまたはトークン更新を試みる。\n   3. 再認証要求になることを確認する。\n1. **max確認**（idle延長が入るケースに注意）：\n\n   1. 再ログイン後、一定間隔で操作して idle を超えないようにしながら `SSO Session Max` を超えるまで継続する。\n   2. `SSO Session Max` 超過後のアクセスで再認証要求になることを確認する。",
+        "expected": "  * 期限後はログイン要求（再認証）が発生する"
+      }
+    ]
+  },
+  {
+    "title": "TP-3-05 SameSite/クロスサイト影響（外部接続）",
+    "objective": "ブラウザのSameSite制約下でも想定する外部接続フローが成立することを確認する",
+    "preconditions": "想定ブラウザ（Chrome等）で検証する",
+    "view_location": "* ブラウザコンソール警告（Cookie/SameSite関連）\n* DevTools → Network（Cookie送受信有無）\n* 認可フロー途中の遷移失敗有無（ループ、login_required等）\n* 最終ログイン成功可否",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 検証対象ブラウザ（Chrome等）のバージョンを記録する。\n2. 外部接続想定のURL（BIG-IP公開URL等）からクライアントにアクセスする。\n3. Login → Keycloak → クライアント戻り の一連フローを実行する。\n4. DevTools Networkで、認可フロー中に必要Cookieが送られているかを確認する。\n  見るべきリクエスト（典型）\n```bash\n  .../protocol/openid-connect/auth（認可開始）\n  .../login-actions/authenticate（ログインPOST）\n  .../protocol/openid-connect/token（トークン交換：フロントで叩く場合）\n  リダイレクト（302/303）の途中\n  # 確認手順\n  Network一覧で Keycloakドメインのリクエストをクリック\n\n  Request Headers → Cookie を見る\n  → Cookieが送られているか（AUTH_SESSION_ID や KC_RESTART 等）\n\n  Response Headers → Set-Cookie を見る\n  → SameSite=None; Secure が付いているか、Lax/Strict か\n\n  ここは TP-3-03 の結果とつながる。\n  クロスサイト条件では SameSite=None; Secure が必要になることが多い。\n```\n1. 失敗する場合は、失敗箇所（認可開始/ログインPOST/戻り/トークン交換）を特定し、SameSite関連の警告有無を確認する。\n2. 必要に応じてEdgeでも同じ手順を実行し差分を比較する。",
+        "expected": "  - 外部接続（クロスサイト）でも Login → Keycloak → 戻り → ログイン成功 が成立\n  - SameSite関連のブロック警告が出ない（または影響しない）\n  - Network上で必要Cookieが送受信されていることが確認できる"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-01 SPI プロバイダ登録（疎通）",
+    "objective": "SPIが有効化され、外部DB接続が可能であることを確認する",
+    "preconditions": "SPI導入済、外部DB疎通可能",
+    "view_location": "* Keycloak Pod起動ログ（SPIロード成功メッセージ、例外有無）\n* 管理コンソールの User検索結果\n* OpenShift Pod状態（CrashLoop等なし）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Keycloak Pod名を確認する。\n2. 起動ログを確認し、SPIプロバイダのロード成功（`ProviderFactory` 初期化等）を探す。\n3. 外部DB接続エラー（認証失敗/タイムアウト/ドライバ例外）が出ていないことを確認する。\n4. 管理コンソールで対象Realmの Users を開く。\n5. SPIユーザを username/email で検索し、結果が返ることを確認する。",
+        "expected": "  * プロバイダが有効\n  * 外部DB接続可能"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-02 ユーザ検索（SPI）",
+    "objective": "username/email検索が正しく動作することを確認する",
+    "preconditions": "テストユーザ（username/email既知）を準備",
+    "view_location": "* 管理コンソール検索結果（件数・対象ユーザ）\n* Admin APIレスポンス（HTTP 200、JSON件数/内容）\n* Keycloakログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 管理コンソールで username による検索を実施し、対象ユーザが1件ヒットすることを確認する。\n2. email による検索を実施し、対象ユーザが1件ヒットすることを確認する。\n3. 該当なし文字列で検索し、0件になることを確認する。",
+        "expected": "  * 検索結果が正しく返却される"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-03 認証（SPIユーザ：正常系）",
+    "objective": "外部DBユーザ（SPIユーザ）が正しい資格情報で認証成功できることを確認する",
+    "preconditions": "SPIユーザ（正しいID/PW）を準備",
+    "view_location": "* ログイン画面結果（成功）\n* js-console `Events` / `Result`（利用する場合）\n* Keycloakログ（SPI認証処理の例外有無）\n* イベントログ（`LOGIN`）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. SPIユーザ（正しいID/PW）でログインを実施する。\n2. 認証成功（`Auth Success` または保護画面到達）を確認する。\n3. （利用する場合）js-console の `Show Token` / `Show ID Token` が表示可能であることを確認する。\n4. KeycloakログでSPI処理中の例外（NPE/SQL例外）が出ていないことを確認する。",
+        "expected": "  * 正しい資格情報で認証成功する\n  * `LOGIN` イベントが記録される（設定どおり）\n  * SPI処理中の致命的例外が出ない"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-03A 異常系（SPIユーザ：誤パスワード）",
+    "objective": "SPIユーザが誤パスワードで認証失敗し、情報漏えいのない形で失敗することを確認する",
+    "preconditions": "SPIユーザ（存在するユーザID＋誤パスワード）を準備",
+    "view_location": "* ログイン画面結果（失敗メッセージ）\n* js-console `Events` / `Result`（利用する場合）\n* Keycloakログ（SPI認証処理の例外有無）\n* イベントログ（`LOGIN_ERROR`）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 存在するSPIユーザIDに対して、誤パスワードを入力してログインを試みる。\n2. 認証失敗することを確認する。\n3. 画面メッセージが情報漏えいにつながる詳細（ユーザ存在有無の断定等）を表示していないことを確認する。\n4. KeycloakログでSPI処理中の例外（NPE/SQL例外）が出ていないことを確認する。\n5. イベントログに `LOGIN_ERROR` が記録されることを確認する（設定どおり）。",
+        "expected": "  * 誤パスワードで認証失敗する\n  * 外部向けメッセージが情報漏えいを起こさない\n  * `LOGIN_ERROR` が記録される（設定どおり）\n  * SPI処理中の致命的例外が出ない"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-04 属性マッピング（SPI→Token/UserInfo）【分類: 両方推奨】★外部DBの変更が必要",
+    "objective": "SPI属性がトークン/ユーザー情報に反映されることを確認する",
+    "preconditions": "SPI属性とクレームのマッピング設定済",
+    "view_location": "* ID Token のクレーム\n* UserInfo レスポンス\n* マッピング設定（User Attribute → Token Claim）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 対象ユーザーをグループ\"test\"に割り当てる。\n2. SPIユーザで正常ログインし、`id_token` と `access_token` を取得する。\n3. `id_token` をデコードし、期待クレームが含まれることを確認する。\n4. `userinfo` エンドポイントを `access_token` で呼び出す。\n5. UserInfo のJSONに同じ期待クレームが含まれることを確認する。\n6. 値が外部DBの元データと一致することを確認する（テストデータ台帳と照合）。\n\n例：",
+        "expected": "  * ID Token / UserInfo に期待通りのクレームが含まれる"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-05 異常系（外部DB接続不可）",
+    "objective": "SPI接続障害時に適切に失敗し、500を回避できることを確認する",
+    "preconditions": "外部DB停止または到達不可を作れる（停止/NetworkPolicy/誤設定など）",
+    "view_location": "* ログイン画面/クライアント側のエラー表示\n* Keycloakログ（DB接続失敗例外、ハンドリング有無）\n* HTTPレスポンス（500連発になっていないこと）\n* OpenShift Pod状態（再起動ループしていないこと）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Keycloak→DB間通信を遮断する（シークレット:userstore-dbのDB_NAMEをjrにする）。\n2. Keycloak Podが起動済みのまま稼働していることを確認する。\n3. SPIユーザでログインを試みる。\n4. 認証失敗となることを確認する。\n5. Keycloakログを確認し、DB接続例外が出ていること、および未処理例外でプロセスが落ちていないことを確認する。\n6. 可能なら同時にローカルユーザ（SPIでない）認証も試し、影響範囲を確認する。\n7. 障害を復旧し、再度SPIユーザログインが成功することを確認する（復旧性確認）。",
+        "expected": "  * 認証が失敗する\n  * Keycloak側で例外がハンドリングされる（500エラー回避）"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-06 SPIユーザ情報の編集不可（Read-only）",
+    "objective": "SPI（外部DB）ユーザのユーザ情報を Keycloak 側から変更できない（参照専用）ことを確認する",
+    "preconditions": "SPIユーザが存在し、管理コンソールから参照できる",
+    "view_location": "* 管理コンソールのユーザ詳細画面（入力欄の編集可否）\n* 保存操作時のメッセージ（成功/失敗）\n* 再表示後の値（永続化されていないこと）\n* Keycloakログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 管理コンソールで SPIユーザを検索して詳細画面を開く。\n2. 姓/名/メールアドレスの項目の編集可否（disabled/read-only）を確認する。\n3. UI上で編集可能に見える場合は、値を変更して保存を試みる。\n4. 保存が拒否されること（エラー表示または変更無効）を確認する。\n5. 画面再読込または再検索し、元の値のままであることを確認する。",
+        "expected": "  * ユーザ情報が編集できない（UI上で編集不可）または保存時にエラー/拒否される\n  * 再表示しても変更が永続化されていない"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-07 異常系（属性欠損/NULL/文字種）",
+    "objective": "外部DBデータが欠損・NULL・想定外文字種でも、SPIが例外で落ちずに扱えることを確認する",
+    "preconditions": "欠損データを持つユーザを準備できる（テスト用レコード）",
+    "view_location": "* 管理コンソールのユーザ表示（画面崩れ/例外有無）\n* ログイン可否・トークン発行可否\n* トークン/UserInfoのクレーム値（空文字/null/欠落の扱い）\n* Keycloakログ（NPE/文字コード例外）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 欠損/NULL/文字種ケースごとにテストユーザを準備する（例：メールNULL、氏名NULL、全角・サロゲートペア等）。\n2. 管理コンソールで各ユーザを検索・参照し、画面表示時にエラーが出ないことを確認する。\n3. 各ユーザでログインを試みる。\n4. 成功する設計のケースはトークン取得まで進め、クレーム値の扱いを確認する。\n5. 失敗する設計のケースは、500ではなく仕様どおりの失敗になることを確認する。\n6. Keycloakログで致命的例外（NPE、文字コード例外）が出ていないことを確認する。",
+        "expected": "  * NPE等の致命的例外が発生しない\n  * 仕様どおりに失敗する場合も、エラーが明確で500連発にならない"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-08 同時アクセス（並列ログイン/検索）",
+    "objective": "並列アクセス時にコネクション枯渇や致命的例外が発生しないことを確認する",
+    "preconditions": "同一ユーザで並列ログイン・検索を実施できる",
+    "view_location": "* Keycloakログ（DB接続枯渇/タイムアウト/例外）\n* OpenShift Pod CPU/Memory（必要時）\n* 外部DB接続数/負荷（見える範囲）\n* 成功/失敗件数（簡易集計）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. まずは軽負荷（例：同時10）から開始する。\n2. 管理者トークンを取得する。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\n\nADMIN_REALM=\"master\"\nADMIN_USER=\"<user>\"\nADMIN_PASS=\"<pass>\"\n\nRESP=$(curl -k -sS -X POST \"$KC/realms/$ADMIN_REALM/protocol/openid-connect/token\" \\\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\n  --data-urlencode \"grant_type=password\" \\\n  --data-urlencode \"client_id=admin-cli\" \\\n  --data-urlencode \"username=$ADMIN_USER\" \\\n  --data-urlencode \"password=$ADMIN_PASS\"\n)\n\nADMIN_TOKEN=$(echo \"$RESP\" | sed -n 's/.*\"access_token\":\"\\([^\"]*\\)\".*/\\1/p')\necho \"ADMIN_TOKEN_PREFIX=${ADMIN_TOKEN:0:20}...\"\n\n# admin apiが通ることを確認\nAPI_REALM=\"test-realm\"\n\ncurl -k -sS -o /dev/null -w \"HTTP:%{http_code}\\n\" \\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n  \"$KC/admin/realms/$API_REALM/users?max=5\"\n```\n期待：200\n\n1. 並列でユーザ検索APIまたはログイン処理を実行する。\n```bash\n# 検索対象と検索数\nQUERY=\"k.nishida@ss.jrkyushu-g.co.jp\"   # username/emailの一部に合わせて変更\nMAX=20          # 返す件数（負荷調整）\n\n# 呼び出し関数の設定\ncall_one () {\n  curl -k -sS -o /dev/null -w \"%{http_code}\\n\" \\\n    -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n    \"$KC/admin/realms/$API_REALM/users?search=$QUERY&max=$MAX\"\n}\nexport -f call_one\nexport KC API_REALM QUERY MAX ADMIN_TOKEN\n\n# 並列実行＆集計\nrun_parallel () {\n  N=\"$1\"\n  tmp=$(mktemp)\n  echo \"=== start parallel N=$N ===\"\n  for i in $(seq 1 \"$N\"); do\n    (call_one >> \"$tmp\") &\n  done\n  wait\n  echo \"--- status count (N=$N) ---\"\n  sort \"$tmp\" | uniq -c | sort -nr\n  rm -f \"$tmp\"\n}\n\nrun_parallel 10\nrun_parallel 20\nrun_parallel 50\n```\n\n1. 成功件数/失敗件数/HTTPステータスを集計する。\n2. Keycloakログで接続枯渇・タイムアウト・スレッド枯渇などのエラーがないか確認する。",
+        "expected": "  * 著しいエラー増加やコネクション枯渇がない\n  * 失敗する場合も再試行で復帰し、原因がログで追える"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-09 大量検索・ページング",
+    "objective": "ユーザ数が多い場合でも検索/ページングが正しいことを確認する",
+    "preconditions": "ユーザ件数が多い、またはテストデータを投入できる",
+    "view_location": "* Admin APIレスポンス（件数、ユーザID、username）\n* `first` / `max` 指定ごとの結果差分\n* 重複/欠落有無（ID一覧比較）\n* レスポンス時間（簡易）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 管理者トークンを取得する。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\n\nADMIN_REALM=\"master\"\nADMIN_USER=\"<user>\"\nADMIN_PASS=\"<pass>\"\n\nRESP=$(curl -k -sS -X POST \"$KC/realms/$ADMIN_REALM/protocol/openid-connect/token\" \\\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\n  --data-urlencode \"grant_type=password\" \\\n  --data-urlencode \"client_id=admin-cli\" \\\n  --data-urlencode \"username=$ADMIN_USER\" \\\n  --data-urlencode \"password=$ADMIN_PASS\"\n)\n\nADMIN_TOKEN=$(echo \"$RESP\" | sed -n 's/.*\"access_token\":\"\\([^\"]*\\)\".*/\\1/p')\necho \"ADMIN_TOKEN_PREFIX=${ADMIN_TOKEN:0:20}...\"\n```\n\n1. 1,2ページ目を取得し、ユーザID一覧を保存する。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\nAPI_REALM=\"test-realm\"\nMAX=20\n\n# 1ページ目（first=0）\ncurl -k -sS \\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n  \"$KC/admin/realms/$API_REALM/users?first=0&max=$MAX\" \\\n  > page1.json\n\n# 2ページ目（first=20）\ncurl -k -sS \\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n  \"$KC/admin/realms/$API_REALM/users?first=$MAX&max=$MAX\" \\\n  > page2.json\n\necho \"saved: page1.json page2.json\"\n```\n1. 1ページ目と2ページ目で重複がないことを確認する。\n```bash\nextract_ids () {\n  sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p'\n}\n\nextract_ids < page1.json > page1.ids\nextract_ids < page2.json > page2.ids\n\necho \"page1 count=$(wc -l < page1.ids) page2 count=$(wc -l < page2.ids)\"\n\n# 重複（交差）があれば表示\necho \"=== duplicates between page1 and page2 (should be empty) ===\"\ncomm -12 <(sort page1.ids) <(sort page2.ids) | head\n```\n\n1. さらに複数ページ取得し、総件数や取りこぼしがないかを確認する（必要に応じて `count` API も使用）。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\nAPI_REALM=\"test-realm\"\nMAX=20\nPAGES=5  # 20*5=100件\n\nextract_ids () { sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p'; }\n\nrm -f all.ids\n\nfor p in $(seq 0 $((PAGES-1))); do\n  first=$((p*MAX))\n  echo \"fetch page p=$p first=$first\"\n  curl -k -sS \\\n    -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n    \"$KC/admin/realms/$API_REALM/users?first=$first&max=$MAX\" \\\n  | extract_ids >> all.ids\ndone\n\ntotal=$(wc -l < all.ids)\nuniqc=$(sort all.ids | uniq | wc -l)\ndups=$((total-uniqc))\n\necho \"total_ids=$total unique_ids=$uniqc duplicates=$dups\"\necho \"=== sample duplicates (if any) ===\"\nsort all.ids | uniq -d | head\n```\n期待：duplicates=0\n\n1. 条件検索あり/なしの両方でページングを確認する。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\nAPI_REALM=\"test-realm\"\nMAX=20\nQUERY=\"admin\" # 実データに当たる検索語に変更\n\ncurl -k -sS \\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n  \"$KC/admin/realms/$API_REALM/users?search=$QUERY&first=0&max=$MAX\" \\\n  > s_page1.json\n\ncurl -k -sS \\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n  \"$KC/admin/realms/$API_REALM/users?search=$QUERY&first=$MAX&max=$MAX\" \\\n  > s_page2.json\n\nextract_ids () { sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p'; }\n\nextract_ids < s_page1.json > s_page1.ids\nextract_ids < s_page2.json > s_page2.ids\n\necho \"=== duplicates in search paging (should be empty) ===\"\ncomm -12 <(sort s_page1.ids) <(sort s_page2.ids) | head\n```\n\n1. レスポンス時間を記録し、許容範囲か判断する。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\nAPI_REALM=\"test-realm\"\nMAX=20\n\ncurl -k -sS -o /dev/null -w \"time_total=%{time_total} HTTP=%{http_code}\\n\" \\\n  -H \"Authorization: Bearer $ADMIN_TOKEN\" \\\n  \"$KC/admin/realms/$API_REALM/users?first=0&max=$MAX\"\n```",
+        "expected": "  * ページングが正しく、性能劣化が許容範囲"
+      }
+    ]
+  },
+  {
+    "title": "TP-4-10 外部DB遅延（停止ではなく遅い）【分類: Publicで代替可】★手段不明",
+    "objective": "外部DBが遅い場合にタイムアウト/例外処理が設計どおりであることを確認する",
+    "preconditions": "遅延注入（tc/Proxy/DB側sleep等）が可能",
+    "view_location": "* ログイン/検索の応答時間\n* Keycloakログ（タイムアウト、リトライ、例外）\n* Pod状態（ハング/再起動なし）\n* 外部DB/ネットワーク遅延設定（注入有無確認）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 検証環境で Keycloak→DB 間またはDB側に遅延を注入する（停止ではなく遅延）。\n2. 遅延注入前に基準値（通常時のログイン/検索応答時間）を1～2回測定する。\n3. 遅延注入後、SPIユーザログインを実施し、応答時間と結果（成功/失敗）を記録する。\n4. 管理コンソール/Admin API検索も実施し、応答時間と結果を記録する。\n5. Keycloakログを確認し、タイムアウトやリトライが設計どおり発生しているか確認する。\n6. 遅延を解除し、応答が通常に戻ることを確認する。\n\n例（ログ確認）\n\n```bash\noc -n <NS> logs deploy/<KEYCLOAK_DEPLOY> --tail=500\n```",
+        "expected": "  * タイムアウトやエラーが制御され、Keycloak全体が落ちない\n  * 500回避やリトライ方針が把握できる"
+      }
+    ]
+  },
+  {
+    "title": "TP-5-01 Realm / Client / Role / Group CRUD",
+    "objective": "作成・編集・削除が可能であり、反映が整合することを確認する",
+    "preconditions": "管理者権限",
+    "view_location": "* 管理コンソール画面（作成/編集/削除結果）\n* Admin API取得結果（存在確認/属性値）\n* イベントログ（必要時）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. Realm（または既存Realm配下のClient/Role/Group）を作成する。\n2. 作成直後に一覧/詳細で存在を確認する。\n3. 属性（例：Clientのredirect_uri、Role名説明、Group属性）を編集し保存する。\n4. 再表示して編集内容が保持されていることを確認する。\n5. 作成したリソースを削除する。\n6. 削除済みを確認する。",
+        "expected": "  * 設定が反映される"
+      }
+    ]
+  },
+  {
+    "title": "TP-5-02 SPIユーザ参照",
+    "objective": "管理コンソールでSPIユーザが表示され、ポリシー通りに扱えることを確認する",
+    "preconditions": "SPIユーザが存在",
+    "view_location": "* Users検索結果\n* ユーザ詳細表示（属性/Federation Link等）\n* 編集可否UI（read-onlyポリシーがある場合）\n* 保存時挙動",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 管理コンソールの Users 画面を開く。\n2. SPIユーザを username/email で検索する。\n3. 検索結果から対象ユーザ詳細を開く。\n4. 表示される属性/リンク情報がポリシーどおりであることを確認する。\n5. 編集制約がある場合、編集不可または保存拒否になることを確認する。",
+        "expected": "  * ポリシー通りに表示（編集不可ならUIで編集不可）"
+      }
+    ]
+  },
+  {
+    "title": "TP-5-03 Admin API 認可（最小権限：許可される操作）",
+    "objective": "最小権限ユーザでも許可される想定のAdmin API操作が成功することを確認する",
+    "preconditions": "最小権限の管理ユーザを用意できる、許可対象APIが定義済み",
+    "view_location": "* 最小権限ユーザのAdmin APIレスポンス（成功系）\n* 発行AT内ロール（`realm_access` / `resource_access`）\n* UI",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. keycloakWebコンソールを開いて次を確認する。\n  1. Realm設定画面(sessionやtoken)が参照できる\n  2. Users一覧/検索が参照できる\n  3. IdP一覧が参照できる\n  4. Eventsが参照できる\n1. 最小権限ユーザで管理者トークンを取得する。\n```bash\nKC=\"https://rhbk-op-ninsho-dev.apps.ocp01.stg.jrqss.local\"\nADMIN_REALM=\"master\"\nTARGET_REALM=\"test-realm\"\n\nMIN_ADMIN_USER=\"<MIN_ADMIN_USERNAME>\"\nMIN_ADMIN_PASS=\"<MIN_ADMIN_PASSWORD>\"\n\nRESP=$(curl -k -sS -X POST \"$KC/realms/$ADMIN_REALM/protocol/openid-connect/token\" \\\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\n  --data-urlencode \"grant_type=password\" \\\n  --data-urlencode \"client_id=admin-cli\" \\\n  --data-urlencode \"username=$MIN_ADMIN_USER\" \\\n  --data-urlencode \"password=$MIN_ADMIN_PASS\"\n)\nMIN_AT=$(echo \"$RESP\" | sed -n 's/.*\"access_token\":\"\\([^\"]*\\)\".*/\\1/p')\necho \"MIN_AT_PREFIX=${MIN_AT:0:20}...\"\n```\n\n1. 許可される想定のAPIを呼び、成功することを確認する。\n```bash\n# ユーザー作成（期待201）\nNEW_USER=\"tp503_$(date +%s)\"\n\ncurl -k -sS -D - -o /dev/null -X POST \\\n  -H \"Authorization: Bearer $MIN_AT\" \\\n  -H \"Content-Type: application/json\" \\\n  \"$KC/admin/realms/$TARGET_REALM/users\" \\\n  -d \"{\\\"username\\\":\\\"$NEW_USER\\\",\\\"enabled\\\":true}\"\n\n# Realm更新(204期待）\n# 現在displayNameを退避（無い場合は空）\nORIG=$(curl -k -sS -H \"Authorization: Bearer $MIN_AT\" \\\n  \"$KC/admin/realms/$TARGET_REALM\" | sed -n 's/.*\"displayName\":\"\\([^\"]*\\)\".*/\\1/p')\n\n## 一時変更\ncurl -k -sS -o /dev/null -w \"HTTP:%{http_code}\\n\" -X PUT \\\n  -H \"Authorization: Bearer $MIN_AT\" \\\n  -H \"Content-Type: application/json\" \\\n  \"$KC/admin/realms/$TARGET_REALM\" \\\n  -d '{\"displayName\":\"tp-5-03-test\"}'\n\n## 戻す\ncurl -k -sS -o /dev/null -w \"HTTP:%{http_code}\\n\" -X PUT \\\n  -H \"Authorization: Bearer $MIN_AT\" \\\n  -H \"Content-Type: application/json\" \\\n  \"$KC/admin/realms/$TARGET_REALM\" \\\n  -d \"{\\\"displayName\\\":\\\"$ORIG\\\"}\"\n\n# IdP一覧取得（200期待）\ncurl -k -sS -o /dev/null -w \"HTTP:%{http_code}\\n\" \\\n  -H \"Authorization: Bearer $MIN_AT\" \\\n  \"$KC/admin/realms/$TARGET_REALM/identity-provider/instances\"\n```\n1. 結果を記録する。\n    ### view（UI）\n    - Realm settings：表示可（view-realm）\n    - Users：表示可（view-users）\n    - Identity providers：表示可（view-identity-providers）\n    - Events：表示可（view-events）\n    ### manage（API・許可）\n    - POST /users：201（manage-users）\n    - PUT /realms/{realm}：204（manage-realm）\n    - GET /identity-provider/instances：200（manage-identity-providers）",
+        "expected": "  * 最小権限ユーザで許可対象APIが成功する（200等）"
+      }
+    ]
+  },
+  {
+    "title": "TP-5-03A 異常系（Admin API 認可：最小権限で拒否される操作）",
+    "objective": "最小権限ユーザで拒否される想定のAdmin API操作が 403/401 で拒否されることを確認する",
+    "preconditions": "最小権限の管理ユーザを用意できる、拒否対象APIが定義済み",
+    "view_location": "* 最小権限ユーザのAdmin APIレスポンス（403/401）\n* 発行AT内ロール（`realm_access` / `resource_access`）\n* Keycloakイベント/ログ（権限エラー）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 最小権限ユーザで管理者トークンを取得する。\n2. ATをデコードして想定ロールを確認する。\n3. 拒否される想定のAPI（例：作成/削除）を呼び、403/401（仕様どおり）となることを確認する。\n```bash\n# クライアント作成（403期待）\ncurl -k -sS -o - -w '\\nHTTP:%{http_code}\\n' -X POST \\\n  -H \"Authorization: Bearer $MIN_AT\" \\\n  -H \"Content-Type: application/json\" \\\n  \"$KC/admin/realms/$TARGET_REALM/clients\" \\\n  -d '{\"clientId\":\"tp503a-client\",\"enabled\":true,\"publicClient\":true}'\n\n# Authorization Services機能(404/403期待)\nCLIENT_UUID=\"<TARGET_CLIENT_UUID>\"\n\ncurl -k -sS -o - -w '\\nHTTP:%{http_code}\\n' \\\n  -H \"Authorization: Bearer $MIN_AT\" \\\n  \"$KC/admin/realms/$TARGET_REALM/clients/$CLIENT_UUID/authz/resource-server/settings\"\n\n```\n\n1. 結果を記録する。\n    ### manage（API・拒否）\n    - POST /clients：403（manage-clients無し）\n    - GET authz settings : 403/404（manage-authorization無し or 機能無効）",
+        "expected": "  * 最小権限ユーザで拒否対象APIは 403/401 で拒否される（仕様どおり）"
+      }
+    ]
+  },
+  {
+    "title": "TP-5-04 イベントログ出力（誰が・いつ・何を）",
+    "objective": "認証/操作イベントがサーバーログに出力され、運用で追えることを確認する",
+    "preconditions": "イベント出力（events listener等）が有効",
+    "view_location": "* Keycloakサーバーログ（stdout/stderr）\n* 認証イベント（LOGIN / LOGIN_ERROR）\n* 管理イベント（CREATE / UPDATE / DELETE）\n* タイムスタンプ、ユーザ、操作対象などの項目",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 事前にイベント出力設定（User events / Admin events / listener）を確認する。\n2. ログイン成功を1回発生させる。\n3. 誤パスワードでログイン失敗を1回発生させる。\n4. 管理コンソールで軽微な管理操作（例：Role作成→削除）を実施する。\n5. Keycloakログを取得し、各イベントが出ていることを確認する。\n6. 各ログに「誰が・いつ・何を（成功/失敗含む）」が読み取れる項目があることを確認する。",
+        "expected": "  * 主要イベントがログに残り、追跡可能"
+      }
+    ]
+  },
+  {
+    "title": "TP-5-05 CORS / Web Origins（ブラウザ実害確認）",
+    "objective": "外部SPA/BFF等のブラウザ実行環境で、CORS / Web Origins の設定が原因で通信不能にならないことを確認する（**実害としてのCORSエラー**を見える化する）",
+    "preconditions": "- 実際に利用するフロント（または同等の origin）から Keycloak にアクセスできる\n  - Client の `Web Origins` / `Valid Redirect URIs` を設定済",
+    "view_location": "- ブラウザ DevTools → Console / Network（CORSエラー、Preflight、`Access-Control-Allow-Origin`）\n- Keycloak サーバーログ（拒否時の根拠）\n\n### 手順\n1. 正常設定の状態で、フロント（実際の origin）からログイン/トークン取得を実施する\n2. DevTools で CORS エラーが出ていないことを確認する\n3. （検証環境で可能なら）Web Origins を一時的に誤設定し、同じ操作を行う\n4. 誤設定時に CORS エラーが再現することを確認し、設定を戻す\n\n### 期待結果（固定チェック）\n- 正常設定：CORSエラーなし（ブラウザでトークン取得/ログインが完了）\n- 誤設定：ブラウザに CORS エラーが出て通信できない（再現でき、設定復帰で解消）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "",
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "title": "TP-6-01 ConfigMap / Secret読み込み（SPI設定反映）",
+    "objective": "SPI設定値が反映され、起動時にエラーが発生しないことを確認する",
+    "preconditions": "ConfigMap/SecretでSPI設定を管理している",
+    "view_location": "* ConfigMap/Secretの値（対象キー）\n* Pod再起動後の環境変数/マウント内容（必要時）\n* Keycloak起動ログ（SPI設定読込成功/失敗）\n* 動作確認（SPI検索/ログイン）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. keycloakを起動しSPIが使用できることを確認する。\n2. 外部DBの追加、ユーザー検索ができることを確認する。",
+        "expected": "  * Keycloak起動時に設定値が正しく読み込まれ、エラーが発生しない"
+      }
+    ]
+  },
+  {
+    "title": "TP-6-02 Pod再起動後の挙動（設定/SPI/ログ継続）",
+    "objective": "Pod再起動後も設定反映、SPIロード、ログ出力が継続することを確認する",
+    "preconditions": "Pod再起動が可能",
+    "view_location": "* rollout status / Pod Ready状態\n* 起動ログ（SPIロード成功）\n* 認可フロー/ログイン動作\n* ログ出力継続（再起動前後で取得可能）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 再起動前に現在のPod名を確認し、稼働状態を記録する。\n2. podを再起動する。\n3. 新しいPodに切り替わったことを確認する。\n4. 起動ログを確認し、SPIロード成功・致命的エラーなしを確認する。\n5. 正常ログイン（できればSPIユーザ）を実施する。\n6. ログイン成功に対応するログが出力されることを確認する。",
+        "expected": "  * 再起動後も起動成功、SPIが動作し、ログ出力が継続する"
+      }
+    ]
+  },
+  {
+    "title": "TP-6-03 スケール（replica増減）時の整合",
+    "objective": "スケールアウト/インしても、SPI/ログ/外部DBの整合が破綻しないことを確認する",
+    "preconditions": "複数pod運用を想定（または検証目的で一時的に可能）",
+    "view_location": "* Pod数（`oc get pods`）\n* 各Podログ（SPIロード/エラー有無）\n* ログイン/検索成功率\n* 外部DB接続エラー有無",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 現在の `replicas` 数を確認し記録する。\n2. `replicas` を増やす（1→2）。\n```bash\noc -n <NS> scale statefulset/<KEYCLOAK_STS> --replicas=2\noc -n <NS> patch statefulset/<KEYCLOAK_STS> --type=merge -p '{\n  \"spec\": {\n    \"template\": {\n      \"metadata\": {\n        \"annotations\": {\n          \"kubectl.kubernetes.io/restartedAt\": \"2026-03-02T00:00:00Z\"\n        }\n      }\n    }\n  }\n}'\noc -n <NS> wait --for=jsonpath='{.status.readyReplicas}'=2 statefulset/<KEYCLOAK_STS> --timeout=300s\n```\n1. すべてのPodがReadyになるまで待つ。\n2. 各Podの起動ログを確認し、SPIロード成功を確認する。\n3. 認可フロー/ログイン/検索を3回実行し、異常がないことを確認する。\n4. `replicas` を元の数に戻す。\n```bash\noc -n <NS> scale statefulset/<KEYCLOAK_STS> --replicas=1\n```\n1. スケールイン後も動作継続することを確認する。",
+        "expected": "  * スケール操作により致命的な例外や疎通断が発生しない"
+      }
+    ]
+  },
+  {
+    "title": "TP-6-04 リソース逼迫時の応答（CPU/メモリ制限付近）【分類: Publicで代替可】★手段が不明",
+    "objective": "CPU/メモリ逼迫時の応答が把握でき、原因追跡できることを確認する",
+    "preconditions": "limit設定、負荷注入手段がある",
+    "view_location": "* PodのCPU/Memory使用量\n* Podイベント（OOMKilled, Restart）\n* Keycloakログ（GC/OutOfMemory/timeout）\n* レスポンス時間・エラー率",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. テスト前にPodのresource requests/limitsを確認する。\n2. 通常時の応答時間・成功率を簡易測定して基準値を記録する。\n3. 負荷を段階的に上げ、ログイン/検索/トークン発行の応答時間とエラー率を記録する。\n4. `oc top pod` と `oc describe pod` でCPU/メモリ使用量・イベントを確認する。\n5. OOMKill/再起動が発生した場合は時刻を記録し、ログと照合する。\n6. 負荷を停止し、サービスが復帰することを確認する。\n\n例：\n\n```bash\noc -n <NS> top pod\noc -n <NS> describe pod <KEYCLOAK_POD_NAME>\noc -n <NS> logs <KEYCLOAK_POD_NAME> --tail=500\n```",
+        "expected": "  * 破綻する場合も原因が追える（ログ/メトリクス/イベント）"
+      }
+    ]
+  },
+  {
+    "title": "TP-7-01 BIG-IP / TLS疎通",
+    "objective": "HTTPSアクセスが有効で、BIG-IP経由でOIDCエンドポイントに到達可能であることを確認する",
+    "preconditions": "BIG-IP経由のRouteが提供され、証明書が有効",
+    "view_location": "* HTTPSレスポンス（Discovery/JWK）\n* 証明書情報（CN/SAN, 有効期限, チェーン）\n* ブラウザ警告有無\n* `issuer` の公開URL整合",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 外部端末から公開URLの Discovery エンドポイントにアクセスする。\n```bash\nPUBLIC=\"https://<PUBLIC_FQDN>\"\nREALM=\"test-realm\"\n\ncurl -sS -o /tmp/oidc.json -w 'HTTP:%{http_code}\\n' \\\n  \"$PUBLIC/realms/$REALM/.well-known/openid-configuration\"\n\n# 失敗時\ncurl -v -o /dev/null \\\n  \"$PUBLIC/realms/$REALM/.well-known/openid-configuration\"\n```\n1. HTTP 200 で応答し、JSONが返ることを確認する。\n2. Discovery 内 `issuer` が公開URLと一致することを確認する。\n```bash\njq -r '.issuer' /tmp/oidc.json\n```\n1. JWKS疎通（HTTP:200期待）\n```bash\ncurl -sS -o /tmp/jwks.json -w 'HTTP:%{http_code}\\n' \\\n  \"$PUBLIC/realms/$REALM/protocol/openid-connect/certs\"\n```\n1. ブラウザで同URLを開き、証明書警告が出ないことを確認する。\n  ブラウザで Discovery URL を開く\n  1. https://<PUBLIC_FQDN>/realms/test-realm/.well-known/openid-configuration\n  2. 鍵マークから証明書詳細を開き、以下を確認（スクショ）\n    -  CN/SAN に <PUBLIC_FQDN> が含まれる\n    - 有効期限（Not Before/Not After）\n    - 証明書チェーンが正しい（中間CA含む）\n    - 警告が出ないこと\n1. `openssl s_client` で証明書のサーバ名・期限・チェーンを確認する。\n```bash\nFQDN=\"<PUBLIC_FQDN>\"\n\n# 証明書チェーンの表示（SNI指定）\necho | openssl s_client -connect \"${FQDN}:443\" -servername \"${FQDN}\" -showcerts 2>/dev/null\n\n# 期限だけ\necho | openssl s_client -connect \"${FQDN}:443\" -servername \"${FQDN}\" 2>/dev/null \\\n | openssl x509 -noout -dates -subject -issuer\n\n# SAN\necho | openssl s_client -connect \"${FQDN}:443\" -servername \"${FQDN}\" 2>/dev/null \\\n | openssl x509 -noout -ext subjectAltName\n```",
+        "expected": "  * 証明書が有効\n  * BIG-IP経由でOIDCエンドポイントに到達可能"
+      }
+    ]
+  },
+  {
+    "title": "TP-7-02 逆プロキシ配下ヘッダ整合（X-Forwarded-*）",
+    "objective": "",
+    "preconditions": "",
+    "view_location": "* Discovery（`/.well-known/openid-configuration`）\n\n  * `issuer`\n  * `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` / `jwks_uri`\n* 認可フロー中のリダイレクト\n\n  * `Location` ヘッダ（302/303）\n* 画面/リンクのURL\n\n  * 内部ホスト名（例：`*.svc`、内部FQDN、OCPクラスタ内部名）露出の有無\n  * `http://` 露出の有無\n* Keycloak proxy関連設定（問題発生時の切り分け用）\n\n### 手順（詳細）\n\n### 1) Discoveryの `issuer` / endpoint URL の整合性確認\n\n1. 公開URLで Discovery を取得する。\n   `https://<PUBLIC_HOST>/realms/<REALM>/.well-known/openid-configuration`\n1. HTTP 200 で JSON が返ることを確認する。\n2. 取得した JSON から以下を確認する。\n\n   * `issuer` のホスト/スキームが **公開ドメイン/HTTPS** と一致する\n   * `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` / `jwks_uri` が **公開ドメイン/HTTPS** を指している\n1. 内部ホスト名（内部FQDN・Service名・クラスタ内部ドメイン等）が含まれていないことを確認する。\n\n（例：issuer/主要endpointの抜粋）\n\n```bash\ncurl -k -sS \\\n  'https://<PUBLIC_HOST>/realms/<REALM>/.well-known/openid-configuration' \\\n  | jq '{issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri}'\n```",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "",
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "title": "TP-7-03 通信制限（mTLS/到達制御）がある場合の挙動",
+    "objective": "mTLSやIP制限などがある場合に、要件どおり許可/拒否されることを確認する",
+    "preconditions": "制限設定が存在する場合のみ実施",
+    "view_location": "* 許可条件時のHTTPレスポンス（200/302等）\n* 不許可条件時のHTTPレスポンス（403/握手失敗/接続拒否）\n* TLSハンドシェイクログ（mTLS時）\n* BIG-IP/Proxy/Ingressログ（確認可能なら）",
+    "priority": "",
+    "folder": "認証",
+    "steps": [
+      {
+        "action": "1. 制限方式（mTLS / IP allowlist / WAF等）と許可条件を確認する。\n2. **許可条件**でアクセスし、対象エンドポイントへ到達できることを確認する。\n3. **不許可条件**（クライアント証明書なし、未許可IP等）で同じエンドポイントへアクセスする。\n4. 要件どおり拒否されることを確認する（HTTP 403 / TLS handshake failure / timeout など、設計どおり）。\n5. 拒否理由が運用ログで追えることを確認する（可能な範囲）。\n\n例（mTLSありの例）\n\n```bash\n# 許可条件（クライアント証明書あり）\ncurl -vk --cert <CLIENT_CERT.pem> --key <CLIENT_KEY.pem> \\\n  'https://<PUBLIC_HOST>/realms/<REALM>/.well-known/openid-configuration'\n\n# 不許可条件（証明書なし）\ncurl -vk 'https://<PUBLIC_HOST>/realms/<REALM>/.well-known/openid-configuration'\n```",
+        "expected": "  * 要件どおりに許可/拒否が分岐する\n\n````"
+      }
+    ]
+  }
+]

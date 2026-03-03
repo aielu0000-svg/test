@@ -8,10 +8,11 @@
 @layer base {
   :root {
     color-scheme: light dark;
+    --app-font-size: 21px;
   }
 
   html {
-    font-size: 21px;
+    font-size: var(--app-font-size);
   }
 
   body {
