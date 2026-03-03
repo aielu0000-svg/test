@@ -548,6 +548,7 @@ export default function App() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [section, setSection] = useState<SectionKey>("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarOpenDesktop, setSidebarOpenDesktop] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false);
@@ -2394,10 +2395,10 @@ export default function App() {
           : "bg-background-dark text-foreground-dark"
       )}
     >
-      <div className="flex min-h-dvh">
+      {sidebarOpenDesktop && (
         <aside
           className={cn(
-            "hidden h-dvh w-[280px] flex-col border-r md:flex",
+            "fixed inset-y-0 left-0 z-40 hidden w-[280px] flex-col border-r md:flex",
             theme === "light"
               ? "border-sidebar-border-light bg-sidebar-light"
               : "border-sidebar-border-dark bg-sidebar-dark"
@@ -2497,7 +2498,9 @@ export default function App() {
             </div>
           </div>
         </aside>
+      )}
 
+      <div className={cn("flex min-h-dvh", sidebarOpenDesktop && "md:pl-[280px]")}>
 	        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
 	          <header className="px-8 pt-8 pb-6">
 	            <div className="flex flex-wrap items-center justify-between gap-4">
@@ -2510,6 +2513,13 @@ export default function App() {
 	                </p>
 	              </div>
 	              <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className={cn(outlineButtonClass, "hidden md:inline-flex")}
+                    onClick={() => setSidebarOpenDesktop((prev) => !prev)}
+                  >
+                    {sidebarOpenDesktop ? "サイドメニューを隠す" : "サイドメニューを表示"}
+                  </button>
 	                <button
 	                  type="button"
 	                  className={cn(outlineButtonClass, "md:hidden")}
@@ -2804,7 +2814,7 @@ export default function App() {
           {section === "cases" && (
 	              <div className="grid gap-6">
                 {caseMode === "list" && (
-                  <div className="fixed bottom-6 right-8 z-40 grid gap-2">
+                  <div className="fixed bottom-6 right-8 z-40 flex items-center gap-2">
                     <button
                       type="button"
                       className={cn(
@@ -2998,7 +3008,12 @@ export default function App() {
                           >
                             <span>{folder.name}</span>
                             <button
-                              className="rounded-full border border-rose-500 px-2 py-1 text-[10px] font-semibold text-rose-200"
+                              className={cn(
+                                "rounded-full border px-2 py-1 text-[10px] font-semibold hover:opacity-90",
+                                theme === "light"
+                                  ? "border-destructive-light text-destructive-light"
+                                  : "border-destructive-dark text-destructive-dark"
+                              )}
                               onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
                             >
                               削除
@@ -3088,7 +3103,13 @@ export default function App() {
                                   />
                                 </div>
 	                              <div className="px-5 py-4">
-	                                <p className="truncate text-pretty text-sm font-medium">{item.title}</p>
+                                  <button
+                                    type="button"
+                                    className="max-w-full truncate text-left text-pretty text-sm font-medium underline-offset-2 hover:underline"
+                                    onClick={() => selectCase(item.id)}
+                                  >
+	                                  {item.title}
+                                  </button>
 	                                <p className={cn("mt-1 truncate text-pretty text-sm", mutedForegroundClass)}>
 	                                  {item.objective || "—"}
 	                                </p>
@@ -4485,7 +4506,13 @@ export default function App() {
                                   )}
                                 >
                                   <div className="px-5 py-4">
-                                    <p className="truncate text-pretty text-sm font-medium">{item.name}</p>
+                                    <button
+                                      type="button"
+                                      className="max-w-full truncate text-left text-pretty text-sm font-medium underline-offset-2 hover:underline"
+                                      onClick={() => selectRun(item.id)}
+                                    >
+                                      {item.name}
+                                    </button>
                                   </div>
                                   <div className="px-5 py-4">
                                     <p className="text-pretty text-sm tabular-nums">{scenarioCount || "—"}</p>
@@ -4500,7 +4527,7 @@ export default function App() {
                                       {totalCases ? `${progressPercent}%` : "—"}
                                     </p>
                                   </div>
-                                  <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+                                  <div className="flex items-center gap-2 px-5 py-4 whitespace-nowrap">
                                     <button type="button" className={outlineButtonClass} onClick={() => selectRun(item.id)}>
                                       開く
                                     </button>
@@ -5096,32 +5123,35 @@ export default function App() {
                                       )}
                                     >
 		                                      <summary className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 text-sm font-semibold">
-		                                        <div className="min-w-0 space-y-1 text-slate-100">
+		                                        <div className="min-w-0 space-y-2 text-slate-100">
 		                                          <span>{runCase.case_title}</span>
-	                                          <p className="text-sm text-slate-400">
-	                                            前提:{" "}
-	                                            {runCase.preconditions?.trim()
-	                                              ? runCase.preconditions
-	                                              : "なし"}
-	                                          </p>
-                                          <p className="whitespace-pre-wrap text-sm text-slate-400">
-                                            見る場所:{" "}
-                                            {runCase.view_location?.trim()
-                                              ? runCase.view_location
-                                              : "なし"}
-                                          </p>
-	                                          <p className="break-words text-sm text-slate-400">
-	                                            初期データ:{" "}
-	                                            {caseDetail?.dataSets.length
-	                                              ? caseDetail.dataSets
-	                                                  .map((dataSet) => dataSet.name)
-	                                                  .join(" / ")
-	                                              : "初期データなし"}
-	                                          </p>
-                                          {runCase.tags?.trim() && (
-                                            <p className="text-sm text-slate-400">
-                                              タグ: {runCase.tags}
+                                          <div>
+                                            <p className="text-sm font-semibold text-slate-200">前提</p>
+                                            <p className="mt-1 whitespace-pre-wrap pl-3 text-sm text-slate-400">
+                                              {runCase.preconditions?.trim() ? runCase.preconditions : "なし"}
                                             </p>
+                                          </div>
+                                          <div>
+                                            <p className="text-sm font-semibold text-slate-200">見る場所</p>
+                                            <p className="mt-1 whitespace-pre-wrap pl-3 text-sm text-slate-400">
+                                              {runCase.view_location?.trim() ? runCase.view_location : "なし"}
+                                            </p>
+                                          </div>
+                                          <div>
+                                            <p className="text-sm font-semibold text-slate-200">初期データ</p>
+                                            <p className="mt-1 break-words pl-3 text-sm text-slate-400">
+                                              {caseDetail?.dataSets.length
+                                                ? caseDetail.dataSets.map((dataSet) => dataSet.name).join(" / ")
+                                                : "初期データなし"}
+                                            </p>
+                                          </div>
+                                          {runCase.tags?.trim() && (
+                                            <div>
+                                              <p className="text-sm font-semibold text-slate-200">タグ</p>
+                                              <p className="mt-1 whitespace-pre-wrap pl-3 text-sm text-slate-400">
+                                                {runCase.tags}
+                                              </p>
+                                            </div>
                                           )}
 	                                        </div>
 		                                        <span className="shrink-0 rounded-full border px-2 py-0.5 text-sm font-semibold text-slate-100">
@@ -5146,46 +5176,38 @@ export default function App() {
 	                                                        : "border-slate-800 bg-slate-900/40"
 	                                                    )}
 	                                                  >
-		                                                    <p
-		                                                      className={cn(
-		                                                        "whitespace-pre-wrap",
-		                                                        theme === "light"
-		                                                          ? "text-slate-700"
-		                                                          : "text-slate-300"
-		                                                      )}
-		                                                    >
-		                                                      <span
-		                                                        className={cn(
-		                                                          "font-semibold",
-		                                                          theme === "light"
-		                                                            ? "text-slate-900"
-		                                                            : "text-slate-100"
-		                                                        )}
-		                                                      >
-		                                                        操作:
-		                                                      </span>{" "}
-		                                                      {step.action || "なし"}
-		                                                    </p>
-		                                                    <p
-		                                                      className={cn(
-		                                                        "whitespace-pre-wrap",
-		                                                        theme === "light"
-		                                                          ? "text-slate-600"
-		                                                          : "text-slate-400"
-		                                                      )}
-		                                                    >
-		                                                      <span
-		                                                        className={cn(
-		                                                          "font-semibold",
-		                                                          theme === "light"
-		                                                            ? "text-slate-900"
-		                                                            : "text-slate-100"
-		                                                        )}
-		                                                      >
-		                                                        期待結果:
-		                                                      </span>{" "}
-		                                                      {step.expected || "なし"}
-		                                                    </p>
+                                                    <p
+                                                      className={cn(
+                                                        "text-sm font-semibold",
+                                                        theme === "light" ? "text-slate-900" : "text-slate-100"
+                                                      )}
+                                                    >
+                                                      操作
+                                                    </p>
+                                                    <p
+                                                      className={cn(
+                                                        "whitespace-pre-wrap pl-3 text-sm",
+                                                        theme === "light" ? "text-slate-700" : "text-slate-300"
+                                                      )}
+                                                    >
+                                                      {step.action || "なし"}
+                                                    </p>
+                                                    <p
+                                                      className={cn(
+                                                        "text-sm font-semibold",
+                                                        theme === "light" ? "text-slate-900" : "text-slate-100"
+                                                      )}
+                                                    >
+                                                      期待結果
+                                                    </p>
+                                                    <p
+                                                      className={cn(
+                                                        "whitespace-pre-wrap pl-3 text-sm",
+                                                        theme === "light" ? "text-slate-600" : "text-slate-400"
+                                                      )}
+                                                    >
+                                                      {step.expected || "なし"}
+                                                    </p>
 	                                                  </li>
 	                                                ))}
 	                                              </ol>
@@ -6107,7 +6129,7 @@ export default function App() {
           </div>
         </div>
       )}
-      <ConfirmDialog
+	      <ConfirmDialog
         open={!!deleteTarget}
         title="削除してもよいですか？"
         description="この操作は取り消せません。"
