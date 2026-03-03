@@ -4377,12 +4377,10 @@ export default function App() {
 	                <div
                     className={cn(
                       "flex flex-wrap items-center justify-between gap-4",
-                      runMode === "execute" &&
-                        "sticky -mx-5 -mt-5 mb-5 border-b px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-opacity-70 z-20 top-0",
-                      runMode === "execute" &&
-                        (theme === "light"
-                          ? "border-slate-200 bg-card-light/95"
-                          : "border-slate-800 bg-card-dark/95")
+                      "sticky -mx-5 -mt-5 mb-5 border-b px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-opacity-70 z-20 top-0",
+                      theme === "light"
+                        ? "border-slate-200 bg-card-light/95"
+                        : "border-slate-800 bg-card-dark/95"
                     )}
                   >
 	                  <div className="flex min-w-0 items-center gap-3">
@@ -4469,26 +4467,6 @@ export default function App() {
 	                    )}
 	                    {runMode !== "execute" && (
 	                      <>
-	                        <button
-	                          type="button"
-	                          className={outlineButtonClass}
-	                          onClick={async () => {
-	                            setRunError(null);
-	                            if (selectedRunId) {
-	                              await selectRun(selectedRunId);
-	                            } else {
-	                              setSelectedRunId(null);
-	                              setRunDraft(emptyRun());
-	                              setRunScenarios([]);
-	                              setSelectedRunScenarioId(null);
-	                              setRunScenarioAddQuery("");
-	                              setRunScenarioAddId("");
-	                            }
-	                            setRunMode("list");
-	                          }}
-	                        >
-	                          キャンセル
-	                        </button>
 	                        <button
 	                          type="button"
 	                          className={cn(primaryButtonClass, isLoading && "opacity-60")}

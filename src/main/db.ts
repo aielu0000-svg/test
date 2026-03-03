@@ -1801,7 +1801,7 @@ export const exportData = (payload: {
       ORDER BY scenario_cases.position`
     );
     const caseStepsQuery = database.prepare(
-      "SELECT action, expected FROM test_steps WHERE case_id = ? ORDER BY sort_order"
+      "SELECT action, expected FROM test_steps WHERE case_id = ? ORDER BY position"
     );
     const textOrDefault = (value: unknown, fallback = "なし") => {
       const text = typeof value === "string" ? value.trim() : "";
@@ -1880,7 +1880,7 @@ export const exportData = (payload: {
       )
       .all() as Array<Record<string, any>>;
     const expectedQuery = database.prepare(
-      "SELECT expected FROM test_steps WHERE case_id = ? ORDER BY sort_order"
+      "SELECT expected FROM test_steps WHERE case_id = ? ORDER BY position"
     );
     const filteredCases = selectedCaseFolderIdSet
       ? testCases.filter((item) => {
