@@ -10,9 +10,9 @@
 2. `scenarios.json` をインポート（種類: **シナリオ** / 形式: **JSON**）
    - Markdown版: `scenarios.md`（種類: **シナリオ** / 形式: **マークダウン**）
 3. `data_sets_common.csv` をインポート（種類: **初期データ** / スコープ: **共通初期データ** / 形式: **CSV**）
-   - Markdown版: `data_sets_common.md`（種類: **初期データ** / 形式: **マークダウン**）
+   - Markdown版: `data_sets_common.md`（読みやすい見た目でインポート可能）
 4. `data_sets_run.csv` をインポート（種類: **初期データ** / スコープ: **実行初期データ** / 形式: **CSV**）
-   - Markdown版: `data_sets_run.md`（種類: **初期データ** / 形式: **マークダウン**）
+   - Markdown版: `data_sets_run.md`（読みやすい見た目でインポート可能）
 5. `data_sets.json` をインポート（種類: **初期データ** / 形式: **JSON**）
    - レコードごとに `scope` を切り替えられます（`common` / `case` / `scenario` / `run`）。
 

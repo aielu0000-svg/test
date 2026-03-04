@@ -1,3 +1,26 @@
-| name | scope | description | items |
-| --- | --- | --- | --- |
-| 共通初期データ（サンプル） | common | 全テストで共通の前提をまとめた初期データです。 | [{"label":"環境URL","value":"https://example.com","note":""},{"label":"共通アカウント","value":"user@example.com\npassword: p@ssw0rd","note":"検証用共通アカウント"},{"label":"初期状態","value":"DBリセット済み\nキャッシュ削除済み","note":""}] |
+# 初期データ
+
+## 共通初期データ（サンプル）
+- スコープ: common
+- フォルダ: 認証
+- 説明:
+全テストで共通の前提をまとめた初期データです。
+
+### データ項目
+- 環境URL
+  - 値:
+https://example.com
+  - メモ:
+なし
+- 共通アカウント
+  - 値:
+user@example.com
+password: p@ssw0rd
+  - メモ:
+検証用共通アカウント
+- 初期状態
+  - 値:
+DBリセット済み
+キャッシュ削除済み
+  - メモ:
+なし

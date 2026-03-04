@@ -1545,6 +1545,115 @@ const rowsToObjects = (rows: string[][]) => {
   });
 };
 
+const parseDataSetsMarkdown = (content: string) => {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const records: Array<Record<string, any>> = [];
+  let index = 0;
+
+  const readUntil = (stop: (line: string) => boolean) => {
+    const buff: string[] = [];
+    while (index < lines.length) {
+      const line = lines[index] ?? "";
+      if (stop(line)) {
+        break;
+      }
+      buff.push(line);
+      index += 1;
+    }
+    return buff.join("\n").trim();
+  };
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    const datasetTitle = line.match(/^##\s+(.+)$/);
+    if (!datasetTitle) {
+      index += 1;
+      continue;
+    }
+
+    const record: Record<string, any> = {
+      name: datasetTitle[1].trim(),
+      scope: "",
+      folder_id: "",
+      description: "",
+      items: []
+    };
+    index += 1;
+
+    while (index < lines.length) {
+      const current = lines[index] ?? "";
+      if (/^##\s+/.test(current)) {
+        break;
+      }
+      if (/^- スコープ:\s*/.test(current)) {
+        record.scope = current.replace(/^- スコープ:\s*/, "").trim();
+        index += 1;
+        continue;
+      }
+      if (/^- フォルダ:\s*/.test(current)) {
+        record.folder_id = current.replace(/^- フォルダ:\s*/, "").trim();
+        if (record.folder_id === "なし") {
+          record.folder_id = "";
+        }
+        index += 1;
+        continue;
+      }
+      if (/^- 説明:\s*/.test(current)) {
+        const inline = current.replace(/^- 説明:\s*/, "");
+        index += 1;
+        const extra = readUntil((next) => /^###\s+データ項目/.test(next) || /^##\s+/.test(next));
+        record.description = [inline, extra].filter((part) => part && part.length > 0).join("\n").trim();
+        continue;
+      }
+      if (/^###\s+データ項目/.test(current)) {
+        index += 1;
+        const items: Array<{ label: string; value: string; note: string }> = [];
+        while (index < lines.length) {
+          const itemLine = lines[index] ?? "";
+          if (/^##\s+/.test(itemLine)) {
+            break;
+          }
+          const itemMatch = itemLine.match(/^- (.+)$/);
+          if (!itemMatch) {
+            index += 1;
+            continue;
+          }
+          const item = { label: itemMatch[1].trim(), value: "", note: "" };
+          index += 1;
+          while (index < lines.length) {
+            const next = lines[index] ?? "";
+            if (/^- /.test(next) || /^##\s+/.test(next)) {
+              break;
+            }
+            if (/^\s*- 値:\s*/.test(next)) {
+              const inline = next.replace(/^\s*- 値:\s*/, "");
+              index += 1;
+              const body = readUntil((probe) => /^\s*- メモ:\s*/.test(probe) || /^- /.test(probe) || /^##\s+/.test(probe));
+              item.value = [inline, body].filter((part) => part && part.length > 0).join("\n").trim();
+              continue;
+            }
+            if (/^\s*- メモ:\s*/.test(next)) {
+              const inline = next.replace(/^\s*- メモ:\s*/, "");
+              index += 1;
+              const body = readUntil((probe) => /^- /.test(probe) || /^##\s+/.test(probe));
+              item.note = [inline, body].filter((part) => part && part.length > 0).join("\n").trim();
+              continue;
+            }
+            index += 1;
+          }
+          items.push(item);
+        }
+        record.items = items;
+        continue;
+      }
+      index += 1;
+    }
+    records.push(record);
+  }
+
+  return records;
+};
+
 export const exportData = (payload: {
   entity: "test_cases" | "scenarios" | "data_sets" | "test_runs";
   format: "csv" | "json" | "md";
@@ -1568,6 +1677,47 @@ export const exportData = (payload: {
     ? payload.runIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
   const selectedRunIdSet = runIds.length ? new Set(runIds) : null;
+  if (payload.entity === "data_sets" && payload.format === "md") {
+    const sourceRows = payload.scope
+      ? (database
+          .prepare("SELECT id, name, scope, folder_id, description FROM data_sets WHERE scope = ? ORDER BY updated_at DESC")
+          .all(payload.scope) as Array<Record<string, any>>)
+      : (database
+          .prepare("SELECT id, name, scope, folder_id, description FROM data_sets ORDER BY updated_at DESC")
+          .all() as Array<Record<string, any>>);
+    const itemQuery = database.prepare(
+      "SELECT label, value, note FROM data_items WHERE data_set_id = ? ORDER BY sort_order"
+    );
+    if (!sourceRows.length) {
+      return "# 初期データ\n\nデータがありません。";
+    }
+    const lines: string[] = ["# 初期データ", ""];
+    sourceRows.forEach((row, rowIndex) => {
+      lines.push(`## ${String(row.name ?? "名称なし")}`);
+      lines.push(`- スコープ: ${String(row.scope ?? "common")}`);
+      lines.push(`- フォルダ: ${row.folder_id ? String(row.folder_id) : "なし"}`);
+      lines.push("- 説明:");
+      lines.push(String(row.description ?? "").trim() || "なし");
+      lines.push("");
+      lines.push("### データ項目");
+      const items = itemQuery.all(row.id) as Array<Record<string, any>>;
+      if (!items.length) {
+        lines.push("- 項目なし");
+      } else {
+        items.forEach((item) => {
+          lines.push(`- ${String(item.label ?? "").trim() || "ラベルなし"}`);
+          lines.push("  - 値:");
+          lines.push(String(item.value ?? "").trim() || "なし");
+          lines.push("  - メモ:");
+          lines.push(String(item.note ?? "").trim() || "なし");
+        });
+      }
+      if (rowIndex < sourceRows.length - 1) {
+        lines.push("");
+      }
+    });
+    return lines.join("\n").trimEnd();
+  }
   if (payload.entity === "test_runs" && payload.format === "md") {
     const allRuns = database
       .prepare("SELECT * FROM test_runs ORDER BY updated_at DESC")
@@ -1855,10 +2005,10 @@ export const exportData = (payload: {
             .map((step) => textOrDefault(step.action, ""))
             .filter((text) => text.length > 0);
           if (!actions.length) {
-            lines.push("- なし");
+            lines.push("なし");
           } else {
             actions.forEach((action) => {
-              lines.push(`- ${action}`);
+              lines.push(action);
             });
           }
 
@@ -1868,10 +2018,10 @@ export const exportData = (payload: {
             .map((step) => textOrDefault(step.expected, ""))
             .filter((text) => text.length > 0);
           if (!expectedList.length) {
-            lines.push("- なし");
+            lines.push("なし");
           } else {
             expectedList.forEach((expected) => {
-              lines.push(`- ${expected}`);
+              lines.push(expected);
             });
           }
         });
@@ -2196,8 +2346,12 @@ export const importData = (payload: {
     }
     records = parsed;
   } else if (payload.format === "md") {
-    const rows = parseMarkdownTable(payload.content);
-    records = rowsToObjects(rows);
+    if (payload.entity === "data_sets") {
+      records = parseDataSetsMarkdown(payload.content);
+    } else {
+      const rows = parseMarkdownTable(payload.content);
+      records = rowsToObjects(rows);
+    }
   } else {
     const rows = parseCsv(payload.content.replace(/^\uFEFF/, ""));
     records = rowsToObjects(rows);
