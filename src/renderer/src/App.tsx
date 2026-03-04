@@ -1431,17 +1431,17 @@ export default function App() {
                       {dataSet.name}
                       {dataSet.items.length ? ` (${dataSet.items.length}件)` : " (項目なし)"}
                     </summary>
-                    <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                    <div className="mt-2 space-y-1 text-sm text-slate-400">
                       {dataSet.description && (
-                        <p className="text-slate-500">{dataSet.description}</p>
+                        <p className="whitespace-pre-wrap text-slate-500">{dataSet.description}</p>
                       )}
                       {dataSet.items.length ? (
                         dataSet.items.map((item) => (
                           <div key={`${dataSet.id}-${item.label}`} className="flex flex-wrap gap-2">
                             <span className="font-semibold text-slate-300">{item.label}</span>
-                            <span className="text-slate-200">{item.value}</span>
+                            <span className="whitespace-pre-wrap text-slate-200">{item.value}</span>
                             {item.note && (
-                              <span className="text-slate-500">補足: {item.note}</span>
+                              <span className="whitespace-pre-wrap text-slate-500">補足: {item.note}</span>
                             )}
                           </div>
                         ))
@@ -3910,14 +3910,14 @@ export default function App() {
                                       </div>
                                       <div
                                         className={cn(
-                                          "text-pretty",
+                                          "text-pretty whitespace-pre-wrap",
                                           theme === "light" ? "text-slate-600" : "text-slate-300"
                                         )}
                                       >
                                         {item.value}
                                       </div>
                                       {item.note && (
-                                        <div className={theme === "light" ? "text-slate-500" : "text-slate-500"}>
+                                        <div className={cn("whitespace-pre-wrap", theme === "light" ? "text-slate-500" : "text-slate-500")}>
                                           補足: {item.note}
                                         </div>
                                       )}
@@ -4539,8 +4539,8 @@ export default function App() {
                                   />
                                 </td>
                                 <td className="px-3 py-2">
-                                  <input
-                                    className={inputClass}
+                                  <textarea
+                                    className={cn(inputClass, "min-h-[70px] resize-y")}
                                     value={item.value}
                                     onChange={(event) => {
                                       const next = dataDraft.items.map((entry) =>
@@ -5547,6 +5547,56 @@ export default function App() {
 		                                        </span>
 		                                      </summary>
 	                                      <div className="mt-3 grid gap-4 text-sm text-slate-300">
+                                          <div>
+                                            <p className="text-sm font-semibold uppercase text-slate-400">
+                                              初期データ詳細
+                                            </p>
+                                            {caseDetail?.dataSets.length ? (
+                                              <div className="mt-2 space-y-2">
+                                                {caseDetail.dataSets.map((dataSet) => (
+                                                  <details
+                                                    key={`${runCase.id}-${dataSet.id}`}
+                                                    className={cn(
+                                                      "rounded-lg border px-3 py-2",
+                                                      theme === "light"
+                                                        ? "border-slate-200 bg-white"
+                                                        : "border-slate-800 bg-slate-900/40"
+                                                    )}
+                                                  >
+                                                    <summary className="text-sm font-semibold text-slate-200">
+                                                      {dataSet.name}
+                                                      {dataSet.items.length ? ` (${dataSet.items.length}件)` : " (項目なし)"}
+                                                    </summary>
+                                                    <div className="mt-2 space-y-1 text-sm text-slate-400">
+                                                      {dataSet.description && (
+                                                        <p className="whitespace-pre-wrap text-slate-500">{dataSet.description}</p>
+                                                      )}
+                                                      {dataSet.items.length ? (
+                                                        dataSet.items.map((item) => (
+                                                          <div
+                                                            key={`${runCase.id}-${dataSet.id}-${item.id ?? item.label}`}
+                                                            className="flex flex-wrap gap-2"
+                                                          >
+                                                            <span className="font-semibold text-slate-300">{item.label}</span>
+                                                            <span className="whitespace-pre-wrap text-slate-200">{item.value}</span>
+                                                            {item.note && (
+                                                              <span className="whitespace-pre-wrap text-slate-500">
+                                                                補足: {item.note}
+                                                              </span>
+                                                            )}
+                                                          </div>
+                                                        ))
+                                                      ) : (
+                                                        <p className="text-slate-500">項目がありません。</p>
+                                                      )}
+                                                    </div>
+                                                  </details>
+                                                ))}
+                                              </div>
+                                            ) : (
+                                              <p className="mt-2 text-sm text-slate-500">初期データなし</p>
+                                            )}
+                                          </div>
 	                                        <div>
 	                                          <p className="text-sm font-semibold uppercase text-slate-400">
 	                                            手順
