@@ -995,6 +995,7 @@ export default function App() {
   const selectedRunIdRef = useRef<string | null>(null);
   const runDraftRef = useRef<RunDraft>(emptyRun());
   const mainScrollRef = useRef<HTMLElement | null>(null);
+  const exportCaseFoldersInitializedRef = useRef(false);
 
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [resetDatabaseOpen, setResetDatabaseOpen] = useState(false);
@@ -1640,11 +1641,12 @@ export default function App() {
   }, [exportCaseFolderOptions]);
 
   useEffect(() => {
-    if (exportType !== "test_cases" || exportCaseFolderIds.length > 0) {
+    if (exportCaseFoldersInitializedRef.current || exportCaseFolderOptions.length === 0) {
       return;
     }
     setExportCaseFolderIds(exportCaseFolderOptions.map((item) => item.id));
-  }, [exportType, exportCaseFolderIds.length, exportCaseFolderOptions]);
+    exportCaseFoldersInitializedRef.current = true;
+  }, [exportCaseFolderOptions]);
 
   const addableRunScenarios = useMemo(() => {
     const added = new Set(runScenarios.map((item) => item.scenario_id));
@@ -4850,10 +4852,10 @@ export default function App() {
 
 	                    return (
 	                      <div className="overflow-x-auto">
-	                        <div className="min-w-[700px]">
+	                        <div className="min-w-[860px]">
 	                          <div
 	                            className={cn(
-	                              "grid grid-cols-[minmax(0,220px)_80px_96px_80px_160px] items-center text-sm",
+	                              "grid grid-cols-[minmax(0,6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center text-sm",
 	                              borderClass,
 	                              "border-b",
 	                              theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
@@ -4878,7 +4880,7 @@ export default function App() {
                                 <div
                                   key={item.id}
                                   className={cn(
-                                    "grid w-full cursor-pointer grid-cols-[minmax(0,220px)_80px_96px_80px_160px] items-center text-sm",
+                                    "grid w-full cursor-pointer grid-cols-[minmax(0,6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center text-sm",
                                     borderClass,
                                     "border-b last:border-b-0",
                                     theme === "light"

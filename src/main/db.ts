@@ -1828,11 +1828,13 @@ export const exportData = (payload: {
         lines.push("");
         lines.push("## テストケースなし");
         lines.push("- 目的：なし");
-        lines.push("- 前提：なし");
-        lines.push("- 見る場所；なし");
+        lines.push("- 前提：");
+        lines.push("なし");
+        lines.push("- 見る場所：");
+        lines.push("なし");
         lines.push("");
         lines.push("### 手順");
-        lines.push("1. なし。");
+        lines.push("- なし");
         lines.push("");
         lines.push("### 期待結果");
         lines.push("- なし");
@@ -1841,8 +1843,10 @@ export const exportData = (payload: {
           lines.push("");
           lines.push(`## ${textOrDefault(testCase.title, "テストケース")}`);
           lines.push(`- 目的：${textOrDefault(testCase.objective)}`);
-          lines.push(`- 前提：${textOrDefault(testCase.preconditions)}`);
-          lines.push(`- 見る場所；${textOrDefault(testCase.view_location)}`);
+          lines.push("- 前提：");
+          lines.push(textOrDefault(testCase.preconditions));
+          lines.push("- 見る場所：");
+          lines.push(textOrDefault(testCase.view_location));
           lines.push("");
           lines.push("### 手順");
 
@@ -1851,10 +1855,10 @@ export const exportData = (payload: {
             .map((step) => textOrDefault(step.action, ""))
             .filter((text) => text.length > 0);
           if (!actions.length) {
-            lines.push("1. なし。");
+            lines.push("- なし");
           } else {
-            actions.forEach((action, index) => {
-              lines.push(`${index + 1}. ${action}`);
+            actions.forEach((action) => {
+              lines.push(`- ${action}`);
             });
           }
 
@@ -1875,8 +1879,6 @@ export const exportData = (payload: {
 
       if (scenarioIndex < filteredScenarios.length - 1) {
         lines.push("");
-        lines.push("---");
-        lines.push("");
       }
     });
 
@@ -1888,7 +1890,7 @@ export const exportData = (payload: {
   if (payload.entity === "test_cases") {
     const testCases = database
       .prepare(
-        "SELECT id, title, objective, preconditions, priority, folder_id FROM test_cases ORDER BY updated_at DESC"
+        "SELECT id, title, objective, preconditions, priority, tags, folder_id FROM test_cases ORDER BY updated_at DESC"
       )
       .all() as Array<Record<string, any>>;
     const expectedQuery = database.prepare(
@@ -1916,7 +1918,8 @@ export const exportData = (payload: {
         目的: item.objective ?? "",
         前提条件: item.preconditions ?? "",
         期待結果: expectedText,
-        優先度: item.priority ?? ""
+        優先度: item.priority ?? "",
+        タグ: item.tags ?? ""
       };
     });
   }
@@ -1928,6 +1931,42 @@ export const exportData = (payload: {
     const filteredScenarios = selectedScenarioIdSet
       ? scenarios.filter((scenario) => selectedScenarioIdSet.has(String(scenario.id ?? "")))
       : scenarios;
+    if (payload.format === "json") {
+      const scenarioCasesQuery = database.prepare(
+        `SELECT
+          test_cases.id,
+          test_cases.title,
+          test_cases.objective,
+          test_cases.preconditions,
+          test_cases.view_location,
+          test_cases.priority,
+          test_cases.tags
+        FROM scenario_cases
+        JOIN test_cases ON test_cases.id = scenario_cases.case_id
+        WHERE scenario_cases.scenario_id = ?
+        ORDER BY scenario_cases.position`
+      );
+      const caseStepsQuery = database.prepare(
+        "SELECT action, expected FROM test_steps WHERE case_id = ? ORDER BY position"
+      );
+      const caseRows = filteredScenarios.flatMap((scenario) => {
+        const cases = scenarioCasesQuery.all(scenario.id) as Array<Record<string, any>>;
+        return cases.map((testCase) => ({
+          title: testCase.title ?? "",
+          objective: testCase.objective ?? "",
+          preconditions: testCase.preconditions ?? "",
+          view_location: testCase.view_location ?? "",
+          priority: testCase.priority ?? "",
+          tags: testCase.tags ?? "",
+          folder: "",
+          steps: (caseStepsQuery.all(testCase.id) as Array<Record<string, any>>).map((step) => ({
+            action: step.action ?? "",
+            expected: step.expected ?? ""
+          }))
+        }));
+      });
+      return JSON.stringify(caseRows, null, 2);
+    }
     const latestRunScenarioQuery = database.prepare(
       `SELECT
         id,
@@ -1980,15 +2019,32 @@ export const exportData = (payload: {
   }
 
   if (payload.entity === "data_sets") {
-    if (payload.scope) {
-      rows = database
-        .prepare("SELECT id, name, scope, folder_id, description FROM data_sets WHERE scope = ? ORDER BY updated_at DESC")
-        .all(payload.scope) as Array<Record<string, any>>;
-    } else {
-      rows = database
-        .prepare("SELECT id, name, scope, folder_id, description FROM data_sets ORDER BY updated_at DESC")
-        .all() as Array<Record<string, any>>;
-    }
+    const sourceRows = payload.scope
+      ? (database
+          .prepare("SELECT id, name, scope, folder_id, description FROM data_sets WHERE scope = ? ORDER BY updated_at DESC")
+          .all(payload.scope) as Array<Record<string, any>>)
+      : (database
+          .prepare("SELECT id, name, scope, folder_id, description FROM data_sets ORDER BY updated_at DESC")
+          .all() as Array<Record<string, any>>);
+    const itemQuery = database.prepare(
+      "SELECT label, value, note FROM data_items WHERE data_set_id = ? ORDER BY sort_order"
+    );
+    rows = sourceRows.map((row) => {
+      const items = (itemQuery.all(row.id) as Array<Record<string, any>>).map((item) => ({
+        label: item.label ?? "",
+        value: item.value ?? "",
+        note: item.note ?? ""
+      }));
+      return {
+        id: row.id ?? "",
+        name: row.name ?? "",
+        scope: row.scope ?? "",
+        folder_id: row.folder_id ?? "",
+        description: row.description ?? "",
+        // Keep JSON string so CSV/MD export can be imported as-is.
+        items: JSON.stringify(items)
+      };
+    });
   }
 
   if (payload.entity === "test_runs") {

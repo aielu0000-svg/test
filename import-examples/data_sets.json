@@ -6,8 +6,8 @@
     "description": "全テストで共通の前提をまとめた初期データです。",
     "items": [
       { "label": "環境URL", "value": "https://example.com", "note": "" },
-      { "label": "共通アカウント", "value": "user@example.com / password", "note": "" },
-      { "label": "初期状態", "value": "DBリセット済み", "note": "" }
+      { "label": "共通アカウント", "value": "user@example.com\npassword: p@ssw0rd", "note": "検証用共通アカウント" },
+      { "label": "初期状態", "value": "DBリセット済み\nキャッシュ削除済み", "note": "" }
     ]
   },
   {
@@ -16,8 +16,8 @@
     "description": "実行時に記録しておきたい情報をまとめた初期データです。",
     "items": [
       { "label": "ビルド番号", "value": "1.2.3", "note": "" },
-      { "label": "実行担当", "value": "山田 太郎", "note": "" },
-      { "label": "端末/ブラウザ", "value": "Windows 11 / Chrome", "note": "" }
+      { "label": "実行担当", "value": "山田 太郎\nサブ担当: 佐藤 花子", "note": "引き継ぎあり" },
+      { "label": "端末/ブラウザ", "value": "Windows 11\nChrome 132", "note": "" }
     ]
   }
 ]
