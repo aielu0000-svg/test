@@ -1,0 +1,23 @@
+[
+  {
+    "name": "共通初期データ（JSONサンプル）",
+    "scope": "common",
+    "folder": "認証",
+    "description": "全テストで共通の前提をまとめた初期データです。",
+    "items": [
+      { "label": "環境URL", "value": "https://example.com", "note": "" },
+      { "label": "共通アカウント", "value": "user@example.com / password", "note": "" },
+      { "label": "初期状態", "value": "DBリセット済み", "note": "" }
+    ]
+  },
+  {
+    "name": "実行初期データ（JSONサンプル）",
+    "scope": "run",
+    "description": "実行時に記録しておきたい情報をまとめた初期データです。",
+    "items": [
+      { "label": "ビルド番号", "value": "1.2.3", "note": "" },
+      { "label": "実行担当", "value": "山田 太郎", "note": "" },
+      { "label": "端末/ブラウザ", "value": "Windows 11 / Chrome", "note": "" }
+    ]
+  }
+]

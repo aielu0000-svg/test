@@ -13,6 +13,8 @@
    - Markdown版: `data_sets_common.md`（種類: **初期データ** / 形式: **マークダウン**）
 4. `data_sets_run.csv` をインポート（種類: **初期データ** / スコープ: **実行初期データ** / 形式: **CSV**）
    - Markdown版: `data_sets_run.md`（種類: **初期データ** / 形式: **マークダウン**）
+5. `data_sets.json` をインポート（種類: **初期データ** / 形式: **JSON**）
+   - レコードごとに `scope` を切り替えられます（`common` / `case` / `scenario` / `run`）。
 
 ## 補足
 
@@ -20,3 +22,4 @@
 - `test_cases.csv` / `test_cases.md` は `folder` 列を持てます。既存フォルダの「ID」または「名前」で指定可能です（未一致なら未分類）。
 - `test_cases.csv` / `test_cases.md` は `view_location`（または `見る場所`）列も取り込めます。
 - `test_cases.csv` の `steps`、`data_sets_*.csv` の `items` は **JSON文字列**（配列）です。CSVのセル内では `"` を `""` としてエスケープしています。
+- `data_sets.json` は `items` を JSON配列としてそのまま書けます（CSVのようなエスケープ不要）。
