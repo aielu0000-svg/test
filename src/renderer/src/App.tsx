@@ -5525,14 +5525,6 @@ export default function App() {
                                               <MarkdownPreview value={runCase.view_location?.trim() ? runCase.view_location : "なし"} theme={theme} />
                                             </div>
                                           </div>
-                                          <div>
-                                            <p className="text-sm font-semibold text-slate-200">初期データ</p>
-                                            <p className="mt-1 break-words pl-3 text-sm text-slate-400">
-                                              {caseDetail?.dataSets.length
-                                                ? caseDetail.dataSets.map((dataSet) => dataSet.name).join(" / ")
-                                                : "初期データなし"}
-                                            </p>
-                                          </div>
                                           {runCase.tags?.trim() && (
                                             <div>
                                               <p className="text-sm font-semibold text-slate-200">タグ</p>
@@ -5548,7 +5540,7 @@ export default function App() {
 		                                      </summary>
 	                                      <div className="mt-3 grid gap-4 text-sm text-slate-300">
                                           <div>
-                                            <p className="text-sm font-semibold uppercase text-slate-400">
+                                            <p className="text-sm font-semibold text-slate-200">
                                               初期データ詳細
                                             </p>
                                             {caseDetail?.dataSets.length ? (

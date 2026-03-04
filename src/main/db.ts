@@ -376,7 +376,7 @@ export const resetProject = () => {
 export const listTestCases = () => {
   const { db: database } = ensureDb();
   return database
-    .prepare("SELECT * FROM test_cases ORDER BY created_at ASC")
+    .prepare("SELECT * FROM test_cases ORDER BY created_at DESC")
     .all();
 };
 
@@ -618,7 +618,7 @@ export const listScenarios = () => {
       FROM scenarios
       LEFT JOIN scenario_cases ON scenario_cases.scenario_id = scenarios.id
       GROUP BY scenarios.id
-      ORDER BY scenarios.created_at ASC`
+      ORDER BY scenarios.created_at DESC`
     )
     .all();
 };
@@ -722,7 +722,7 @@ export const createScenarioFromFolder = (folderId: string, title?: string) => {
     throw new Error("フォルダが見つかりません。");
   }
   const cases = database
-    .prepare("SELECT id FROM test_cases WHERE folder_id = ? ORDER BY created_at ASC")
+    .prepare("SELECT id FROM test_cases WHERE folder_id = ? ORDER BY created_at DESC")
     .all(folderId) as Array<{ id: string }>;
   if (!cases.length) {
     throw new Error("フォルダ内にテストケースがありません。");
