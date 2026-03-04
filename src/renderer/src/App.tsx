@@ -4850,21 +4850,21 @@ export default function App() {
 
 	                    return (
 	                      <div className="overflow-x-auto">
-	                        <div className="min-w-[820px]">
+	                        <div className="min-w-[700px]">
 	                          <div
 	                            className={cn(
-	                              "grid grid-cols-[minmax(0,1fr)_96px_120px_96px_124px] items-center text-sm",
+	                              "grid grid-cols-[minmax(0,220px)_80px_96px_80px_160px] items-center text-sm",
 	                              borderClass,
 	                              "border-b",
 	                              theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
 	                              mutedForegroundClass
 	                            )}
 	                          >
-	                            <div className="px-5 py-4">実行名</div>
-	                            <div className="px-5 py-4">シナリオ</div>
-	                            <div className="px-5 py-4">状態</div>
-	                            <div className="px-5 py-4">進捗</div>
-                              <div className="px-5 py-4">操作</div>
+	                            <div className="px-3 py-4">実行名</div>
+	                            <div className="px-3 py-4">シナリオ</div>
+	                            <div className="px-3 py-4">状態</div>
+	                            <div className="px-3 py-4">進捗</div>
+                              <div className="px-3 py-4">操作</div>
 	                          </div>
 
 	                          {runsForTab.map((item) => {
@@ -4878,7 +4878,7 @@ export default function App() {
                                 <div
                                   key={item.id}
                                   className={cn(
-                                    "grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_96px_120px_96px_124px] items-center text-sm",
+                                    "grid w-full cursor-pointer grid-cols-[minmax(0,220px)_80px_96px_80px_160px] items-center text-sm",
                                     borderClass,
                                     "border-b last:border-b-0",
                                     theme === "light"
@@ -4887,25 +4887,25 @@ export default function App() {
                                   )}
                                   onClick={() => selectRun(item.id)}
                                 >
-                                  <div className="px-5 py-4">
+                                  <div className="px-3 py-4">
                                     <p className="max-w-full truncate text-left text-pretty text-sm font-medium">
                                       {item.name}
                                     </p>
                                   </div>
-                                  <div className="px-5 py-4">
+                                  <div className="px-3 py-4">
                                     <p className="text-pretty text-sm tabular-nums">{scenarioCount || "—"}</p>
                                   </div>
-                                  <div className="px-5 py-4">
+                                  <div className="px-3 py-4">
                                     <p className={cn("text-pretty text-sm font-medium", getRunStatusClass(item.status))}>
                                       {getRunStatusLabel(item.status)}
                                     </p>
                                   </div>
-                                  <div className="px-5 py-4">
+                                  <div className="px-3 py-4">
                                     <p className="text-pretty text-sm font-medium tabular-nums">
                                       {totalCases ? `${progressPercent}%` : "—"}
                                     </p>
                                   </div>
-                                  <div className="flex items-center gap-2 px-5 py-4 whitespace-nowrap">
+                                  <div className="flex items-center gap-2 px-3 py-4 whitespace-nowrap">
                                     <button
                                       type="button"
                                       className={outlineButtonClass}
