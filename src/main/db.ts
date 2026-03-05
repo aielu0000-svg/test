@@ -1744,6 +1744,7 @@ export const exportData = (payload: {
         run_scenario_cases.*,
         test_cases.title as case_title,
         test_cases.preconditions,
+        test_cases.view_location,
         test_cases.tags
       FROM run_scenario_cases
       JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
@@ -1801,6 +1802,7 @@ export const exportData = (payload: {
       return `data:${mimeType};base64,${base64}`;
     };
 
+    const escapeMdTable = (value: unknown) => String(value ?? "").replace(/\|/g, "\\|");
     const lines: string[] = ["# テスト実行", ""];
 
     runs.forEach((run) => {
@@ -1839,8 +1841,19 @@ export const exportData = (payload: {
       }
 
       lines.push("");
+      lines.push("### シナリオ一覧");
+      lines.push("| タイトル | 結果 |");
+      lines.push("| --- | --- |");
       runScenarios.forEach((runScenario, scenarioIndex) => {
         const title = formatOptional(runScenario.scenario_title) ?? formatOptional(runScenario.title) ?? "";
+        const anchor = `run-${String(run.id)}-scenario-${scenarioIndex + 1}`;
+        lines.push(`| [${escapeMdTable(title)}](#${anchor}) | ${escapeMdTable(scenarioStatusLabel(String(runScenario.status ?? "")))} |`);
+      });
+      lines.push("");
+      runScenarios.forEach((runScenario, scenarioIndex) => {
+        const title = formatOptional(runScenario.scenario_title) ?? formatOptional(runScenario.title) ?? "";
+        const anchor = `run-${String(run.id)}-scenario-${scenarioIndex + 1}`;
+        lines.push(`<a id="${anchor}"></a>`);
         lines.push(`### ${scenarioIndex + 1}. ${title}`.trimEnd());
         if (formatOptional(runScenario.status)) {
           lines.push(`- 結果: ${scenarioStatusLabel(String(runScenario.status))}`);
@@ -1898,6 +1911,12 @@ export const exportData = (payload: {
             lines.push("- 前提条件:");
             lines.push("```");
             lines.push(String(runCase.preconditions).trimEnd());
+            lines.push("```");
+          }
+          if (formatOptional(runCase.view_location)) {
+            lines.push("- 見る場所:");
+            lines.push("```");
+            lines.push(String(runCase.view_location).trimEnd());
             lines.push("```");
           }
           if (formatOptional(runCase.tags)) {
@@ -1984,10 +2003,10 @@ export const exportData = (payload: {
         lines.push("なし");
         lines.push("");
         lines.push("### 手順");
-        lines.push("- なし");
+        lines.push("なし");
         lines.push("");
         lines.push("### 期待結果");
-        lines.push("- なし");
+        lines.push("なし");
       } else {
         cases.forEach((testCase) => {
           lines.push("");
@@ -2198,6 +2217,74 @@ export const exportData = (payload: {
   }
 
   if (payload.entity === "test_runs") {
+    if (payload.format === "json") {
+      const allRuns = database
+        .prepare("SELECT * FROM test_runs ORDER BY updated_at DESC")
+        .all() as Array<Record<string, any>>;
+      const runs = selectedRunIdSet ? allRuns.filter((run) => selectedRunIdSet.has(String(run.id ?? ""))) : allRuns;
+      const scenarioQuery = database.prepare(
+        `SELECT
+          run_scenarios.*,
+          scenarios.title as scenario_title
+        FROM run_scenarios
+        JOIN scenarios ON scenarios.id = run_scenarios.scenario_id
+        WHERE run_scenarios.run_id = ?
+        ORDER BY run_scenarios.created_at`
+      );
+      const caseQuery = database.prepare(
+        `SELECT
+          run_scenario_cases.*,
+          test_cases.title as case_title,
+          test_cases.preconditions,
+          test_cases.view_location,
+          test_cases.tags
+        FROM run_scenario_cases
+        JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
+        WHERE run_scenario_cases.run_scenario_id = ?
+        ORDER BY run_scenario_cases.created_at`
+      );
+      const exported = runs.map((run) => {
+        const runScenarios = scenarioQuery.all(run.id) as Array<Record<string, any>>;
+        return {
+          id: run.id ?? "",
+          name: run.name ?? "",
+          environment: run.environment ?? "",
+          build_version: run.build_version ?? "",
+          tester: run.tester ?? "",
+          status: run.status ?? "draft",
+          started_at: run.started_at ?? "",
+          finished_at: run.finished_at ?? "",
+          notes: run.notes ?? "",
+          scenarios: runScenarios.map((scenario) => {
+            const runCases = caseQuery.all(scenario.id) as Array<Record<string, any>>;
+            return {
+              id: scenario.id ?? "",
+              scenario_id: scenario.scenario_id ?? "",
+              scenario_title: scenario.scenario_title ?? scenario.title ?? "",
+              status: scenario.status ?? "not_run",
+              assignee: scenario.assignee ?? "",
+              actual_result: scenario.actual_result ?? "",
+              notes: scenario.notes ?? "",
+              executed_at: scenario.executed_at ?? "",
+              cases: runCases.map((runCase) => ({
+                id: runCase.id ?? "",
+                case_id: runCase.case_id ?? "",
+                case_title: runCase.case_title ?? "",
+                preconditions: runCase.preconditions ?? "",
+                view_location: runCase.view_location ?? "",
+                tags: runCase.tags ?? "",
+                status: runCase.status ?? "not_run",
+                actual_result: runCase.actual_result ?? "",
+                notes: runCase.notes ?? "",
+                executed_at: runCase.executed_at ?? ""
+              }))
+            };
+          })
+        };
+      });
+      return JSON.stringify(exported, null, 2);
+    }
+
     const rawRows = (database
       .prepare(
         `SELECT 
@@ -2330,7 +2417,7 @@ export const exportData = (payload: {
 };
 
 export const importData = (payload: {
-  entity: "test_cases" | "scenarios" | "data_sets";
+  entity: "test_cases" | "scenarios" | "data_sets" | "test_runs";
   format: "csv" | "json" | "md";
   content: string;
   scopeOverride?: string;
@@ -2359,6 +2446,99 @@ export const importData = (payload: {
 
   if (!records.length) {
     return 0;
+  }
+
+  if (payload.entity === "test_runs") {
+    const scenarioIdByTitle = new Map<string, string>();
+    listScenarios().forEach((scenario: any) => {
+      const title = String(scenario.title ?? "").trim();
+      if (title) {
+        scenarioIdByTitle.set(title, scenario.id);
+      }
+    });
+
+    const normalizeRunStatus = (status: string) => {
+      const s = String(status ?? "").trim();
+      if (s === "実行中") return "in_progress";
+      if (s === "完了") return "completed";
+      if (s === "draft" || s === "in_progress" || s === "completed") return s;
+      return "draft";
+    };
+    const normalizeRunScenarioStatus = (status: string) => {
+      const s = String(status ?? "").trim();
+      if (s === "未実行") return "not_run";
+      if (s === "実行中") return "in_progress";
+      if (s === "実行済み") return "completed_pass";
+      if (s === "not_run" || s === "in_progress" || s === "completed_pass" || s === "completed_fail") return s;
+      return "not_run";
+    };
+    const normalizeRunCaseStatus = (status: string) => {
+      const s = String(status ?? "").trim();
+      if (s === "未実行") return "not_run";
+      if (s === "✅ 合格") return "pass";
+      if (s === "❌ 不合格") return "fail";
+      if (s === "⚠️ ブロック") return "blocked";
+      if (s === "スキップ") return "skip";
+      if (s === "not_run" || s === "pass" || s === "fail" || s === "blocked" || s === "skip") return s;
+      return "not_run";
+    };
+
+    records.forEach((record) => {
+      const runName = String(record.name ?? record.run_name ?? "").trim() || "Imported Run";
+      const runId = saveRun({
+        name: runName,
+        environment: String(record.environment ?? ""),
+        buildVersion: String(record.build_version ?? ""),
+        tester: String(record.tester ?? ""),
+        status: normalizeRunStatus(String(record.status ?? record.run_status ?? "draft")),
+        startedAt: String(record.started_at ?? ""),
+        finishedAt: String(record.finished_at ?? ""),
+        notes: String(record.notes ?? "")
+      });
+      const runScenarios = Array.isArray(record.scenarios) ? record.scenarios : [];
+      runScenarios.forEach((scenarioRecord: any) => {
+        const scenarioIdRaw = String(scenarioRecord.scenario_id ?? "").trim();
+        const scenarioTitle = String(scenarioRecord.scenario_title ?? "").trim();
+        const scenarioId = scenarioIdRaw || scenarioIdByTitle.get(scenarioTitle) || "";
+        if (!scenarioId) {
+          return;
+        }
+        const runScenarioId = addRunScenario(runId, scenarioId, String(scenarioRecord.assignee ?? ""));
+        updateRunScenario({
+          id: runScenarioId,
+          status: normalizeRunScenarioStatus(String(scenarioRecord.status ?? "")),
+          assignee: String(scenarioRecord.assignee ?? ""),
+          actualResult: String(scenarioRecord.actual_result ?? ""),
+          notes: String(scenarioRecord.notes ?? ""),
+          executedAt: String(scenarioRecord.executed_at ?? "")
+        });
+
+        const currentCases = listRunScenarioCases(runScenarioId) as Array<Record<string, any>>;
+        const caseIdToRunCaseId = new Map<string, string>();
+        const caseTitleToRunCaseId = new Map<string, string>();
+        currentCases.forEach((entry) => {
+          caseIdToRunCaseId.set(String(entry.case_id ?? ""), String(entry.id ?? ""));
+          caseTitleToRunCaseId.set(String(entry.case_title ?? "").trim(), String(entry.id ?? ""));
+        });
+        const caseRecords = Array.isArray(scenarioRecord.cases) ? scenarioRecord.cases : [];
+        caseRecords.forEach((caseRecord: any) => {
+          const caseId = String(caseRecord.case_id ?? "").trim();
+          const caseTitle = String(caseRecord.case_title ?? "").trim();
+          const runCaseId = caseIdToRunCaseId.get(caseId) || caseTitleToRunCaseId.get(caseTitle);
+          if (!runCaseId) {
+            return;
+          }
+          updateRunScenarioCase({
+            id: runCaseId,
+            status: normalizeRunCaseStatus(String(caseRecord.status ?? "")),
+            actualResult: String(caseRecord.actual_result ?? ""),
+            notes: String(caseRecord.notes ?? ""),
+            executedAt: String(caseRecord.executed_at ?? "")
+          });
+        });
+      });
+    });
+    return records.length;
   }
 
   if (payload.entity === "test_cases") {

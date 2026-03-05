@@ -362,7 +362,7 @@ ipcMain.handle("export:save", async (_event, payload) => {
 
 ipcMain.handle("import:run", async (_event, payload) => {
   const ext = payload.format;
-  const entity = payload.entity as "test_cases" | "scenarios" | "data_sets";
+  const entity = payload.entity as "test_cases" | "scenarios" | "data_sets" | "test_runs";
   const format = payload.format as "csv" | "json" | "md";
   const scopeOverride = payload.scopeOverride as string | undefined;
   const caseFolderIdOverride = payload.caseFolderIdOverride as string | null | undefined;

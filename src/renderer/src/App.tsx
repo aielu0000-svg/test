@@ -972,7 +972,7 @@ export default function App() {
   const [exportScenarioIds, setExportScenarioIds] = useState<string[]>([]);
   const [exportCaseFolderIds, setExportCaseFolderIds] = useState<string[]>([]);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
-  const [importType, setImportType] = useState<"test_cases" | "scenarios" | "data_sets">(
+  const [importType, setImportType] = useState<"test_cases" | "scenarios" | "data_sets" | "test_runs">(
     "test_cases"
   );
   const [importFormat, setImportFormat] = useState<"csv" | "json" | "md">("csv");
@@ -2426,6 +2426,14 @@ export default function App() {
 
   const inferImportEntityFromColumns = (columns: string[]) => {
     const keys = new Set(columns.map((col) => col.trim().toLowerCase()));
+    if (
+      keys.has("scenarios") ||
+      keys.has("run_name") ||
+      keys.has("run_status") ||
+      (keys.has("name") && keys.has("status") && keys.has("started_at"))
+    ) {
+      return "test_runs" as const;
+    }
     if (keys.has("case_titles") || keys.has("case_ids")) {
       return "scenarios" as const;
     }
@@ -3877,18 +3885,18 @@ export default function App() {
                             >
                               <summary className="cursor-pointer text-sm font-semibold">
                                 {details.dataSet.name}
-                                <span className="ml-2 text-[11px] text-slate-500">
+                                <span className="ml-2 text-sm text-slate-500">
                                   {details.items.length} 件
                                 </span>
                               </summary>
                               <div
                                 className={cn(
-                                  "mt-2 grid gap-2 text-xs",
+                                  "mt-2 grid gap-2 text-sm",
                                   theme === "light" ? "text-slate-600" : "text-slate-300"
                                 )}
                               >
                                 {details.items.length === 0 ? (
-                                  <p className={theme === "light" ? "text-slate-500" : "text-slate-400"}>
+                                  <p className={cn("text-sm", theme === "light" ? "text-slate-500" : "text-slate-400")}>
                                     項目がありません。
                                   </p>
                                 ) : (
@@ -6208,6 +6216,7 @@ export default function App() {
                     <option value="test_cases">テストケース</option>
                     <option value="scenarios">シナリオ</option>
                     <option value="data_sets">初期データ</option>
+                    <option value="test_runs">テスト実行結果</option>
                   </select>
 
                   {importType === "test_cases" && (
