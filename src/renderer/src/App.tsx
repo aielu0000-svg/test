@@ -241,6 +241,13 @@ const runCaseStatusLabels: Record<RunCaseStatus, string> = {
   blocked: "⚠️ ブロック",
   skip: "スキップ"
 };
+const runCaseStatusEmoji: Record<RunCaseStatus, string> = {
+  not_run: "",
+  pass: "✅",
+  fail: "✖",
+  blocked: "⚠️",
+  skip: "⏭️"
+};
 const runScenarioStatusLabels: Record<RunScenarioStatus, string> = {
   not_run: "未実行",
   in_progress: "実行中",
@@ -1348,6 +1355,27 @@ export default function App() {
     });
   };
 
+  const refreshScenarioDetailsForIds = async (scenarioIds: string[]) => {
+    if (!scenarioIds.length) {
+      return;
+    }
+    const uniqueIds = Array.from(new Set(scenarioIds));
+    const details = await Promise.all(uniqueIds.map(fetchScenarioDetailFromApi));
+    setScenarioDetailsCache((prev) => {
+      const next = { ...prev };
+      uniqueIds.forEach((id, index) => {
+        next[id] = details[index];
+      });
+      return next;
+    });
+    if (selectedScenarioId && uniqueIds.includes(selectedScenarioId)) {
+      const selectedIndex = uniqueIds.indexOf(selectedScenarioId);
+      if (selectedIndex >= 0) {
+        setScenarioDetail(details[selectedIndex]);
+      }
+    }
+  };
+
   const refreshScenarioDetail = async (scenarioId: string) => {
     const detail = await fetchScenarioDetailFromApi(scenarioId);
     setScenarioDetailsCache((prev) => ({ ...prev, [scenarioId]: detail }));
@@ -1930,6 +1958,10 @@ export default function App() {
   const selectRunScenario = async (id: string) => {
     setSelectedRunScenarioId(id);
     setRunMode("execute");
+    const runScenario = runScenarios.find((item) => item.id === id);
+    if (runScenario) {
+      void refreshScenarioDetailsForIds([runScenario.scenario_id]);
+    }
     const list = (await window.api.evidence.list(id)) as Evidence[];
     setEvidenceList(list);
     void loadRunScenarioCasesForIds([id]);
@@ -1957,6 +1989,16 @@ export default function App() {
       };
 	      const id = (await window.api.testCases.save(payload)) as string;
 	      await loadCases();
+        await refreshScenarioDetailsForIds(scenarios.map((item) => item.id));
+        if (runScenarios.length > 0) {
+          await loadRunScenarioCasesForIds(
+            runScenarios.map((item) => item.id),
+            { overwrite: true }
+          );
+          await refreshScenarioDetailsForIds(
+            runScenarios.map((item) => item.scenario_id)
+          );
+        }
 	      setSelectedCaseId(id);
 	      return id;
 	    } finally {
@@ -2158,6 +2200,14 @@ export default function App() {
     if (nextCaseForSave) {
       queueRunScenarioCaseAutoSave(nextCaseForSave);
     }
+  };
+
+  const scrollToRunCase = (runCaseId: string) => {
+    const target = document.getElementById(`run-case-${runCaseId}`);
+    if (!target) {
+      return;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleSaveRunScenarioCase = async (runScenarioId: string, runCase: RunScenarioCase) => {
@@ -5496,7 +5546,14 @@ export default function App() {
 		                            <div className="flex items-center justify-between">
 		                              <p className="text-sm font-semibold uppercase text-slate-400">ケース結果</p>
 		                            </div>
-		                            <div className="mt-3 space-y-3">
+		                            <div
+                                className={cn(
+                                  "mt-3",
+                                  selectedRunScenarioId === item.id && scenarioCases.length > 0
+                                    ? "grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]"
+                                    : "space-y-3"
+                                )}
+                              >
                               {scenarioCases.length === 0 ? (
                                 <p className="text-sm text-slate-500">
                                   {runScenarioCasesMap[item.id]
@@ -5504,7 +5561,43 @@ export default function App() {
                                     : "ケース情報を読み込んでいます..."}
                                 </p>
                               ) : (
-                                scenarioCases.map((runCase) => {
+                                <>
+                                  {selectedRunScenarioId === item.id && (
+                                    <aside
+                                      className={cn(
+                                        "h-fit rounded-xl border p-3",
+                                        theme === "light"
+                                          ? "border-slate-200 bg-white"
+                                          : "border-slate-800 bg-slate-950/40"
+                                      )}
+                                    >
+                                      <p className="text-sm font-semibold text-slate-200">テストケース一覧</p>
+                                      <div className="mt-2 space-y-1.5">
+                                        {scenarioCases.map((runCase) => {
+                                          const status = (runCase.status as RunCaseStatus) ?? "not_run";
+                                          const icon = runCaseStatusEmoji[status] ?? "";
+                                          return (
+                                            <button
+                                              key={`nav-${runCase.id}`}
+                                              type="button"
+                                              className={cn(
+                                                "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                                theme === "light"
+                                                  ? "hover:bg-slate-100"
+                                                  : "hover:bg-slate-900"
+                                              )}
+                                              onClick={() => scrollToRunCase(runCase.id)}
+                                            >
+                                              <span className="truncate">{runCase.case_title}</span>
+                                              <span className="shrink-0">{icon}</span>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </aside>
+                                  )}
+                                  <div className="space-y-3">
+                                    {scenarioCases.map((runCase) => {
                                   const caseDetail =
                                     scenarioDetailsCache[item.scenario_id]?.cases.find(
                                       (detail) => detail.case.id === runCase.case_id
@@ -5513,6 +5606,7 @@ export default function App() {
                                   return (
                                     <details
                                       key={runCase.id}
+                                      id={`run-case-${runCase.id}`}
                                       className={cn(
                                         "rounded-xl border px-3 py-3",
                                         theme === "light"
@@ -5838,7 +5932,9 @@ export default function App() {
 	                                      </div>
                                     </details>
                                   );
-                                })
+                                })}
+                                  </div>
+                                </>
                               )}
                             </div>
                           </div>
