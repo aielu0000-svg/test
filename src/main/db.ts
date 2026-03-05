@@ -1779,6 +1779,26 @@ export const exportData = (payload: {
       if (status === "completed_fail") return "実行済み";
       return status;
     };
+    const deriveScenarioStatusFromCases = (runScenarioCases: Array<Record<string, any>>) => {
+      if (!runScenarioCases.length) {
+        return "not_run";
+      }
+      const entered = runScenarioCases.filter((item) => {
+        const status = String(item.status ?? "");
+        return status && status !== "not_run";
+      });
+      if (!entered.length) {
+        return "not_run";
+      }
+      if (entered.length < runScenarioCases.length) {
+        return "in_progress";
+      }
+      const hasFailOrBlocked = entered.some((item) => {
+        const status = String(item.status ?? "");
+        return status === "fail" || status === "blocked";
+      });
+      return hasFailOrBlocked ? "completed_fail" : "completed_pass";
+    };
     const caseStatusLabel = (status: string) => {
       if (status === "not_run") return "未実行";
       if (status === "pass") return "✅ 合格";
@@ -1840,24 +1860,14 @@ export const exportData = (payload: {
         return;
       }
 
-      lines.push("");
-      lines.push("### シナリオ一覧");
-      lines.push("| タイトル | 結果 |");
-      lines.push("| --- | --- |");
       runScenarios.forEach((runScenario, scenarioIndex) => {
-        const title = formatOptional(runScenario.scenario_title) ?? formatOptional(runScenario.title) ?? "";
-        const anchor = `run-${String(run.id)}-scenario-${scenarioIndex + 1}`;
-        lines.push(`| [${escapeMdTable(title)}](#${anchor}) | ${escapeMdTable(scenarioStatusLabel(String(runScenario.status ?? "")))} |`);
-      });
-      lines.push("");
-      runScenarios.forEach((runScenario, scenarioIndex) => {
+        const runScenarioCases = caseQuery.all(runScenario.id) as Array<Record<string, any>>;
+        const scenarioStatus = deriveScenarioStatusFromCases(runScenarioCases);
         const title = formatOptional(runScenario.scenario_title) ?? formatOptional(runScenario.title) ?? "";
         const anchor = `run-${String(run.id)}-scenario-${scenarioIndex + 1}`;
         lines.push(`<a id="${anchor}"></a>`);
         lines.push(`### ${scenarioIndex + 1}. ${title}`.trimEnd());
-        if (formatOptional(runScenario.status)) {
-          lines.push(`- 結果: ${scenarioStatusLabel(String(runScenario.status))}`);
-        }
+        lines.push(`- 結果: ${scenarioStatusLabel(String(scenarioStatus))}`);
         if (formatOptional(runScenario.assignee)) {
           lines.push(`- 担当者: ${String(runScenario.assignee)}`);
         }
@@ -1892,7 +1902,6 @@ export const exportData = (payload: {
           });
         }
 
-        const runScenarioCases = caseQuery.all(runScenario.id) as Array<Record<string, any>>;
         if (!runScenarioCases.length) {
           lines.push("");
           lines.push("_ケースなし_");
@@ -1901,7 +1910,18 @@ export const exportData = (payload: {
         }
 
         lines.push("");
+        lines.push("#### ケース結果一覧");
+        lines.push("| ケース | 結果 |");
+        lines.push("| --- | --- |");
         runScenarioCases.forEach((runCase, caseIndex) => {
+          const caseAnchor = `run-${String(run.id)}-scenario-${scenarioIndex + 1}-case-${caseIndex + 1}`;
+          lines.push(`| [${escapeMdTable(String(runCase.case_title ?? ""))}](#${caseAnchor}) | ${escapeMdTable(caseStatusLabel(String(runCase.status ?? "")))} |`);
+        });
+
+        lines.push("");
+        runScenarioCases.forEach((runCase, caseIndex) => {
+          const caseAnchor = `run-${String(run.id)}-scenario-${scenarioIndex + 1}-case-${caseIndex + 1}`;
+          lines.push(`<a id="${caseAnchor}"></a>`);
           lines.push(`#### ${scenarioIndex + 1}.${caseIndex + 1}. ${String(runCase.case_title ?? "")}`.trimEnd());
           lines.push(`- 結果: ${caseStatusLabel(String(runCase.status ?? ""))}`);
           if (formatOptional(runCase.executed_at)) {
@@ -2243,6 +2263,41 @@ export const exportData = (payload: {
         WHERE run_scenario_cases.run_scenario_id = ?
         ORDER BY run_scenario_cases.created_at`
       );
+      const scenarioEvidenceQuery = database.prepare(
+        "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+      );
+      const caseEvidenceQuery = database.prepare(
+        "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at"
+      );
+      const isImageAttachment = (fileName: string, mimeType?: string) => {
+        if (mimeType?.startsWith("image/")) {
+          return true;
+        }
+        return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(fileName);
+      };
+      const toEmbeddedImageDataUrl = (item: Record<string, any>) => {
+        const storedPath = typeof item.stored_path === "string" ? item.stored_path.trim() : "";
+        const fileName = String(item.file_name ?? storedPath ?? "evidence");
+        if (!storedPath || !isImageAttachment(fileName, item.mime_type)) {
+          return "";
+        }
+        const absPath = resolveAttachmentPath(projectPath, storedPath);
+        if (!absPath || !fs.existsSync(absPath)) {
+          return "";
+        }
+        const mimeType = String(item.mime_type || inferMimeTypeFromName(fileName) || "image/png");
+        const base64 = fs.readFileSync(absPath).toString("base64");
+        return `data:${mimeType};base64,${base64}`;
+      };
+      const serializeEvidence = (rows: Array<Record<string, any>>) =>
+        rows.map((item) => ({
+          file_name: String(item.file_name ?? ""),
+          stored_path: String(item.stored_path ?? ""),
+          mime_type: String(item.mime_type ?? ""),
+          size: Number(item.size ?? 0),
+          created_at: String(item.created_at ?? ""),
+          embedded_data_url: toEmbeddedImageDataUrl(item)
+        }));
       const exported = runs.map((run) => {
         const runScenarios = scenarioQuery.all(run.id) as Array<Record<string, any>>;
         return {
@@ -2257,6 +2312,7 @@ export const exportData = (payload: {
           notes: run.notes ?? "",
           scenarios: runScenarios.map((scenario) => {
             const runCases = caseQuery.all(scenario.id) as Array<Record<string, any>>;
+            const scenarioEvidence = scenarioEvidenceQuery.all(scenario.id) as Array<Record<string, any>>;
             return {
               id: scenario.id ?? "",
               scenario_id: scenario.scenario_id ?? "",
@@ -2266,6 +2322,7 @@ export const exportData = (payload: {
               actual_result: scenario.actual_result ?? "",
               notes: scenario.notes ?? "",
               executed_at: scenario.executed_at ?? "",
+              evidence: serializeEvidence(scenarioEvidence),
               cases: runCases.map((runCase) => ({
                 id: runCase.id ?? "",
                 case_id: runCase.case_id ?? "",
@@ -2276,7 +2333,10 @@ export const exportData = (payload: {
                 status: runCase.status ?? "not_run",
                 actual_result: runCase.actual_result ?? "",
                 notes: runCase.notes ?? "",
-                executed_at: runCase.executed_at ?? ""
+                executed_at: runCase.executed_at ?? "",
+                evidence: serializeEvidence(
+                  caseEvidenceQuery.all(runCase.id) as Array<Record<string, any>>
+                )
               }))
             };
           })
@@ -2482,6 +2542,20 @@ export const importData = (payload: {
       if (s === "not_run" || s === "pass" || s === "fail" || s === "blocked" || s === "skip") return s;
       return "not_run";
     };
+    const decodeEmbeddedDataUrl = (value: string) => {
+      const match = String(value ?? "").match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) {
+        return null;
+      }
+      try {
+        return {
+          mimeType: match[1],
+          buffer: Buffer.from(match[2], "base64")
+        };
+      } catch {
+        return null;
+      }
+    };
 
     records.forEach((record) => {
       const runName = String(record.name ?? record.run_name ?? "").trim() || "Imported Run";
@@ -2512,6 +2586,22 @@ export const importData = (payload: {
           notes: String(scenarioRecord.notes ?? ""),
           executedAt: String(scenarioRecord.executed_at ?? "")
         });
+        const scenarioEvidenceRecords = Array.isArray(scenarioRecord.evidence)
+          ? scenarioRecord.evidence
+          : [];
+        scenarioEvidenceRecords.forEach((evidenceRecord: any) => {
+          const embedded = decodeEmbeddedDataUrl(String(evidenceRecord.embedded_data_url ?? ""));
+          if (!embedded) {
+            return;
+          }
+          const fileName = String(evidenceRecord.file_name ?? "").trim() || "scenario-evidence.png";
+          addScenarioEvidenceBuffer({
+            runScenarioId,
+            fileName,
+            buffer: embedded.buffer,
+            mimeType: embedded.mimeType || String(evidenceRecord.mime_type ?? "") || "image/png"
+          });
+        });
 
         const currentCases = listRunScenarioCases(runScenarioId) as Array<Record<string, any>>;
         const caseIdToRunCaseId = new Map<string, string>();
@@ -2534,6 +2624,22 @@ export const importData = (payload: {
             actualResult: String(caseRecord.actual_result ?? ""),
             notes: String(caseRecord.notes ?? ""),
             executedAt: String(caseRecord.executed_at ?? "")
+          });
+          const caseEvidenceRecords = Array.isArray(caseRecord.evidence)
+            ? caseRecord.evidence
+            : [];
+          caseEvidenceRecords.forEach((evidenceRecord: any) => {
+            const embedded = decodeEmbeddedDataUrl(String(evidenceRecord.embedded_data_url ?? ""));
+            if (!embedded) {
+              return;
+            }
+            const fileName = String(evidenceRecord.file_name ?? "").trim() || "case-evidence.png";
+            addRunScenarioCaseEvidenceBuffer({
+              runScenarioCaseId: runCaseId,
+              fileName,
+              buffer: embedded.buffer,
+              mimeType: embedded.mimeType || String(evidenceRecord.mime_type ?? "") || "image/png"
+            });
           });
         });
       });
