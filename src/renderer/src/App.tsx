@@ -247,8 +247,8 @@ const runScenarioStatusLabels: Record<RunScenarioStatus, string> = {
   completed_pass: "実行済み",
   completed_fail: "実行済み"
 };
-const completedRunCaseStatuses = new Set<RunCaseStatus>(["pass", "fail", "blocked"]);
-const remainingRunCaseStatuses = new Set<RunCaseStatus>(["not_run", "skip"]);
+const completedRunCaseStatuses = new Set<RunCaseStatus>(["pass", "fail", "blocked", "skip"]);
+const remainingRunCaseStatuses = new Set<RunCaseStatus>(["not_run"]);
 
 const deriveRunScenarioStatus = (entries: Array<{ status?: string }>): RunScenarioStatus => {
   if (!entries.length) {
@@ -282,12 +282,16 @@ const summarizeRunCaseStatuses = (entries: Array<{ status?: string }>) => {
   let total = 0;
   let completed = 0;
   let remaining = 0;
+  let failed = 0;
 
   entries.forEach((entry) => {
     total += 1;
     const status = entry.status as RunCaseStatus | undefined;
     if (status && completedRunCaseStatuses.has(status)) {
       completed += 1;
+      if (status === "fail") {
+        failed += 1;
+      }
       return;
     }
     if (status && remainingRunCaseStatuses.has(status)) {
@@ -295,7 +299,7 @@ const summarizeRunCaseStatuses = (entries: Array<{ status?: string }>) => {
     }
   });
 
-  return { total, completed, remaining };
+  return { total, completed, remaining, failed };
 };
 
 const deriveRunStatusFromScenarios = (entries: Array<{ status?: string }>) => {
@@ -476,7 +480,7 @@ const RunCaseStatusIndicator = ({
 
   if (status === "skip") {
     return (
-      <span className={cn("text-[11px] font-bold uppercase tracking-[0.24em]", className)} aria-label="スキップ">
+      <span className={cn("text-sm font-bold uppercase", className)} aria-label="スキップ">
         S
       </span>
     );
@@ -5410,6 +5414,16 @@ export default function App() {
 		                      >
 		                        完了: {runCaseTotals.isLoading ? "…" : runCaseTotals.completed}
 		                      </span>
+		                      {!runCaseTotals.isLoading && runCaseTotals.failed > 0 && (
+		                        <span
+		                          className={cn(
+		                            "rounded-full border px-2 py-0.5",
+		                            theme === "light" ? "border-rose-200 text-rose-600" : "border-rose-900/60 text-rose-300"
+		                          )}
+		                        >
+		                          不合格: {runCaseTotals.failed}
+		                        </span>
+		                      )}
 		                      <span
 		                        className={cn(
 		                          "rounded-full border px-2 py-0.5",
@@ -5502,7 +5516,7 @@ export default function App() {
                         {runCaseSidebarSections.length > 0 && (
                           <aside
                             className={cn(
-                              "mb-4 h-fit rounded-2xl border p-4 xl:sticky xl:top-28 xl:mb-0",
+                              "mb-4 rounded-2xl border p-4 xl:sticky xl:top-28 xl:mb-0 xl:max-h-[calc(100vh-8.5rem)] xl:overflow-hidden",
                               theme === "light"
                                 ? "border-slate-200 bg-white"
                                 : "border-slate-800 bg-slate-950/60"
@@ -5538,7 +5552,7 @@ export default function App() {
                                 {runCaseTotals.isLoading ? "..." : `${runCaseTotals.total}件`}
                               </span>
                             </div>
-                            <div className="mt-4 space-y-4">
+                            <div className="mt-4 space-y-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto xl:pr-1">
                               {runCaseSidebarSections.map((section) => (
                                 <div key={`run-sidebar-${section.runScenarioId}`} className="space-y-1.5">
                                   <p
@@ -5664,6 +5678,18 @@ export default function App() {
 	                            >
 	                              完了: {scenarioTotals ? scenarioTotals.completed : "…"}
 	                            </span>
+	                            {scenarioTotals && scenarioTotals.failed > 0 && (
+	                              <span
+	                                className={cn(
+	                                  "rounded-full border px-2 py-0.5",
+	                                  theme === "light"
+	                                    ? "border-rose-200 text-rose-600"
+	                                    : "border-rose-900/60 text-rose-300"
+	                                )}
+	                              >
+	                                不合格: {scenarioTotals.failed}
+	                              </span>
+	                            )}
 	                            <span
 	                              className={cn(
 	                                "rounded-full border px-2 py-0.5",
@@ -5772,34 +5798,20 @@ export default function App() {
                                       )}
                                     >
 		                                      <summary className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 text-sm font-semibold">
-		                                        <div className="min-w-0 space-y-2 text-slate-100">
-		                                          <span>{runCase.case_title}</span>
+		                                        <span className={cn("min-w-0 truncate", theme === "light" ? "text-slate-900" : "text-slate-100")}>
+		                                          {runCase.case_title}
+		                                        </span>
+		                                        <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-sm font-semibold", theme === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-100")}>
+		                                          {runCaseStatusLabels[runCase.status as RunCaseStatus] ?? runCase.status}
+		                                        </span>
+		                                      </summary>
+	                                      <div className="mt-3 grid gap-4 text-sm text-slate-300">
                                           <div>
                                             <p className="text-sm font-semibold text-slate-200">前提</p>
                                             <div className="mt-1 pl-3 text-sm text-slate-400">
                                               <MarkdownPreview value={runCase.preconditions?.trim() ? runCase.preconditions : "なし"} theme={theme} />
                                             </div>
                                           </div>
-                                          <div>
-                                            <p className="text-sm font-semibold text-slate-200">見る場所</p>
-                                            <div className="mt-1 pl-3 text-sm text-slate-400">
-                                              <MarkdownPreview value={runCase.view_location?.trim() ? runCase.view_location : "なし"} theme={theme} />
-                                            </div>
-                                          </div>
-                                          {runCase.tags?.trim() && (
-                                            <div>
-                                              <p className="text-sm font-semibold text-slate-200">タグ</p>
-                                              <div className="mt-1 pl-3 text-sm text-slate-400">
-                                                <MarkdownPreview value={runCase.tags} theme={theme} />
-                                              </div>
-                                            </div>
-                                          )}
-	                                        </div>
-		                                        <span className="shrink-0 rounded-full border px-2 py-0.5 text-sm font-semibold text-slate-100">
-		                                          {runCaseStatusLabels[runCase.status as RunCaseStatus] ?? runCase.status}
-		                                        </span>
-		                                      </summary>
-	                                      <div className="mt-3 grid gap-4 text-sm text-slate-300">
                                           <div>
                                             <p className="text-sm font-semibold text-slate-200">
                                               初期データ詳細
@@ -5849,6 +5861,20 @@ export default function App() {
                                             ) : (
                                               <p className="mt-2 text-sm text-slate-500">初期データなし</p>
                                             )}
+                                          </div>
+                                          {runCase.tags?.trim() && (
+                                            <div>
+                                              <p className="text-sm font-semibold text-slate-200">タグ</p>
+                                              <div className="mt-1 pl-3 text-sm text-slate-400">
+                                                <MarkdownPreview value={runCase.tags} theme={theme} />
+                                              </div>
+                                            </div>
+                                          )}
+                                          <div>
+                                            <p className="text-sm font-semibold text-slate-200">見る場所</p>
+                                            <div className="mt-1 pl-3 text-sm text-slate-400">
+                                              <MarkdownPreview value={runCase.view_location?.trim() ? runCase.view_location : "なし"} theme={theme} />
+                                            </div>
                                           </div>
 	                                        <div>
 	                                          <p className="text-sm font-semibold uppercase text-slate-400">
@@ -5915,62 +5941,6 @@ export default function App() {
 	                                        </div>
 
 	                                        <div className="grid gap-2">
-	                                          <fieldset className="grid gap-2">
-	                                            <legend className="text-sm font-semibold uppercase text-slate-400">
-	                                              結果詳細
-	                                            </legend>
-	                                            <div className="flex flex-wrap gap-2">
-	                                              {runCaseStatusOptions.map((option) => {
-	                                                const checked = runCase.status === option;
-	                                                return (
-	                                                  <label
-	                                                    key={`${runCase.id}-status-${option}`}
-	                                                    className={cn(
-	                                                      "cursor-pointer rounded-full border px-3 py-1 text-sm font-semibold",
-	                                                      theme === "light"
-	                                                        ? checked
-	                                                          ? "border-sky-300 bg-sky-50 text-slate-900"
-	                                                          : "border-slate-200 text-slate-600"
-	                                                        : checked
-	                                                          ? "border-sky-500/60 bg-sky-950/30 text-slate-100"
-	                                                          : "border-slate-800 text-slate-200"
-	                                                    )}
-	                                                  >
-	                                                    <input
-	                                                      type="radio"
-	                                                      name={`run-case-status-${runCase.id}`}
-	                                                      value={option}
-	                                                      className="sr-only"
-	                                                      checked={checked}
-	                                                      onChange={() =>
-	                                                        updateRunScenarioCaseDraft(item.id, runCase.id, {
-	                                                          status: option
-	                                                        })
-	                                                      }
-	                                                    />
-	                                                    {runCaseStatusLabels[option]}
-	                                                  </label>
-	                                                );
-	                                              })}
-	                                            </div>
-	                                          </fieldset>
-	                                          <label
-	                                            htmlFor={`run-case-executed-${runCase.id}`}
-	                                            className="text-sm font-semibold uppercase text-slate-400"
-	                                          >
-	                                            実行日時
-	                                          </label>
-	                                          <input
-	                                            id={`run-case-executed-${runCase.id}`}
-	                                            className={inputClass}
-	                                            type="datetime-local"
-	                                            value={toLocalInput(runCase.executed_at)}
-	                                            onChange={(event) =>
-	                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
-	                                                executed_at: event.target.value
-	                                              })
-	                                            }
-	                                          />
 	                                          <label
 	                                            htmlFor={`run-case-notes-${runCase.id}`}
 	                                            className="text-sm font-semibold uppercase text-slate-400"
@@ -6066,12 +6036,68 @@ export default function App() {
                                                     ))}
                                                   </div>
                                                 ) : (
-                                                  <p className="text-pretty text-xs text-slate-400">
-                                                    証跡はまだありません。「証跡を追加」から追加してください。
-                                                  </p>
-                                                )}
+	                                                  <p className="text-pretty text-xs text-slate-400">
+	                                                    証跡はまだありません。「証跡を追加」から追加してください。
+	                                                  </p>
+	                                                )}
 	                                            </div>
 	                                          </div>
+	                                          <fieldset className="grid gap-2">
+	                                            <legend className="text-sm font-semibold uppercase text-slate-400">
+	                                              結果詳細
+	                                            </legend>
+	                                            <div className="flex flex-wrap gap-2">
+	                                              {runCaseStatusOptions.map((option) => {
+	                                                const checked = runCase.status === option;
+	                                                return (
+	                                                  <label
+	                                                    key={`${runCase.id}-status-${option}`}
+	                                                    className={cn(
+	                                                      "cursor-pointer rounded-full border px-3 py-1 text-sm font-semibold",
+	                                                      theme === "light"
+	                                                        ? checked
+	                                                          ? "border-sky-300 bg-sky-50 text-slate-900"
+	                                                          : "border-slate-200 text-slate-600"
+	                                                        : checked
+	                                                          ? "border-sky-500/60 bg-sky-950/30 text-slate-100"
+	                                                          : "border-slate-800 text-slate-200"
+	                                                    )}
+	                                                  >
+	                                                    <input
+	                                                      type="radio"
+	                                                      name={`run-case-status-${runCase.id}`}
+	                                                      value={option}
+	                                                      className="sr-only"
+	                                                      checked={checked}
+	                                                      onChange={() =>
+	                                                        updateRunScenarioCaseDraft(item.id, runCase.id, {
+	                                                          status: option
+	                                                        })
+	                                                      }
+	                                                    />
+	                                                    {runCaseStatusLabels[option]}
+	                                                  </label>
+	                                                );
+	                                              })}
+	                                            </div>
+	                                          </fieldset>
+	                                          <label
+	                                            htmlFor={`run-case-executed-${runCase.id}`}
+	                                            className="text-sm font-semibold uppercase text-slate-400"
+	                                          >
+	                                            実行日時
+	                                          </label>
+	                                          <input
+	                                            id={`run-case-executed-${runCase.id}`}
+	                                            className={inputClass}
+	                                            type="datetime-local"
+	                                            value={toLocalInput(runCase.executed_at)}
+	                                            onChange={(event) =>
+	                                              updateRunScenarioCaseDraft(item.id, runCase.id, {
+	                                                executed_at: event.target.value
+	                                              })
+	                                            }
+	                                          />
 	                                          <div className="flex flex-wrap gap-2">
 	                                            <button
 	                                              type="button"

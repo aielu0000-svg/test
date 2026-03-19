@@ -838,7 +838,7 @@ export const listRuns = () => {
         test_runs.*,
         COUNT(DISTINCT run_scenarios.id) AS scenario_count,
         COUNT(run_scenario_cases.id) AS total_cases,
-        SUM(CASE WHEN run_scenario_cases.status IN ('pass','fail','blocked') THEN 1 ELSE 0 END) AS completed_cases
+        SUM(CASE WHEN run_scenario_cases.status != 'not_run' THEN 1 ELSE 0 END) AS completed_cases
       FROM test_runs
       LEFT JOIN run_scenarios ON run_scenarios.run_id = test_runs.id
       LEFT JOIN run_scenario_cases ON run_scenario_cases.run_scenario_id = run_scenarios.id
@@ -926,7 +926,7 @@ export const getDashboardStats = () => {
         `SELECT
           run_scenarios.run_id AS run_id,
           COUNT(run_scenario_cases.id) AS total,
-          SUM(CASE WHEN run_scenario_cases.status IN ('pass','fail','blocked') THEN 1 ELSE 0 END) AS completed
+          SUM(CASE WHEN run_scenario_cases.status != 'not_run' THEN 1 ELSE 0 END) AS completed
         FROM run_scenarios
         JOIN run_scenario_cases ON run_scenario_cases.run_scenario_id = run_scenarios.id
         WHERE run_scenarios.run_id IN (${placeholders})
