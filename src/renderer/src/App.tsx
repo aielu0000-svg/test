@@ -201,6 +201,7 @@ type RunDraft = {
 };
 
 type SectionKey = "dashboard" | "cases" | "scenarios" | "data" | "runs" | "export" | "settings";
+type CaseSortKey = "updated_desc" | "created_desc" | "title_asc" | "priority_desc";
 
 type DashboardStats = {
   totalTestCases: number;
@@ -940,6 +941,20 @@ const emptyCase = (): CaseDraft => ({
   folderId: null
 });
 
+const cloneCaseDraft = (draft: CaseDraft): CaseDraft => ({
+  title: draft.title ? `${draft.title} のコピー` : "",
+  objective: draft.objective,
+  preconditions: draft.preconditions,
+  viewLocation: draft.viewLocation,
+  priority: draft.priority,
+  tags: draft.tags,
+  steps: draft.steps.length
+    ? draft.steps.map((step) => ({ action: step.action, expected: step.expected }))
+    : [{ action: "", expected: "" }],
+  dataSetIds: [...draft.dataSetIds],
+  folderId: draft.folderId
+});
+
 const emptyScenario = (): ScenarioDraft => ({
   title: "",
   objective: "",
@@ -992,6 +1007,7 @@ export default function App() {
   const [caseFolders, setCaseFolders] = useState<CaseFolder[]>([]);
   const [folderFilter, setFolderFilter] = useState("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
+  const [caseSort, setCaseSort] = useState<CaseSortKey>("updated_desc");
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -1647,12 +1663,35 @@ export default function App() {
         return tagFilters.some((tag) => tags.includes(tag));
       });
     }
-    if (!caseQuery.trim()) {
-      return items;
+    if (caseQuery.trim()) {
+      const term = caseQuery.toLowerCase();
+      items = items.filter((item) => item.title.toLowerCase().includes(term));
     }
-    const term = caseQuery.toLowerCase();
-    return items.filter((item) => item.title.toLowerCase().includes(term));
-  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter]);
+
+    const sorted = [...items];
+    sorted.sort((left, right) => {
+      if (caseSort === "title_asc") {
+        return left.title.localeCompare(right.title, "ja");
+      }
+      if (caseSort === "created_desc") {
+        return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+      }
+      if (caseSort === "priority_desc") {
+        const priorityRank = (value: string) => {
+          if (value === "高") return 3;
+          if (value === "中") return 2;
+          if (value === "低") return 1;
+          return 0;
+        };
+        return (
+          priorityRank(right.priority ?? "") - priorityRank(left.priority ?? "") ||
+          left.title.localeCompare(right.title, "ja")
+        );
+      }
+      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+    });
+    return sorted;
+  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter, caseSort]);
 
   const allFilteredCaseIds = useMemo(() => filteredCases.map((item) => item.id), [filteredCases]);
   const selectedFilteredCaseCount = useMemo(
@@ -1942,6 +1981,50 @@ export default function App() {
     if (dataSetIds.length) {
       await loadCaseDataSetDetails(dataSetIds);
     }
+  };
+
+  const startNewCaseDraft = (source?: CaseDraft) => {
+    setSelectedCaseId(null);
+    const draft = source ? cloneCaseDraft(source) : emptyCase();
+    if (!source) {
+      draft.folderId = folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
+    }
+    setCaseDraft(draft);
+    setCaseDataSets({});
+    setCaseError(null);
+    setCaseMode("detail");
+  };
+
+  const handleDuplicateCase = async (id: string) => {
+    const data = (await window.api.testCases.get(id)) as {
+      testCase: TestCase;
+      steps: TestStep[];
+      dataLinks: CaseDataLink[];
+    };
+    if (!data.testCase) {
+      return;
+    }
+    const duplicateDraft = cloneCaseDraft({
+      title: data.testCase.title,
+      objective: data.testCase.objective ?? "",
+      preconditions: data.testCase.preconditions ?? "",
+      viewLocation: data.testCase.view_location ?? "",
+      priority: data.testCase.priority || priorityOptions[1],
+      tags: data.testCase.tags ?? "",
+      steps: data.steps.length
+        ? data.steps.map((step) => ({ action: step.action, expected: step.expected }))
+        : [{ action: "", expected: "" }],
+      dataSetIds: data.dataLinks?.map((link) => link.data_set_id) ?? [],
+      folderId: data.testCase.folder_id ?? null
+    });
+    setSelectedCaseId(null);
+    setCaseDraft(duplicateDraft);
+    setCaseDataSets({});
+    if (duplicateDraft.dataSetIds.length) {
+      await loadCaseDataSetDetails(duplicateDraft.dataSetIds);
+    }
+    setCaseError(null);
+    setCaseMode("detail");
   };
 
   const selectCase = (id: string) => {
@@ -3337,16 +3420,7 @@ export default function App() {
                     <button
                       type="button"
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-pill bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90"
-                      onClick={() => {
-                        setSelectedCaseId(null);
-                        const draft = emptyCase();
-                        draft.folderId =
-                          folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
-                        setCaseDraft(draft);
-                        setCaseDataSets({});
-                        setCaseError(null);
-                        setCaseMode("detail");
-                      }}
+                      onClick={() => startNewCaseDraft()}
                     >
                       <PlusIcon className="size-5" />
                       新規テストケース
@@ -3431,6 +3505,25 @@ export default function App() {
 	                          {option}
 	                        </option>
 	                      ))}
+	                    </select>
+	                  </div>
+	                  <div>
+	                    <label
+	                      htmlFor="case-sort"
+	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
+	                    >
+	                      並び順
+	                    </label>
+	                    <select
+	                      id="case-sort"
+	                      className={cn(inputClass, "mt-2")}
+	                      value={caseSort}
+	                      onChange={(event) => setCaseSort(event.target.value as CaseSortKey)}
+	                    >
+	                      <option value="updated_desc">更新日が新しい順</option>
+	                      <option value="created_desc">作成日が新しい順</option>
+	                      <option value="title_asc">タイトル順</option>
+	                      <option value="priority_desc">優先度順</option>
 	                    </select>
 	                  </div>
 	                  <div>
@@ -3554,7 +3647,7 @@ export default function App() {
 	                      <div className="min-w-[920px]">
 	                        <div
 	                          className={cn(
-	                            "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_220px] items-center text-sm",
+	                            "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_320px] items-center text-sm",
 	                            borderClass,
 	                            "border-b",
 	                            theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
@@ -3590,7 +3683,7 @@ export default function App() {
                             <div
                               key={item.id}
                               className={cn(
-                                "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_220px] items-center text-sm cursor-pointer",
+                                "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_320px] items-center text-sm cursor-pointer",
                                 borderClass,
                                 "border-b last:border-b-0",
                                 theme === "light"
@@ -3649,6 +3742,16 @@ export default function App() {
                                     }}
                                   >
 	                                  開く
+	                                </button>
+	                                <button
+	                                  type="button"
+	                                  className={outlineButtonClass}
+	                                  onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleDuplicateCase(item.id);
+                                    }}
+	                                >
+	                                  複製して新規
 	                                </button>
 	                                <button
 	                                  type="button"
@@ -3791,6 +3894,15 @@ export default function App() {
 	                      </p>
 	                    </div>
 	                  </div>
+                    {selectedCaseId && (
+                      <button
+                        type="button"
+                        className={outlineButtonClass}
+                        onClick={() => startNewCaseDraft(caseDraft)}
+                      >
+                        複製して新規
+                      </button>
+                    )}
 	                </div>
                 <div className="mt-4 grid gap-4" aria-busy={isLoading || undefined}>
                   <label htmlFor="case-title" className="text-xs font-semibold uppercase text-slate-400">
@@ -5510,13 +5622,13 @@ export default function App() {
 	                    <div
                         className={cn(
                           "mt-4 gap-4",
-                          runCaseSidebarSections.length > 0 && "xl:grid xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start"
+                          runCaseSidebarSections.length > 0 && "xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start"
                         )}
                       >
                         {runCaseSidebarSections.length > 0 && (
                           <aside
                             className={cn(
-                              "mb-4 rounded-2xl border p-4 xl:sticky xl:top-6 xl:mb-0 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-hidden",
+                              "mb-4 rounded-2xl border p-4 xl:col-start-2 xl:sticky xl:top-6 xl:mb-0 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-hidden",
                               theme === "light"
                                 ? "border-slate-200 bg-white"
                                 : "border-slate-800 bg-slate-950/60"
@@ -5620,7 +5732,7 @@ export default function App() {
                           </aside>
                         )}
 
-                        <div className="grid gap-3">
+                        <div className="grid gap-3 xl:col-start-1">
 	                      {runScenarios.map((item) => {
 	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
 	                        const scenarioCases = scenarioCasesRaw ?? [];
