@@ -201,8 +201,6 @@ type RunDraft = {
 };
 
 type SectionKey = "dashboard" | "cases" | "scenarios" | "data" | "runs" | "export" | "settings";
-type CaseSortKey = "updated_desc" | "created_desc" | "title_asc" | "priority_desc";
-
 type DashboardStats = {
   totalTestCases: number;
   totalScenarios: number;
@@ -1007,9 +1005,10 @@ export default function App() {
   const [caseFolders, setCaseFolders] = useState<CaseFolder[]>([]);
   const [folderFilter, setFolderFilter] = useState("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
-  const [caseSort, setCaseSort] = useState<CaseSortKey>("updated_desc");
   const [tagFilters, setTagFilters] = useState<string[]>([]);
   const [newFolderName, setNewFolderName] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
@@ -1025,6 +1024,7 @@ export default function App() {
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [scenarioDetail, setScenarioDetail] = useState<ScenarioDetail | null>(null);
   const [scenarioDetailsCache, setScenarioDetailsCache] = useState<Record<string, ScenarioDetail>>({});
+  const [scenarioCaseAddId, setScenarioCaseAddId] = useState("");
 
   const [dataSets, setDataSets] = useState<DataSet[]>([]);
   const [dataQuery, setDataQuery] = useState("");
@@ -1668,30 +1668,8 @@ export default function App() {
       items = items.filter((item) => item.title.toLowerCase().includes(term));
     }
 
-    const sorted = [...items];
-    sorted.sort((left, right) => {
-      if (caseSort === "title_asc") {
-        return left.title.localeCompare(right.title, "ja");
-      }
-      if (caseSort === "created_desc") {
-        return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
-      }
-      if (caseSort === "priority_desc") {
-        const priorityRank = (value: string) => {
-          if (value === "高") return 3;
-          if (value === "中") return 2;
-          if (value === "低") return 1;
-          return 0;
-        };
-        return (
-          priorityRank(right.priority ?? "") - priorityRank(left.priority ?? "") ||
-          left.title.localeCompare(right.title, "ja")
-        );
-      }
-      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
-    });
-    return sorted;
-  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter, caseSort]);
+    return items;
+  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter]);
 
   const allFilteredCaseIds = useMemo(() => filteredCases.map((item) => item.id), [filteredCases]);
   const selectedFilteredCaseCount = useMemo(
@@ -1740,6 +1718,11 @@ export default function App() {
   const hasCasesInView = useMemo(() => {
     return displayFolderKeys.some((key) => (caseGroups[key]?.length ?? 0) > 0);
   }, [displayFolderKeys, caseGroups]);
+
+  const availableScenarioCases = useMemo(() => {
+    const selected = new Set(scenarioDraft.caseIds);
+    return testCases.filter((item) => !selected.has(item.id));
+  }, [testCases, scenarioDraft.caseIds]);
 
   const filteredScenarios = useMemo(() => {
     if (!scenarioQuery.trim()) {
@@ -2058,6 +2041,7 @@ export default function App() {
       objective: data.scenario.objective ?? "",
       caseIds: data.cases.map((item) => item.case_id)
     });
+    setScenarioCaseAddId("");
     const detail = await refreshScenarioDetail(id);
     setScenarioDetail(detail);
   };
@@ -2184,6 +2168,41 @@ export default function App() {
     await window.api.caseFolders.save({ name });
     setNewFolderName("");
     await loadCaseFolders();
+  };
+
+  const handleRenameFolder = async () => {
+    const name = editingFolderName.trim();
+    if (!editingFolderId || !name) {
+      return;
+    }
+    await window.api.caseFolders.save({ id: editingFolderId, name });
+    setEditingFolderId(null);
+    setEditingFolderName("");
+    await loadCaseFolders();
+  };
+
+  const moveScenarioCase = (caseId: string, direction: "up" | "down") => {
+    setScenarioDraft((prev) => {
+      const index = prev.caseIds.indexOf(caseId);
+      if (index < 0) {
+        return prev;
+      }
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.caseIds.length) {
+        return prev;
+      }
+      const nextCaseIds = [...prev.caseIds];
+      [nextCaseIds[index], nextCaseIds[targetIndex]] = [nextCaseIds[targetIndex], nextCaseIds[index]];
+      return { ...prev, caseIds: nextCaseIds };
+    });
+  };
+
+  const addCaseToScenarioDraft = () => {
+    if (!scenarioCaseAddId) {
+      return;
+    }
+    setScenarioDraft((prev) => ({ ...prev, caseIds: [...prev.caseIds, scenarioCaseAddId] }));
+    setScenarioCaseAddId("");
   };
 
   const handleDeleteFolder = async (id: string) => {
@@ -3508,25 +3527,6 @@ export default function App() {
 	                    </select>
 	                  </div>
 	                  <div>
-	                    <label
-	                      htmlFor="case-sort"
-	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
-	                    >
-	                      並び順
-	                    </label>
-	                    <select
-	                      id="case-sort"
-	                      className={cn(inputClass, "mt-2")}
-	                      value={caseSort}
-	                      onChange={(event) => setCaseSort(event.target.value as CaseSortKey)}
-	                    >
-	                      <option value="updated_desc">更新日が新しい順</option>
-	                      <option value="created_desc">作成日が新しい順</option>
-	                      <option value="title_asc">タイトル順</option>
-	                      <option value="priority_desc">優先度順</option>
-	                    </select>
-	                  </div>
-	                  <div>
 	                    <p className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}>タグ</p>
 	                    {tagOptions.length === 0 ? (
 	                      <p className={cn("mt-2 text-xs", mutedForegroundClass)}>タグはまだありません。</p>
@@ -3607,21 +3607,64 @@ export default function App() {
                                 : "border-slate-800 bg-slate-900/50 text-slate-300"
                             )}
                           >
-                            <span className="inline-flex items-center gap-2">
-                              <FolderIcon className={theme === "light" ? "text-slate-600" : "text-slate-400"} />
-                              {folder.name}
-                            </span>
-                            <button
-                              className={cn(
-                                "rounded-full border px-2 py-1 text-[10px] font-semibold hover:opacity-90",
-                                theme === "light"
-                                  ? "border-destructive-light text-destructive-light"
-                                  : "border-destructive-dark text-destructive-dark"
-                              )}
-                              onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
-                            >
-                              削除
-                            </button>
+                            {editingFolderId === folder.id ? (
+                              <>
+                                <div className="flex min-w-0 flex-1 items-center gap-2">
+                                  <FolderIcon className={theme === "light" ? "text-slate-600" : "text-slate-400"} />
+                                  <input
+                                    className={cn(inputClass, "h-9")}
+                                    value={editingFolderName}
+                                    onChange={(event) => setEditingFolderName(event.target.value)}
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className={outlineButtonClass}
+                                    onClick={handleRenameFolder}
+                                  >
+                                    保存
+                                  </button>
+                                  <button
+                                    className={outlineButtonClass}
+                                    onClick={() => {
+                                      setEditingFolderId(null);
+                                      setEditingFolderName("");
+                                    }}
+                                  >
+                                    キャンセル
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <span className="inline-flex items-center gap-2">
+                                  <FolderIcon className={theme === "light" ? "text-slate-600" : "text-slate-400"} />
+                                  {folder.name}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className={outlineButtonClass}
+                                    onClick={() => {
+                                      setEditingFolderId(folder.id);
+                                      setEditingFolderName(folder.name);
+                                    }}
+                                  >
+                                    名前変更
+                                  </button>
+                                  <button
+                                    className={cn(
+                                      "rounded-full border px-2 py-1 text-[10px] font-semibold hover:opacity-90",
+                                      theme === "light"
+                                        ? "border-destructive-light text-destructive-light"
+                                        : "border-destructive-dark text-destructive-dark"
+                                    )}
+                                    onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
+                                  >
+                                    削除
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -4334,6 +4377,7 @@ export default function App() {
 	                    onClick={() => {
 	                      setSelectedScenarioId(null);
 	                      setScenarioDraft(emptyScenario());
+                        setScenarioCaseAddId("");
 	                      setScenarioError(null);
 	                      setScenarioDetail(null);
 	                      setScenarioMode("detail");
@@ -4529,6 +4573,116 @@ export default function App() {
                     onChange={(value) => setScenarioDraft({ ...scenarioDraft, objective: value })}
                     theme={theme}
                   />
+                  <div
+                    className={cn(
+                      "rounded-2xl border p-4",
+                      theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950/40"
+                    )}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">シナリオ内のテスト順</h3>
+                        <p className={cn("mt-1 text-xs", mutedForegroundClass)}>
+                          Excel の並び替えのように、表示順を自由に入れ替えられます。
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                      <div>
+                        <label htmlFor="scenario-case-add" className="text-xs font-semibold uppercase text-slate-400">
+                          テストケースを追加
+                        </label>
+                        <select
+                          id="scenario-case-add"
+                          className={cn(inputClass, "mt-2")}
+                          value={scenarioCaseAddId}
+                          onChange={(event) => setScenarioCaseAddId(event.target.value)}
+                        >
+                          <option value="">選択してください</option>
+                          {availableScenarioCases.map((item) => (
+                            <option key={`scenario-add-${item.id}`} value={item.id}>
+                              {item.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        className={primaryButtonClass}
+                        disabled={!scenarioCaseAddId}
+                        onClick={addCaseToScenarioDraft}
+                      >
+                        追加
+                      </button>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      {scenarioDraft.caseIds.length === 0 ? (
+                        <div
+                          className={cn(
+                            "rounded-xl border px-3 py-3 text-xs",
+                            theme === "light" ? "border-slate-200 text-slate-500" : "border-slate-800 text-slate-400"
+                          )}
+                        >
+                          まだテストケースがありません。
+                        </div>
+                      ) : (
+                        scenarioDraft.caseIds.map((caseId, index) => {
+                          const item = testCases.find((entry) => entry.id === caseId);
+                          return (
+                            <div
+                              key={`scenario-order-${caseId}`}
+                              className={cn(
+                                "flex items-center justify-between gap-3 rounded-xl border px-3 py-3",
+                                theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/30"
+                              )}
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold uppercase text-slate-400">#{index + 1}</p>
+                                <p className={cn("truncate text-sm font-medium", theme === "light" ? "text-slate-900" : "text-slate-100")}>
+                                  {item?.title ?? "不明なテストケース"}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className={outlineButtonClass}
+                                  disabled={index === 0}
+                                  onClick={() => moveScenarioCase(caseId, "up")}
+                                >
+                                  上へ
+                                </button>
+                                <button
+                                  type="button"
+                                  className={outlineButtonClass}
+                                  disabled={index === scenarioDraft.caseIds.length - 1}
+                                  onClick={() => moveScenarioCase(caseId, "down")}
+                                >
+                                  下へ
+                                </button>
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "inline-flex h-10 items-center justify-center rounded-pill border px-4 text-sm font-medium hover:opacity-90",
+                                    theme === "light"
+                                      ? "border-destructive-light text-destructive-light"
+                                      : "border-destructive-dark text-destructive-dark"
+                                  )}
+                                  onClick={() =>
+                                    setScenarioDraft((prev) => ({
+                                      ...prev,
+                                      caseIds: prev.caseIds.filter((id) => id !== caseId)
+                                    }))
+                                  }
+                                >
+                                  除外
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
 
                   {scenarioError && (
                     <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
@@ -5621,14 +5775,13 @@ export default function App() {
 
 	                    <div
                         className={cn(
-                          "mt-4 gap-4",
-                          runCaseSidebarSections.length > 0 && "xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start"
+                          "mt-4"
                         )}
                       >
                         {runCaseSidebarSections.length > 0 && (
                           <aside
                             className={cn(
-                              "mb-4 rounded-2xl border p-4 xl:col-start-2 xl:sticky xl:top-6 xl:mb-0 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-hidden",
+                              "mb-4 rounded-2xl border p-4 xl:fixed xl:right-8 xl:top-24 xl:z-20 xl:mb-0 xl:w-[320px] xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden",
                               theme === "light"
                                 ? "border-slate-200 bg-white"
                                 : "border-slate-800 bg-slate-950/60"
@@ -5664,7 +5817,7 @@ export default function App() {
                                 {runCaseTotals.isLoading ? "..." : `${runCaseTotals.total}件`}
                               </span>
                             </div>
-                            <div className="mt-4 space-y-4 xl:max-h-[calc(100vh-8.5rem)] xl:overflow-y-auto xl:pr-1">
+                            <div className="mt-4 space-y-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:pr-1">
                               {runCaseSidebarSections.map((section) => (
                                 <div key={`run-sidebar-${section.runScenarioId}`} className="space-y-1.5">
                                   <p
@@ -5732,7 +5885,7 @@ export default function App() {
                           </aside>
                         )}
 
-                        <div className="grid gap-3 xl:col-start-1">
+                        <div className={cn("grid gap-3", runCaseSidebarSections.length > 0 && "xl:pr-[344px]")}>
 	                      {runScenarios.map((item) => {
 	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
 	                        const scenarioCases = scenarioCasesRaw ?? [];
