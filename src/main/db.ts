@@ -1208,9 +1208,13 @@ export const listRunScenarioCases = (runScenarioId: string) => {
         test_cases.view_location,
         test_cases.tags
       FROM run_scenario_cases
+      JOIN run_scenarios ON run_scenarios.id = run_scenario_cases.run_scenario_id
       JOIN test_cases ON test_cases.id = run_scenario_cases.case_id
+      LEFT JOIN scenario_cases
+        ON scenario_cases.scenario_id = run_scenarios.scenario_id
+       AND scenario_cases.case_id = run_scenario_cases.case_id
       WHERE run_scenario_cases.run_scenario_id = ?
-      ORDER BY run_scenario_cases.created_at`
+      ORDER BY COALESCE(scenario_cases.position, 999999), run_scenario_cases.created_at`
     )
     .all(runScenarioId);
 };

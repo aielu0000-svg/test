@@ -1026,6 +1026,8 @@ export default function App() {
   const [scenarioDetail, setScenarioDetail] = useState<ScenarioDetail | null>(null);
   const [scenarioDetailsCache, setScenarioDetailsCache] = useState<Record<string, ScenarioDetail>>({});
   const [scenarioCaseAddId, setScenarioCaseAddId] = useState("");
+  const [draggingScenarioCaseId, setDraggingScenarioCaseId] = useState<string | null>(null);
+  const [dragOverScenarioCaseId, setDragOverScenarioCaseId] = useState<string | null>(null);
 
   const [dataSets, setDataSets] = useState<DataSet[]>([]);
   const [dataQuery, setDataQuery] = useState("");
@@ -1044,6 +1046,7 @@ export default function App() {
   const [selectedRunScenarioId, setSelectedRunScenarioId] = useState<string | null>(null);
   const [runScenarioAddQuery, setRunScenarioAddQuery] = useState("");
   const [runScenarioAddId, setRunScenarioAddId] = useState("");
+  const [runIndexOpen, setRunIndexOpen] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [evidenceList, setEvidenceList] = useState<Evidence[]>([]);
   const [runCaseEvidenceMap, setRunCaseEvidenceMap] = useState<Record<string, EvidencePreview[]>>({});
@@ -2231,6 +2234,23 @@ export default function App() {
     }
     setScenarioDraft((prev) => ({ ...prev, caseIds: [...prev.caseIds, scenarioCaseAddId] }));
     setScenarioCaseAddId("");
+  };
+
+  const reorderScenarioCase = (fromCaseId: string, toCaseId: string) => {
+    if (fromCaseId === toCaseId) {
+      return;
+    }
+    setScenarioDraft((prev) => {
+      const fromIndex = prev.caseIds.indexOf(fromCaseId);
+      const toIndex = prev.caseIds.indexOf(toCaseId);
+      if (fromIndex < 0 || toIndex < 0) {
+        return prev;
+      }
+      const nextCaseIds = [...prev.caseIds];
+      const [moved] = nextCaseIds.splice(fromIndex, 1);
+      nextCaseIds.splice(toIndex, 0, moved);
+      return { ...prev, caseIds: nextCaseIds };
+    });
   };
 
   const handleDeleteFolder = async (id: string) => {
@@ -4709,34 +4729,56 @@ export default function App() {
                           return (
                             <div
                               key={`scenario-order-${caseId}`}
+                              draggable
+                              onDragStart={() => {
+                                setDraggingScenarioCaseId(caseId);
+                                setDragOverScenarioCaseId(caseId);
+                              }}
+                              onDragOver={(event) => {
+                                event.preventDefault();
+                                if (dragOverScenarioCaseId !== caseId) {
+                                  setDragOverScenarioCaseId(caseId);
+                                }
+                              }}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                if (draggingScenarioCaseId) {
+                                  reorderScenarioCase(draggingScenarioCaseId, caseId);
+                                }
+                                setDraggingScenarioCaseId(null);
+                                setDragOverScenarioCaseId(null);
+                              }}
+                              onDragEnd={() => {
+                                setDraggingScenarioCaseId(null);
+                                setDragOverScenarioCaseId(null);
+                              }}
                               className={cn(
                                 "flex items-center justify-between gap-3 rounded-xl border px-3 py-3",
-                                theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/30"
+                                theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/30",
+                                draggingScenarioCaseId === caseId && "opacity-60",
+                                dragOverScenarioCaseId === caseId &&
+                                  (theme === "light" ? "border-sky-300 bg-sky-50" : "border-sky-500/60 bg-sky-950/30")
                               )}
                             >
-                              <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span
+                                  className={cn(
+                                    "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-xs font-semibold",
+                                    theme === "light"
+                                      ? "border-slate-200 bg-slate-50 text-slate-500"
+                                      : "border-slate-700 bg-slate-900 text-slate-300"
+                                  )}
+                                >
+                                  ⇅
+                                </span>
+                                <div className="min-w-0">
                                 <p className="text-xs font-semibold uppercase text-slate-400">#{index + 1}</p>
                                 <p className={cn("truncate text-sm font-medium", theme === "light" ? "text-slate-900" : "text-slate-100")}>
                                   {item?.title ?? "不明なテストケース"}
                                 </p>
                               </div>
+                              </div>
                               <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  className={outlineButtonClass}
-                                  disabled={index === 0}
-                                  onClick={() => moveScenarioCase(caseId, "up")}
-                                >
-                                  上へ
-                                </button>
-                                <button
-                                  type="button"
-                                  className={outlineButtonClass}
-                                  disabled={index === scenarioDraft.caseIds.length - 1}
-                                  onClick={() => moveScenarioCase(caseId, "down")}
-                                >
-                                  下へ
-                                </button>
                                 <button
                                   type="button"
                                   className={cn(
@@ -5857,12 +5899,27 @@ export default function App() {
                         )}
                       >
                         {runCaseSidebarSections.length > 0 && (
+                          <button
+                            type="button"
+                            className={cn(
+                              "hidden xl:flex fixed left-[312px] top-24 z-30 items-center gap-2 rounded-r-2xl border px-4 py-3 text-sm font-semibold shadow-lg",
+                              theme === "light"
+                                ? "border-slate-200 bg-white text-slate-900"
+                                : "border-slate-700 bg-slate-900 text-slate-100"
+                            )}
+                            onClick={() => setRunIndexOpen((prev) => !prev)}
+                          >
+                            {runIndexOpen ? "一覧を閉じる" : "テスト項目一覧"}
+                          </button>
+                        )}
+                        {runCaseSidebarSections.length > 0 && (
                           <aside
                             className={cn(
-                              "mb-4 rounded-2xl border p-4 xl:fixed xl:left-[312px] xl:top-24 xl:z-20 xl:mb-0 xl:w-[320px] xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden",
+                              "mb-4 rounded-2xl border p-4 xl:fixed xl:left-[312px] xl:top-[4.75rem] xl:z-20 xl:mb-0 xl:w-[320px] xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden xl:transition-transform",
                               theme === "light"
                                 ? "border-slate-200 bg-white"
-                                : "border-slate-800 bg-slate-950/60"
+                                : "border-slate-800 bg-slate-950",
+                              runIndexOpen ? "xl:translate-x-0" : "xl:-translate-x-[calc(100%+1rem)]"
                             )}
                           >
                             <div className="flex items-start justify-between gap-3">
@@ -5895,7 +5952,10 @@ export default function App() {
                                 {runCaseTotals.isLoading ? "..." : `${runCaseTotals.total}件`}
                               </span>
                             </div>
-                            <div className="mt-4 space-y-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:pr-1">
+                            <div
+                              className="mt-4 space-y-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:pr-1"
+                              onWheelCapture={(event) => event.stopPropagation()}
+                            >
                               {runCaseSidebarSections.map((section) => (
                                 <div key={`run-sidebar-${section.runScenarioId}`} className="space-y-1.5">
                                   <p
@@ -5963,7 +6023,7 @@ export default function App() {
                           </aside>
                         )}
 
-                        <div className={cn("grid gap-3", runCaseSidebarSections.length > 0 && "xl:pl-[344px]")}>
+                        <div className={cn("grid gap-3", runCaseSidebarSections.length > 0 && runIndexOpen && "xl:pl-[344px]")}>
 	                      {runScenarios.map((item) => {
 	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
 	                        const scenarioCases = scenarioCasesRaw ?? [];
