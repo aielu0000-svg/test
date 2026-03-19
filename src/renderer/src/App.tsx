@@ -149,6 +149,15 @@ type EvidencePreview = {
   scope: "scenario" | "run_case";
 };
 
+type EditorMode = "crop" | "paint" | "border";
+
+type EditorSelection = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 type RunCaseEvidenceRow = {
   id: string;
   run_scenario_case_id: string;
@@ -987,9 +996,9 @@ const emptyRun = (): RunDraft => ({
 
 export default function App() {
   const evidenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const editorImageRef = useRef<HTMLImageElement | null>(null);
-  const originalEditorImageRef = useRef<HTMLImageElement | null>(null);
-  const pointerStateRef = useRef<null | { mode: "crop" | "paint"; x: number; y: number }>(null);
+  const editorImageRef = useRef<HTMLCanvasElement | null>(null);
+  const originalEditorImageRef = useRef<HTMLCanvasElement | null>(null);
+  const pointerStateRef = useRef<null | { mode: EditorMode; x: number; y: number; pointerId: number }>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [fontSizePx, setFontSizePx] = useState(21);
   const [projectName, setProjectName] = useState("ザ・テスト");
@@ -1060,12 +1069,13 @@ export default function App() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [evidenceResizeEnabled, setEvidenceResizeEnabled] = useState(true);
   const [evidenceResizeMax, setEvidenceResizeMax] = useState(1600);
-  const [editorMode, setEditorMode] = useState<"crop" | "paint">("crop");
+  const [editorMode, setEditorMode] = useState<EditorMode>("crop");
   const [editorBrushColor, setEditorBrushColor] = useState("#ff3b30");
   const [editorBrushSize, setEditorBrushSize] = useState(6);
   const [editorBorderColor, setEditorBorderColor] = useState("#22c55e");
   const [editorBorderWidth, setEditorBorderWidth] = useState(8);
-  const [editorSelection, setEditorSelection] = useState<null | { x: number; y: number; w: number; h: number }>(null);
+  const [editorSelection, setEditorSelection] = useState<EditorSelection | null>(null);
+  const [editorCanvasSize, setEditorCanvasSize] = useState({ width: 0, height: 0 });
   const [scenarioFolderId, setScenarioFolderId] = useState("");
   const [scenarioFromFolderTitle, setScenarioFromFolderTitle] = useState("");
 
@@ -1308,13 +1318,31 @@ export default function App() {
     }
     const image = new Image();
     image.onload = () => {
-      editorImageRef.current = image;
-      originalEditorImageRef.current = image;
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = image.naturalWidth;
+      sourceCanvas.height = image.naturalHeight;
+      const sourceContext = sourceCanvas.getContext("2d");
+      sourceContext?.drawImage(image, 0, 0);
+      const originalCanvas = document.createElement("canvas");
+      originalCanvas.width = image.naturalWidth;
+      originalCanvas.height = image.naturalHeight;
+      const originalContext = originalCanvas.getContext("2d");
+      originalContext?.drawImage(image, 0, 0);
+      editorImageRef.current = sourceCanvas;
+      originalEditorImageRef.current = originalCanvas;
       setEditorSelection(null);
+      setEditorCanvasSize({ width: image.naturalWidth, height: image.naturalHeight });
       drawEvidenceCanvas(null);
     };
     image.src = evidencePreview.dataUrl;
   }, [evidencePreview?.id, evidencePreview?.dataUrl, evidencePreview?.mimeType]);
+
+  useEffect(() => {
+    if (!evidencePreview?.dataUrl || !evidencePreview.mimeType.startsWith("image/")) {
+      return;
+    }
+    drawEvidenceCanvas(editorSelection);
+  }, [editorMode, editorSelection, evidencePreview?.id]);
 
   useEffect(() => {
     if (!project) {
@@ -2608,28 +2636,38 @@ export default function App() {
     setEditorSelection(null);
   };
 
-  const drawEvidenceCanvas = (selection?: { x: number; y: number; w: number; h: number } | null) => {
+  const cloneEditorCanvas = (source: HTMLCanvasElement) => {
+    const clone = document.createElement("canvas");
+    clone.width = source.width;
+    clone.height = source.height;
+    const context = clone.getContext("2d");
+    context?.drawImage(source, 0, 0);
+    return clone;
+  };
+
+  const drawEvidenceCanvas = (selection?: EditorSelection | null) => {
     const canvas = evidenceCanvasRef.current;
     const image = editorImageRef.current;
     if (!canvas || !image) {
       return;
     }
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
+    canvas.width = image.width;
+    canvas.height = image.height;
     const context = canvas.getContext("2d");
     if (!context) {
       return;
     }
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0);
-    if (selection && selection.w > 0 && selection.h > 0) {
+    if (selection && selection.w > 0 && selection.h > 0 && editorMode !== "paint") {
       context.save();
-      context.strokeStyle = "#38bdf8";
+      context.strokeStyle = editorMode === "border" ? editorBorderColor : "#38bdf8";
       context.lineWidth = Math.max(2, canvas.width / 400);
-      context.setLineDash([10, 6]);
+      context.setLineDash(editorMode === "border" ? [] : [10, 6]);
       context.strokeRect(selection.x, selection.y, selection.w, selection.h);
       context.restore();
     }
+    setEditorCanvasSize({ width: image.width, height: image.height });
   };
 
   const pointerToCanvas = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -2647,8 +2685,8 @@ export default function App() {
   };
 
   const applyCropSelection = () => {
-    const canvas = evidenceCanvasRef.current;
-    if (!canvas || !editorSelection || editorSelection.w < 4 || editorSelection.h < 4) {
+    const sourceCanvas = editorImageRef.current;
+    if (!sourceCanvas || !editorSelection || editorSelection.w < 4 || editorSelection.h < 4) {
       return;
     }
     const temp = document.createElement("canvas");
@@ -2659,7 +2697,7 @@ export default function App() {
       return;
     }
     context.drawImage(
-      canvas,
+      sourceCanvas,
       editorSelection.x,
       editorSelection.y,
       editorSelection.w,
@@ -2669,21 +2707,18 @@ export default function App() {
       temp.width,
       temp.height
     );
-    const image = new Image();
-    image.onload = () => {
-      editorImageRef.current = image;
-      setEditorSelection(null);
-      drawEvidenceCanvas(null);
-    };
-    image.src = temp.toDataURL("image/png");
+    editorImageRef.current = cloneEditorCanvas(temp);
+    setEditorCanvasSize({ width: temp.width, height: temp.height });
+    setEditorSelection(null);
+    drawEvidenceCanvas(null);
   };
 
   const applyBorderToEvidence = () => {
-    const canvas = evidenceCanvasRef.current;
-    if (!canvas) {
+    const sourceCanvas = editorImageRef.current;
+    if (!sourceCanvas || !editorSelection || editorSelection.w < 4 || editorSelection.h < 4) {
       return;
     }
-    const context = canvas.getContext("2d");
+    const context = sourceCanvas.getContext("2d");
     if (!context) {
       return;
     }
@@ -2691,20 +2726,22 @@ export default function App() {
     context.strokeStyle = editorBorderColor;
     context.lineWidth = editorBorderWidth;
     context.strokeRect(
-      editorBorderWidth / 2,
-      editorBorderWidth / 2,
-      canvas.width - editorBorderWidth,
-      canvas.height - editorBorderWidth
+      editorSelection.x + editorBorderWidth / 2,
+      editorSelection.y + editorBorderWidth / 2,
+      Math.max(0, editorSelection.w - editorBorderWidth),
+      Math.max(0, editorSelection.h - editorBorderWidth)
     );
     context.restore();
+    setEditorSelection(null);
+    drawEvidenceCanvas(null);
   };
 
   const saveEditedEvidence = async () => {
-    const canvas = evidenceCanvasRef.current;
-    if (!canvas || !evidencePreview) {
+    const sourceCanvas = editorImageRef.current;
+    if (!sourceCanvas || !evidencePreview) {
       return;
     }
-    const dataUrl = canvas.toDataURL("image/png");
+    const dataUrl = sourceCanvas.toDataURL("image/png");
     const base64 = dataUrl.split(",")[1] ?? "";
     if (!base64) {
       return;
@@ -7475,30 +7512,43 @@ export default function App() {
                     >
                       ペイント
                     </button>
+                    <button
+                      type="button"
+                      className={cn(outlineButtonClass, editorMode === "border" && "ring-1 ring-primary")}
+                      onClick={() => setEditorMode("border")}
+                    >
+                      枠線
+                    </button>
                   </div>
                   <div className="mt-4 grid gap-3">
                     <label className="text-xs font-semibold uppercase text-slate-400">ペイント色</label>
                     <input type="color" value={editorBrushColor} onChange={(event) => setEditorBrushColor(event.target.value)} />
-                    <label className="text-xs font-semibold uppercase text-slate-400">ブラシサイズ</label>
+                    <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-400">
+                      <span>ブラシサイズ</span>
+                      <span className="text-[11px] text-slate-300">{editorBrushSize}px</span>
+                    </div>
                     <input type="range" min={1} max={30} value={editorBrushSize} onChange={(event) => setEditorBrushSize(Number(event.target.value))} />
                     <label className="text-xs font-semibold uppercase text-slate-400">枠線色</label>
                     <input type="color" value={editorBorderColor} onChange={(event) => setEditorBorderColor(event.target.value)} />
-                    <label className="text-xs font-semibold uppercase text-slate-400">枠線太さ</label>
+                    <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-400">
+                      <span>枠線太さ</span>
+                      <span className="text-[11px] text-slate-300">{editorBorderWidth}px</span>
+                    </div>
                     <input type="range" min={1} max={40} value={editorBorderWidth} onChange={(event) => setEditorBorderWidth(Number(event.target.value))} />
                   </div>
                   <div className="mt-4 grid gap-2">
                     <button type="button" className={primaryButtonClass} onClick={applyCropSelection} disabled={!editorSelection}>
                       トリミングを適用
                     </button>
-                    <button type="button" className={outlineButtonClass} onClick={applyBorderToEvidence}>
-                      枠線を追加
+                    <button type="button" className={outlineButtonClass} onClick={applyBorderToEvidence} disabled={!editorSelection}>
+                      選択範囲に枠線を追加
                     </button>
                     <button
                       type="button"
                       className={outlineButtonClass}
                       onClick={() => {
                         if (originalEditorImageRef.current) {
-                          editorImageRef.current = originalEditorImageRef.current;
+                          editorImageRef.current = cloneEditorCanvas(originalEditorImageRef.current);
                         }
                         setEditorSelection(null);
                         drawEvidenceCanvas(null);
@@ -7512,31 +7562,58 @@ export default function App() {
                   </div>
                 </div>
                 <div className="overflow-auto rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                  <div className="mb-3 flex items-center justify-between text-xs font-semibold text-slate-400">
+                    <span>
+                      {editorMode === "paint"
+                        ? "ドラッグで描画"
+                        : editorMode === "border"
+                          ? "ドラッグで枠線の配置範囲を選択"
+                          : "ドラッグでトリミング範囲を選択"}
+                    </span>
+                    <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-200">
+                      {editorCanvasSize.width}px × {editorCanvasSize.height}px
+                    </span>
+                  </div>
                   <canvas
                     ref={evidenceCanvasRef}
                     className="max-h-[72vh] w-full rounded-xl object-contain touch-none"
                     onPointerDown={(event) => {
                       const point = pointerToCanvas(event);
-                      if (editorMode === "crop") {
-                        pointerStateRef.current = { mode: "crop", x: point.x, y: point.y };
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (editorMode === "crop" || editorMode === "border") {
+                        pointerStateRef.current = {
+                          mode: editorMode,
+                          x: point.x,
+                          y: point.y,
+                          pointerId: event.pointerId
+                        };
                         setEditorSelection({ x: point.x, y: point.y, w: 0, h: 0 });
                         return;
                       }
-                      pointerStateRef.current = { mode: "paint", x: point.x, y: point.y };
-                      const context = evidenceCanvasRef.current?.getContext("2d");
+                      pointerStateRef.current = {
+                        mode: "paint",
+                        x: point.x,
+                        y: point.y,
+                        pointerId: event.pointerId
+                      };
+                      const context = editorImageRef.current?.getContext("2d");
                       if (!context) return;
                       context.strokeStyle = editorBrushColor;
                       context.lineWidth = editorBrushSize;
                       context.lineCap = "round";
+                      context.lineJoin = "round";
                       context.beginPath();
                       context.moveTo(point.x, point.y);
+                      context.lineTo(point.x + 0.01, point.y + 0.01);
+                      context.stroke();
+                      drawEvidenceCanvas(editorSelection);
                     }}
                     onPointerMove={(event) => {
                       const point = pointerToCanvas(event);
                       if (!pointerStateRef.current) {
                         return;
                       }
-                      if (pointerStateRef.current.mode === "crop") {
+                      if (pointerStateRef.current.mode === "crop" || pointerStateRef.current.mode === "border") {
                         const nextSelection = {
                           x: Math.min(pointerStateRef.current.x, point.x),
                           y: Math.min(pointerStateRef.current.y, point.y),
@@ -7547,18 +7624,29 @@ export default function App() {
                         drawEvidenceCanvas(nextSelection);
                         return;
                       }
-                      const context = evidenceCanvasRef.current?.getContext("2d");
+                      const context = editorImageRef.current?.getContext("2d");
                       if (!context) return;
+                      context.beginPath();
+                      context.moveTo(pointerStateRef.current.x, pointerStateRef.current.y);
                       context.lineTo(point.x, point.y);
                       context.strokeStyle = editorBrushColor;
                       context.lineWidth = editorBrushSize;
                       context.lineCap = "round";
+                      context.lineJoin = "round";
                       context.stroke();
+                      pointerStateRef.current = { ...pointerStateRef.current, x: point.x, y: point.y };
+                      drawEvidenceCanvas(editorSelection);
                     }}
-                    onPointerUp={() => {
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }
                       pointerStateRef.current = null;
                     }}
-                    onPointerLeave={() => {
+                    onPointerLeave={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }
                       pointerStateRef.current = null;
                     }}
                   />
