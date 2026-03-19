@@ -241,13 +241,6 @@ const runCaseStatusLabels: Record<RunCaseStatus, string> = {
   blocked: "⚠️ ブロック",
   skip: "スキップ"
 };
-const runCaseStatusEmoji: Record<RunCaseStatus, string> = {
-  not_run: "",
-  pass: "✅",
-  fail: "✖",
-  blocked: "⚠️",
-  skip: "⏭️"
-};
 const runScenarioStatusLabels: Record<RunScenarioStatus, string> = {
   not_run: "未実行",
   in_progress: "実行中",
@@ -421,6 +414,84 @@ const PlusIcon = ({ className }: { className?: string }) => (
     <path d="M5 12h14" />
   </svg>
 );
+
+const RunCasePassIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 16 16"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="m3.5 8.5 2.5 2.5 6-6" />
+  </svg>
+);
+
+const RunCaseFailIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 16 16"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M4 4l8 8" />
+    <path d="M12 4 4 12" />
+  </svg>
+);
+
+const RunCaseBlockedIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 16 16"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M8 3.25v5" />
+    <path d="M8 11.75h.01" />
+    <path d="M8 1.75 14 13H2z" />
+  </svg>
+);
+
+const RunCaseStatusIndicator = ({
+  status,
+  className
+}: {
+  status: RunCaseStatus;
+  className?: string;
+}) => {
+  if (status === "not_run") {
+    return null;
+  }
+
+  if (status === "skip") {
+    return (
+      <span className={cn("text-[11px] font-bold uppercase tracking-[0.24em]", className)} aria-label="スキップ">
+        S
+      </span>
+    );
+  }
+
+  if (status === "pass") {
+    return <RunCasePassIcon className={className} />;
+  }
+
+  if (status === "fail") {
+    return <RunCaseFailIcon className={className} />;
+  }
+
+  return <RunCaseBlockedIcon className={className} />;
+};
 
 const FolderIcon = ({ className }: { className?: string }) => (
   <svg
@@ -1693,6 +1764,18 @@ export default function App() {
     return { ...summarizeRunCaseStatuses(aggregated), isLoading };
   }, [runScenarios, runScenarioCasesMap]);
 
+  const runCaseSidebarSections = useMemo(
+    () =>
+      runScenarios
+        .map((scenario) => ({
+          runScenarioId: scenario.id,
+          scenarioTitle: scenario.title,
+          cases: runScenarioCasesMap[scenario.id] ?? []
+        }))
+        .filter((section) => section.cases.length > 0),
+    [runScenarios, runScenarioCasesMap]
+  );
+
   useEffect(() => {
     const changedScenarios: RunCase[] = [];
     setRunScenarios((prev) => {
@@ -2206,6 +2289,9 @@ export default function App() {
     const target = document.getElementById(`run-case-${runCaseId}`);
     if (!target) {
       return;
+    }
+    if (target instanceof HTMLDetailsElement) {
+      target.open = true;
     }
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -5407,7 +5493,120 @@ export default function App() {
 	                      )}
 	                    </div>
 
-	                    <div className="mt-4 grid gap-3">
+	                    <div
+                        className={cn(
+                          "mt-4 gap-4",
+                          runCaseSidebarSections.length > 0 && "xl:grid xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start"
+                        )}
+                      >
+                        {runCaseSidebarSections.length > 0 && (
+                          <aside
+                            className={cn(
+                              "mb-4 h-fit rounded-2xl border p-4 xl:sticky xl:top-28 xl:mb-0",
+                              theme === "light"
+                                ? "border-slate-200 bg-white"
+                                : "border-slate-800 bg-slate-950/60"
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p
+                                  className={cn(
+                                    "text-[11px] font-semibold uppercase tracking-[0.28em]",
+                                    mutedForegroundClass
+                                  )}
+                                >
+                                  Test Index
+                                </p>
+                                <h3
+                                  className={cn(
+                                    "mt-2 text-sm font-semibold",
+                                    theme === "light" ? "text-slate-900" : "text-slate-100"
+                                  )}
+                                >
+                                  テスト項目一覧
+                                </h3>
+                              </div>
+                              <span
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1 text-[11px] font-semibold tabular-nums",
+                                  theme === "light"
+                                    ? "border-slate-200 text-slate-600"
+                                    : "border-slate-700 text-slate-300"
+                                )}
+                              >
+                                {runCaseTotals.isLoading ? "..." : `${runCaseTotals.total}件`}
+                              </span>
+                            </div>
+                            <div className="mt-4 space-y-4">
+                              {runCaseSidebarSections.map((section) => (
+                                <div key={`run-sidebar-${section.runScenarioId}`} className="space-y-1.5">
+                                  <p
+                                    className={cn(
+                                      "px-2 text-[11px] font-semibold uppercase tracking-[0.2em]",
+                                      mutedForegroundClass
+                                    )}
+                                  >
+                                    {section.scenarioTitle}
+                                  </p>
+                                  {section.cases.map((runCase) => {
+                                    const status = (runCase.status as RunCaseStatus) ?? "not_run";
+                                    const isSelected =
+                                      selectedRunScenarioId === section.runScenarioId &&
+                                      runMode === "execute";
+                                    return (
+                                      <button
+                                        key={`nav-${runCase.id}`}
+                                        type="button"
+                                        className={cn(
+                                          "flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
+                                          theme === "light"
+                                            ? "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                                            : "border-slate-800 bg-slate-950/40 hover:bg-slate-900",
+                                          isSelected &&
+                                            (theme === "light"
+                                              ? "border-sky-300 bg-sky-50"
+                                              : "border-sky-500/60 bg-sky-950/30")
+                                        )}
+                                        onClick={() => {
+                                          setSelectedRunScenarioId(section.runScenarioId);
+                                          scrollToRunCase(runCase.id);
+                                        }}
+                                      >
+                                        <span
+                                          className={cn(
+                                            "line-clamp-2 text-sm font-medium",
+                                            theme === "light" ? "text-slate-900" : "text-slate-100"
+                                          )}
+                                        >
+                                          {runCase.case_title}
+                                        </span>
+                                        <span
+                                          className={cn(
+                                            "flex min-h-5 min-w-5 shrink-0 items-center justify-center",
+                                            status === "pass" &&
+                                              (theme === "light" ? "text-emerald-600" : "text-emerald-300"),
+                                            status === "fail" &&
+                                              (theme === "light" ? "text-rose-600" : "text-rose-300"),
+                                            status === "blocked" &&
+                                              (theme === "light" ? "text-amber-600" : "text-amber-300"),
+                                            status === "skip" &&
+                                              (theme === "light" ? "text-slate-500" : "text-slate-300")
+                                          )}
+                                          aria-hidden="true"
+                                        >
+                                          <RunCaseStatusIndicator status={status} />
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                          </aside>
+                        )}
+
+                        <div className="grid gap-3">
 	                      {runScenarios.map((item) => {
 	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
 	                        const scenarioCases = scenarioCasesRaw ?? [];
@@ -5546,14 +5745,7 @@ export default function App() {
 		                            <div className="flex items-center justify-between">
 		                              <p className="text-sm font-semibold uppercase text-slate-400">ケース結果</p>
 		                            </div>
-		                            <div
-                                className={cn(
-                                  "mt-3",
-                                  selectedRunScenarioId === item.id && scenarioCases.length > 0
-                                    ? "grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]"
-                                    : "space-y-3"
-                                )}
-                              >
+		                            <div className="mt-3 space-y-3">
                               {scenarioCases.length === 0 ? (
                                 <p className="text-sm text-slate-500">
                                   {runScenarioCasesMap[item.id]
@@ -5561,42 +5753,7 @@ export default function App() {
                                     : "ケース情報を読み込んでいます..."}
                                 </p>
                               ) : (
-                                <>
-                                  {selectedRunScenarioId === item.id && (
-                                    <aside
-                                      className={cn(
-                                        "h-fit rounded-xl border p-3",
-                                        theme === "light"
-                                          ? "border-slate-200 bg-white"
-                                          : "border-slate-800 bg-slate-950/40"
-                                      )}
-                                    >
-                                      <p className="text-sm font-semibold text-slate-200">テストケース一覧</p>
-                                      <div className="mt-2 space-y-1.5">
-                                        {scenarioCases.map((runCase) => {
-                                          const status = (runCase.status as RunCaseStatus) ?? "not_run";
-                                          const icon = runCaseStatusEmoji[status] ?? "";
-                                          return (
-                                            <button
-                                              key={`nav-${runCase.id}`}
-                                              type="button"
-                                              className={cn(
-                                                "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                                                theme === "light"
-                                                  ? "hover:bg-slate-100"
-                                                  : "hover:bg-slate-900"
-                                              )}
-                                              onClick={() => scrollToRunCase(runCase.id)}
-                                            >
-                                              <span className="truncate">{runCase.case_title}</span>
-                                              <span className="shrink-0">{icon}</span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </aside>
-                                  )}
-                                  <div className="space-y-3">
+                                <div className="space-y-3">
                                     {scenarioCases.map((runCase) => {
                                   const caseDetail =
                                     scenarioDetailsCache[item.scenario_id]?.cases.find(
@@ -5934,7 +6091,6 @@ export default function App() {
                                   );
                                 })}
                                   </div>
-                                </>
                               )}
                             </div>
                           </div>
@@ -5951,6 +6107,7 @@ export default function App() {
                         </div>
                       );
                     })}
+                    </div>
                     </div>
                     {selectedRunScenarioId && (
                       <div className="mt-4 rounded-xl border border-slate-800 p-4">
