@@ -426,7 +426,7 @@ const RunCasePassIcon = ({ className }: { className?: string }) => (
     className={cn("size-4", className)}
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.8"
+    strokeWidth="2.8"
     strokeLinecap="round"
     strokeLinejoin="round"
   >
@@ -5516,7 +5516,7 @@ export default function App() {
                         {runCaseSidebarSections.length > 0 && (
                           <aside
                             className={cn(
-                              "mb-4 rounded-2xl border p-4 xl:sticky xl:top-28 xl:mb-0 xl:max-h-[calc(100vh-8.5rem)] xl:overflow-hidden",
+                              "mb-4 rounded-2xl border p-4 xl:sticky xl:top-6 xl:mb-0 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-hidden",
                               theme === "light"
                                 ? "border-slate-200 bg-white"
                                 : "border-slate-800 bg-slate-950/60"
@@ -5552,7 +5552,7 @@ export default function App() {
                                 {runCaseTotals.isLoading ? "..." : `${runCaseTotals.total}件`}
                               </span>
                             </div>
-                            <div className="mt-4 space-y-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto xl:pr-1">
+                            <div className="mt-4 space-y-4 xl:max-h-[calc(100vh-8.5rem)] xl:overflow-y-auto xl:pr-1">
                               {runCaseSidebarSections.map((section) => (
                                 <div key={`run-sidebar-${section.runScenarioId}`} className="space-y-1.5">
                                   <p
