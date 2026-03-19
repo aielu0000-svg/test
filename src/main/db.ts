@@ -1488,6 +1488,38 @@ export const previewRunScenarioCaseEvidence = (id: string) => {
   };
 };
 
+const updateEvidenceBinary = (
+  table: "scenario_evidence" | "run_case_evidence",
+  id: string,
+  payload: { buffer: Buffer; mimeType: string }
+) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare(`SELECT stored_path FROM ${table} WHERE id = ?`)
+    .get(id) as { stored_path?: string } | undefined;
+  if (!row?.stored_path) {
+    throw new Error("証跡が見つかりません。");
+  }
+  const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+  if (!filePath) {
+    throw new Error("証跡ファイルのパスが不正です。");
+  }
+  fs.writeFileSync(filePath, payload.buffer);
+  database
+    .prepare(`UPDATE ${table} SET mime_type = ?, size = ? WHERE id = ?`)
+    .run(payload.mimeType, payload.buffer.length, id);
+};
+
+export const updateScenarioEvidenceImage = (
+  id: string,
+  payload: { buffer: Buffer; mimeType: string }
+) => updateEvidenceBinary("scenario_evidence", id, payload);
+
+export const updateRunScenarioCaseEvidenceImage = (
+  id: string,
+  payload: { buffer: Buffer; mimeType: string }
+) => updateEvidenceBinary("run_case_evidence", id, payload);
+
 const escapeCsv = (value: string) => {
   const raw = value ?? "";
   const trimmed = raw.trimStart();

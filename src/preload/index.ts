@@ -55,18 +55,20 @@ const api = {
   },
   evidence: {
     list: (runScenarioId: string) => ipcRenderer.invoke("evidence:list", runScenarioId),
-    add: (runScenarioId: string) => ipcRenderer.invoke("evidence:add", runScenarioId),
-    pasteImage: (runScenarioId: string) => ipcRenderer.invoke("evidence:pasteImage", runScenarioId),
+    add: (runScenarioId: string, options?: unknown) => ipcRenderer.invoke("evidence:add", runScenarioId, options),
+    pasteImage: (runScenarioId: string, options?: unknown) => ipcRenderer.invoke("evidence:pasteImage", runScenarioId, options),
     remove: (id: string) => ipcRenderer.invoke("evidence:remove", id),
     open: (id: string) => ipcRenderer.invoke("evidence:open", id),
-    preview: (id: string) => ipcRenderer.invoke("evidence:preview", id)
+    preview: (id: string) => ipcRenderer.invoke("evidence:preview", id),
+    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("evidence:updateImage", id, payload)
   },
   runCaseEvidence: {
     list: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:list", runScenarioCaseId),
-    add: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:add", runScenarioCaseId),
-    paste: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:paste", runScenarioCaseId),
+    add: (runScenarioCaseId: string, options?: unknown) => ipcRenderer.invoke("runCaseEvidence:add", runScenarioCaseId, options),
+    paste: (runScenarioCaseId: string, options?: unknown) => ipcRenderer.invoke("runCaseEvidence:paste", runScenarioCaseId, options),
     remove: (id: string) => ipcRenderer.invoke("runCaseEvidence:remove", id),
-    preview: (id: string) => ipcRenderer.invoke("runCaseEvidence:preview", id)
+    preview: (id: string) => ipcRenderer.invoke("runCaseEvidence:preview", id),
+    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("runCaseEvidence:updateImage", id, payload)
   },
   export: {
     save: (payload: unknown) => ipcRenderer.invoke("export:save", payload)

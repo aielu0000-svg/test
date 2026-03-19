@@ -146,6 +146,7 @@ type EvidencePreview = {
   fileName: string;
   dataUrl: string;
   mimeType: string;
+  scope: "scenario" | "run_case";
 };
 
 type RunCaseEvidenceRow = {
@@ -985,6 +986,10 @@ const emptyRun = (): RunDraft => ({
 });
 
 export default function App() {
+  const evidenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const editorImageRef = useRef<HTMLImageElement | null>(null);
+  const originalEditorImageRef = useRef<HTMLImageElement | null>(null);
+  const pointerStateRef = useRef<null | { mode: "crop" | "paint"; x: number; y: number }>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [fontSizePx, setFontSizePx] = useState(21);
   const [projectName, setProjectName] = useState("ザ・テスト");
@@ -1053,6 +1058,14 @@ export default function App() {
   const [runScenarioCasesMap, setRunScenarioCasesMap] = useState<Record<string, RunScenarioCase[]>>({});
   const [evidencePreview, setEvidencePreview] = useState<EvidencePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [evidenceResizeEnabled, setEvidenceResizeEnabled] = useState(true);
+  const [evidenceResizeMax, setEvidenceResizeMax] = useState(1600);
+  const [editorMode, setEditorMode] = useState<"crop" | "paint">("crop");
+  const [editorBrushColor, setEditorBrushColor] = useState("#ff3b30");
+  const [editorBrushSize, setEditorBrushSize] = useState(6);
+  const [editorBorderColor, setEditorBorderColor] = useState("#22c55e");
+  const [editorBorderWidth, setEditorBorderWidth] = useState(8);
+  const [editorSelection, setEditorSelection] = useState<null | { x: number; y: number; w: number; h: number }>(null);
   const [scenarioFolderId, setScenarioFolderId] = useState("");
   const [scenarioFromFolderTitle, setScenarioFromFolderTitle] = useState("");
 
@@ -1236,6 +1249,14 @@ export default function App() {
     if (Number.isFinite(savedFontSize) && savedFontSize >= 14 && savedFontSize <= 36) {
       setFontSizePx(Math.round(savedFontSize));
     }
+    const savedResizeEnabled = window.localStorage.getItem("the-test-evidence-resize-enabled");
+    if (savedResizeEnabled != null) {
+      setEvidenceResizeEnabled(savedResizeEnabled === "true");
+    }
+    const savedResizeMax = Number(window.localStorage.getItem("the-test-evidence-resize-max"));
+    if (Number.isFinite(savedResizeMax) && savedResizeMax >= 400 && savedResizeMax <= 4000) {
+      setEvidenceResizeMax(Math.round(savedResizeMax));
+    }
   }, []);
 
   useEffect(() => {
@@ -1248,6 +1269,15 @@ export default function App() {
     document.documentElement.style.setProperty("--app-font-size", `${size}px`);
     window.localStorage.setItem("the-test-font-size", String(size));
   }, [fontSizePx]);
+
+  useEffect(() => {
+    window.localStorage.setItem("the-test-evidence-resize-enabled", String(evidenceResizeEnabled));
+  }, [evidenceResizeEnabled]);
+
+  useEffect(() => {
+    const size = Math.min(4000, Math.max(400, Math.round(evidenceResizeMax)));
+    window.localStorage.setItem("the-test-evidence-resize-max", String(size));
+  }, [evidenceResizeMax]);
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -1271,6 +1301,20 @@ export default function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!evidencePreview?.dataUrl || !evidencePreview.mimeType.startsWith("image/")) {
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      editorImageRef.current = image;
+      originalEditorImageRef.current = image;
+      setEditorSelection(null);
+      drawEvidenceCanvas(null);
+    };
+    image.src = evidencePreview.dataUrl;
+  }, [evidencePreview?.id, evidencePreview?.dataUrl, evidencePreview?.mimeType]);
 
   useEffect(() => {
     if (!project) {
@@ -2479,7 +2523,8 @@ export default function App() {
           id,
           fileName,
           dataUrl: "",
-          mimeType: "application/octet-stream"
+          mimeType: "application/octet-stream",
+          scope: "scenario"
         });
         return;
       }
@@ -2493,7 +2538,8 @@ export default function App() {
           id,
           fileName,
           dataUrl: "",
-          mimeType: result.mimeType ?? "application/octet-stream"
+          mimeType: result.mimeType ?? "application/octet-stream",
+          scope: "scenario"
         });
         return;
       }
@@ -2503,7 +2549,8 @@ export default function App() {
         id,
         fileName,
         dataUrl: result.base64 ? `data:${result.mimeType};base64,${result.base64}` : "",
-        mimeType: result.mimeType
+        mimeType: result.mimeType,
+        scope: "scenario"
       });
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "プレビューに失敗しました。");
@@ -2521,7 +2568,8 @@ export default function App() {
           id,
           fileName,
           dataUrl: "",
-          mimeType: "application/octet-stream"
+          mimeType: "application/octet-stream",
+          scope: "run_case"
         });
         return;
       }
@@ -2535,7 +2583,8 @@ export default function App() {
           id,
           fileName,
           dataUrl: "",
-          mimeType: result.mimeType ?? "application/octet-stream"
+          mimeType: result.mimeType ?? "application/octet-stream",
+          scope: "run_case"
         });
         return;
       }
@@ -2545,7 +2594,8 @@ export default function App() {
         id,
         fileName,
         dataUrl: result.base64 ? `data:${result.mimeType};base64,${result.base64}` : "",
-        mimeType: result.mimeType
+        mimeType: result.mimeType,
+        scope: "run_case"
       });
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "プレビューに失敗しました。");
@@ -2555,6 +2605,132 @@ export default function App() {
   const closeEvidencePreview = () => {
     setEvidencePreview(null);
     setPreviewError(null);
+    setEditorSelection(null);
+  };
+
+  const drawEvidenceCanvas = (selection?: { x: number; y: number; w: number; h: number } | null) => {
+    const canvas = evidenceCanvasRef.current;
+    const image = editorImageRef.current;
+    if (!canvas || !image) {
+      return;
+    }
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0);
+    if (selection && selection.w > 0 && selection.h > 0) {
+      context.save();
+      context.strokeStyle = "#38bdf8";
+      context.lineWidth = Math.max(2, canvas.width / 400);
+      context.setLineDash([10, 6]);
+      context.strokeRect(selection.x, selection.y, selection.w, selection.h);
+      context.restore();
+    }
+  };
+
+  const pointerToCanvas = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = evidenceCanvasRef.current;
+    if (!canvas) {
+      return { x: 0, y: 0 };
+    }
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY
+    };
+  };
+
+  const applyCropSelection = () => {
+    const canvas = evidenceCanvasRef.current;
+    if (!canvas || !editorSelection || editorSelection.w < 4 || editorSelection.h < 4) {
+      return;
+    }
+    const temp = document.createElement("canvas");
+    temp.width = Math.round(editorSelection.w);
+    temp.height = Math.round(editorSelection.h);
+    const context = temp.getContext("2d");
+    if (!context) {
+      return;
+    }
+    context.drawImage(
+      canvas,
+      editorSelection.x,
+      editorSelection.y,
+      editorSelection.w,
+      editorSelection.h,
+      0,
+      0,
+      temp.width,
+      temp.height
+    );
+    const image = new Image();
+    image.onload = () => {
+      editorImageRef.current = image;
+      setEditorSelection(null);
+      drawEvidenceCanvas(null);
+    };
+    image.src = temp.toDataURL("image/png");
+  };
+
+  const applyBorderToEvidence = () => {
+    const canvas = evidenceCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    context.save();
+    context.strokeStyle = editorBorderColor;
+    context.lineWidth = editorBorderWidth;
+    context.strokeRect(
+      editorBorderWidth / 2,
+      editorBorderWidth / 2,
+      canvas.width - editorBorderWidth,
+      canvas.height - editorBorderWidth
+    );
+    context.restore();
+  };
+
+  const saveEditedEvidence = async () => {
+    const canvas = evidenceCanvasRef.current;
+    if (!canvas || !evidencePreview) {
+      return;
+    }
+    const dataUrl = canvas.toDataURL("image/png");
+    const base64 = dataUrl.split(",")[1] ?? "";
+    if (!base64) {
+      return;
+    }
+    if (evidencePreview.scope === "scenario") {
+      await window.api.evidence.updateImage(evidencePreview.id, {
+        base64,
+        mimeType: "image/png"
+      });
+      await handlePreviewEvidence(evidencePreview.id, evidencePreview.fileName);
+      if (selectedRunScenarioId) {
+        await selectRunScenario(selectedRunScenarioId);
+      }
+      return;
+    }
+    await window.api.runCaseEvidence.updateImage(evidencePreview.id, {
+      base64,
+      mimeType: "image/png"
+    });
+    await handlePreviewRunCaseEvidence(evidencePreview.id, evidencePreview.fileName);
+    const matchingRunCaseId = Object.entries(runCaseEvidenceMap).find(([, previews]) =>
+      previews.some((preview) => preview.id === evidencePreview.id)
+    )?.[0];
+    if (matchingRunCaseId) {
+      await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
+    }
   };
 
   const updateRunScenarioDraft = (id: string, patch: Partial<RunCase>) => {
@@ -2574,7 +2750,10 @@ export default function App() {
     }
     setRunError(null);
     try {
-      await window.api.evidence.add(selectedRunScenarioId);
+      await window.api.evidence.add(selectedRunScenarioId, {
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMax: evidenceResizeMax
+      });
       await selectRunScenario(selectedRunScenarioId);
     } catch (err) {
       setRunError(err instanceof Error ? err.message : "エビデンスを追加できませんでした。");
@@ -2587,7 +2766,10 @@ export default function App() {
     }
     setRunError(null);
     try {
-      await window.api.evidence.pasteImage(selectedRunScenarioId);
+      await window.api.evidence.pasteImage(selectedRunScenarioId, {
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMax: evidenceResizeMax
+      });
       await selectRunScenario(selectedRunScenarioId);
     } catch (err) {
       setRunError(err instanceof Error ? err.message : "エビデンスの貼り付けに失敗しました。");
@@ -2600,7 +2782,10 @@ export default function App() {
     }
     setRunError(null);
     try {
-      const result = (await window.api.runCaseEvidence.add(runCaseId)) as string[] | null;
+      const result = (await window.api.runCaseEvidence.add(runCaseId, {
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMax: evidenceResizeMax
+      })) as string[] | null;
       if (!result) {
         return;
       }
@@ -2616,7 +2801,10 @@ export default function App() {
     }
     setRunError(null);
     try {
-      const result = (await window.api.runCaseEvidence.paste(runCaseId)) as string | null;
+      const result = (await window.api.runCaseEvidence.paste(runCaseId, {
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMax: evidenceResizeMax
+      })) as string | null;
       if (!result) {
         return;
       }
@@ -5902,7 +6090,7 @@ export default function App() {
                           <button
                             type="button"
                             className={cn(
-                              "hidden xl:flex fixed left-[312px] top-24 z-30 items-center gap-2 rounded-r-2xl border px-4 py-3 text-sm font-semibold shadow-lg",
+                              "hidden xl:flex fixed bottom-6 left-[312px] z-30 items-center gap-2 rounded-r-2xl border px-4 py-3 text-sm font-semibold shadow-lg",
                               theme === "light"
                                 ? "border-slate-200 bg-white text-slate-900"
                                 : "border-slate-700 bg-slate-900 text-slate-100"
@@ -7192,6 +7380,33 @@ export default function App() {
                   />
                   <p className="text-sm text-slate-400">{fontSizePx}px</p>
                 </div>
+                <div className="mt-6 grid gap-3 border-t border-slate-800 pt-5">
+                  <p className="text-xs font-semibold uppercase text-slate-400">証跡画像</p>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={evidenceResizeEnabled}
+                      onChange={(event) => setEvidenceResizeEnabled(event.target.checked)}
+                    />
+                    自動サイズ調整を有効にする
+                  </label>
+                  <div className="grid gap-2">
+                    <label htmlFor="evidence-resize-max" className="text-xs font-semibold uppercase text-slate-400">
+                      最大辺
+                    </label>
+                    <input
+                      id="evidence-resize-max"
+                      type="range"
+                      min={400}
+                      max={4000}
+                      step={100}
+                      value={evidenceResizeMax}
+                      onChange={(event) => setEvidenceResizeMax(Number(event.target.value))}
+                      disabled={!evidenceResizeEnabled}
+                    />
+                    <p className="text-sm text-slate-400">{evidenceResizeMax}px</p>
+                  </div>
+                </div>
               </div>
 
               <div className={panelClass}>
@@ -7229,7 +7444,7 @@ export default function App() {
 
       {evidencePreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 [padding:calc(env(safe-area-inset-top)+1rem)_calc(env(safe-area-inset-right)+1rem)_calc(env(safe-area-inset-bottom)+1rem)_calc(env(safe-area-inset-left)+1rem)]">
-          <div className="relative w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-950/90 p-5 shadow-2xl">
+          <div className="relative w-full max-w-6xl rounded-2xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">
             <div className="flex items-center justify-between text-sm font-semibold text-slate-100">
               <span>{evidencePreview.fileName}</span>
               <button
@@ -7242,11 +7457,113 @@ export default function App() {
             {previewError ? (
               <p className="mt-4 text-sm text-rose-200">{previewError}</p>
             ) : evidencePreview.dataUrl && evidencePreview.mimeType.startsWith("image/") ? (
-              <img
-                src={evidencePreview.dataUrl}
-                alt={evidencePreview.fileName}
-                className="mt-4 h-[70vh] w-full max-w-full rounded-xl object-contain"
-              />
+              <div className="mt-4 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-400">編集</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={cn(outlineButtonClass, editorMode === "crop" && "ring-1 ring-primary")}
+                      onClick={() => setEditorMode("crop")}
+                    >
+                      トリミング
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(outlineButtonClass, editorMode === "paint" && "ring-1 ring-primary")}
+                      onClick={() => setEditorMode("paint")}
+                    >
+                      ペイント
+                    </button>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    <label className="text-xs font-semibold uppercase text-slate-400">ペイント色</label>
+                    <input type="color" value={editorBrushColor} onChange={(event) => setEditorBrushColor(event.target.value)} />
+                    <label className="text-xs font-semibold uppercase text-slate-400">ブラシサイズ</label>
+                    <input type="range" min={1} max={30} value={editorBrushSize} onChange={(event) => setEditorBrushSize(Number(event.target.value))} />
+                    <label className="text-xs font-semibold uppercase text-slate-400">枠線色</label>
+                    <input type="color" value={editorBorderColor} onChange={(event) => setEditorBorderColor(event.target.value)} />
+                    <label className="text-xs font-semibold uppercase text-slate-400">枠線太さ</label>
+                    <input type="range" min={1} max={40} value={editorBorderWidth} onChange={(event) => setEditorBorderWidth(Number(event.target.value))} />
+                  </div>
+                  <div className="mt-4 grid gap-2">
+                    <button type="button" className={primaryButtonClass} onClick={applyCropSelection} disabled={!editorSelection}>
+                      トリミングを適用
+                    </button>
+                    <button type="button" className={outlineButtonClass} onClick={applyBorderToEvidence}>
+                      枠線を追加
+                    </button>
+                    <button
+                      type="button"
+                      className={outlineButtonClass}
+                      onClick={() => {
+                        if (originalEditorImageRef.current) {
+                          editorImageRef.current = originalEditorImageRef.current;
+                        }
+                        setEditorSelection(null);
+                        drawEvidenceCanvas(null);
+                      }}
+                    >
+                      編集をリセット
+                    </button>
+                    <button type="button" className={primaryButtonClass} onClick={() => void saveEditedEvidence()}>
+                      編集内容を保存
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-auto rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                  <canvas
+                    ref={evidenceCanvasRef}
+                    className="max-h-[72vh] w-full rounded-xl object-contain touch-none"
+                    onPointerDown={(event) => {
+                      const point = pointerToCanvas(event);
+                      if (editorMode === "crop") {
+                        pointerStateRef.current = { mode: "crop", x: point.x, y: point.y };
+                        setEditorSelection({ x: point.x, y: point.y, w: 0, h: 0 });
+                        return;
+                      }
+                      pointerStateRef.current = { mode: "paint", x: point.x, y: point.y };
+                      const context = evidenceCanvasRef.current?.getContext("2d");
+                      if (!context) return;
+                      context.strokeStyle = editorBrushColor;
+                      context.lineWidth = editorBrushSize;
+                      context.lineCap = "round";
+                      context.beginPath();
+                      context.moveTo(point.x, point.y);
+                    }}
+                    onPointerMove={(event) => {
+                      const point = pointerToCanvas(event);
+                      if (!pointerStateRef.current) {
+                        return;
+                      }
+                      if (pointerStateRef.current.mode === "crop") {
+                        const nextSelection = {
+                          x: Math.min(pointerStateRef.current.x, point.x),
+                          y: Math.min(pointerStateRef.current.y, point.y),
+                          w: Math.abs(point.x - pointerStateRef.current.x),
+                          h: Math.abs(point.y - pointerStateRef.current.y)
+                        };
+                        setEditorSelection(nextSelection);
+                        drawEvidenceCanvas(nextSelection);
+                        return;
+                      }
+                      const context = evidenceCanvasRef.current?.getContext("2d");
+                      if (!context) return;
+                      context.lineTo(point.x, point.y);
+                      context.strokeStyle = editorBrushColor;
+                      context.lineWidth = editorBrushSize;
+                      context.lineCap = "round";
+                      context.stroke();
+                    }}
+                    onPointerUp={() => {
+                      pointerStateRef.current = null;
+                    }}
+                    onPointerLeave={() => {
+                      pointerStateRef.current = null;
+                    }}
+                  />
+                </div>
+              </div>
             ) : (
               <p className="mt-4 text-sm text-slate-300">このファイルはプレビューできません。</p>
             )}

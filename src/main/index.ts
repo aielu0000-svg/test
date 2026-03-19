@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type OpenDialogOptions } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -30,6 +30,8 @@ import {
   listRunScenarioCases,
   previewScenarioEvidence,
   previewRunScenarioCaseEvidence,
+  updateRunScenarioCaseEvidenceImage,
+  updateScenarioEvidenceImage,
   listCaseFolders,
   listDataSets,
   listRuns,
@@ -90,6 +92,32 @@ const inferMimeType = (fileName: string) => {
     default:
       return "application/octet-stream";
   }
+};
+
+const processImageBuffer = (
+  buffer: Buffer,
+  mimeType: string,
+  options?: { resizeEnabled?: boolean; resizeMax?: number }
+) => {
+  if (!mimeType.startsWith("image/") || !options?.resizeEnabled) {
+    return { buffer, mimeType };
+  }
+  const image = nativeImage.createFromBuffer(buffer);
+  const { width, height } = image.getSize();
+  const resizeMax = Math.max(400, Math.min(4000, Math.round(options.resizeMax ?? 1600)));
+  if (!width || !height || Math.max(width, height) <= resizeMax) {
+    return { buffer, mimeType };
+  }
+  const scale = resizeMax / Math.max(width, height);
+  const resized = image.resize({
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+    quality: "best"
+  });
+  if (mimeType === "image/jpeg") {
+    return { buffer: resized.toJPEG(90), mimeType: "image/jpeg" };
+  }
+  return { buffer: resized.toPNG(), mimeType: "image/png" };
 };
 
 const createWindow = () => {
@@ -221,7 +249,7 @@ ipcMain.handle("runs:updateScenarioCase", (_event, payload) => updateRunScenario
 ipcMain.handle("evidence:list", (_event, runScenarioId: string) =>
   listScenarioEvidence(runScenarioId)
 );
-ipcMain.handle("evidence:add", async (_event, runScenarioId: string) => {
+ipcMain.handle("evidence:add", async (_event, runScenarioId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
   const result = await dialog.showOpenDialog({
     title: "証跡ファイルを追加",
     properties: ["openFile", "multiSelections"]
@@ -234,36 +262,44 @@ ipcMain.handle("evidence:add", async (_event, runScenarioId: string) => {
     const stat = fs.statSync(filePath);
     const fileName = path.basename(filePath);
     const mimeType = inferMimeType(fileName);
-    created.push(
-      addScenarioEvidence({
-        runScenarioId,
-        sourcePath: filePath,
-        fileName,
-        mimeType,
-        size: stat.size
-      })
-    );
+    if (mimeType.startsWith("image/")) {
+      const processed = processImageBuffer(fs.readFileSync(filePath), mimeType, options);
+      created.push(
+        addScenarioEvidenceBuffer({
+          runScenarioId,
+          fileName,
+          buffer: processed.buffer,
+          mimeType: processed.mimeType
+        })
+      );
+      return;
+    }
+    created.push(addScenarioEvidence({ runScenarioId, sourcePath: filePath, fileName, mimeType, size: stat.size }));
   });
   return created;
 });
 
-ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string) => {
+ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
   const image = clipboard.readImage();
   if (image.isEmpty()) {
     return null;
   }
-  const buffer = image.toPNG();
+  const processed = processImageBuffer(image.toPNG(), "image/png", options);
   return addScenarioEvidenceBuffer({
     runScenarioId,
     fileName: `clipboard_${Date.now()}.png`,
-    buffer,
-    mimeType: "image/png"
+    buffer: processed.buffer,
+    mimeType: processed.mimeType
   });
 });
 
 ipcMain.handle("evidence:remove", (_event, id: string) => removeScenarioEvidence(id));
 
 ipcMain.handle("evidence:preview", (_event, id: string) => previewScenarioEvidence(id));
+ipcMain.handle("evidence:updateImage", (_event, id: string, payload: { base64: string; mimeType: string }) => {
+  updateScenarioEvidenceImage(id, { buffer: Buffer.from(payload.base64, "base64"), mimeType: payload.mimeType });
+  return true;
+});
 
 ipcMain.handle("evidence:open", (_event, id: string) => {
   const fullPath = getScenarioEvidencePath(id);
@@ -277,7 +313,7 @@ ipcMain.handle("evidence:open", (_event, id: string) => {
 ipcMain.handle("runCaseEvidence:list", (_event, runScenarioCaseId: string) =>
   listRunScenarioCaseEvidence(runScenarioCaseId)
 );
-ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string) => {
+ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
   const result = await dialog.showOpenDialog({
     title: "証跡ファイルを追加 (ケース)",
     properties: ["openFile", "multiSelections"]
@@ -289,33 +325,42 @@ ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string) 
   result.filePaths.forEach((filePath) => {
     const stat = fs.statSync(filePath);
     const fileName = path.basename(filePath);
-    created.push(
-      addRunScenarioCaseEvidence({
-        runScenarioCaseId,
-        sourcePath: filePath,
-        fileName,
-        mimeType: inferMimeType(fileName),
-        size: stat.size
-      })
-    );
+    const mimeType = inferMimeType(fileName);
+    if (mimeType.startsWith("image/")) {
+      const processed = processImageBuffer(fs.readFileSync(filePath), mimeType, options);
+      created.push(
+        addRunScenarioCaseEvidenceBuffer({
+          runScenarioCaseId,
+          fileName,
+          buffer: processed.buffer,
+          mimeType: processed.mimeType
+        })
+      );
+      return;
+    }
+    created.push(addRunScenarioCaseEvidence({ runScenarioCaseId, sourcePath: filePath, fileName, mimeType, size: stat.size }));
   });
   return created;
 });
-ipcMain.handle("runCaseEvidence:paste", (_event, runScenarioCaseId: string) => {
+ipcMain.handle("runCaseEvidence:paste", (_event, runScenarioCaseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
   const image = clipboard.readImage();
   if (image.isEmpty()) {
     return null;
   }
-  const buffer = image.toPNG();
+  const processed = processImageBuffer(image.toPNG(), "image/png", options);
   return addRunScenarioCaseEvidenceBuffer({
     runScenarioCaseId,
     fileName: `clipboard_${Date.now()}.png`,
-    buffer,
-    mimeType: "image/png"
+    buffer: processed.buffer,
+    mimeType: processed.mimeType
   });
 });
 ipcMain.handle("runCaseEvidence:remove", (_event, id: string) => removeRunScenarioCaseEvidence(id));
 ipcMain.handle("runCaseEvidence:preview", (_event, id: string) => previewRunScenarioCaseEvidence(id));
+ipcMain.handle("runCaseEvidence:updateImage", (_event, id: string, payload: { base64: string; mimeType: string }) => {
+  updateRunScenarioCaseEvidenceImage(id, { buffer: Buffer.from(payload.base64, "base64"), mimeType: payload.mimeType });
+  return true;
+});
 
 ipcMain.handle("export:save", async (_event, payload) => {
   const ext = payload.format;
