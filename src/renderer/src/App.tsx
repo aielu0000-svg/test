@@ -7523,16 +7523,38 @@ export default function App() {
                   <div className="mt-4 grid gap-3">
                     <label className="text-xs font-semibold uppercase text-slate-400">ペイント色</label>
                     <input type="color" value={editorBrushColor} onChange={(event) => setEditorBrushColor(event.target.value)} />
-                    <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-400">
+                    <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase text-slate-400">
                       <span>ブラシサイズ</span>
-                      <span className="text-[11px] text-slate-300">{editorBrushSize}px</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate-300">{editorBrushSize}px</span>
+                        <span className="flex h-8 w-20 items-center justify-center rounded-full border border-slate-700 bg-slate-950">
+                          <span
+                            className="block rounded-full"
+                            style={{
+                              width: `${Math.max(editorBrushSize, 2)}px`,
+                              height: `${Math.max(editorBrushSize, 2)}px`,
+                              backgroundColor: editorBrushColor
+                            }}
+                          />
+                        </span>
+                      </div>
                     </div>
                     <input type="range" min={1} max={30} value={editorBrushSize} onChange={(event) => setEditorBrushSize(Number(event.target.value))} />
                     <label className="text-xs font-semibold uppercase text-slate-400">枠線色</label>
                     <input type="color" value={editorBorderColor} onChange={(event) => setEditorBorderColor(event.target.value)} />
-                    <div className="flex items-center justify-between text-xs font-semibold uppercase text-slate-400">
+                    <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase text-slate-400">
                       <span>枠線太さ</span>
-                      <span className="text-[11px] text-slate-300">{editorBorderWidth}px</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate-300">{editorBorderWidth}px</span>
+                        <span className="flex h-8 w-20 items-center justify-center rounded-full border border-slate-700 bg-slate-950">
+                          <span
+                            className="block h-0 w-12 rounded-full"
+                            style={{
+                              borderTop: `${Math.max(editorBorderWidth, 1)}px solid ${editorBorderColor}`
+                            }}
+                          />
+                        </span>
+                      </div>
                     </div>
                     <input type="range" min={1} max={40} value={editorBorderWidth} onChange={(event) => setEditorBorderWidth(Number(event.target.value))} />
                   </div>
