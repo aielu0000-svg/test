@@ -16,6 +16,7 @@ type TestCase = {
   priority: string;
   tags: string;
   folder_id?: string | null;
+  folder_ids?: string[];
   created_at: string;
   updated_at: string;
 };
@@ -164,7 +165,7 @@ type CaseDraft = {
   tags: string;
   steps: TestStep[];
   dataSetIds: string[];
-  folderId: string | null;
+  folderIds: string[];
 };
 
 type ScenarioDraft = {
@@ -936,7 +937,7 @@ const emptyCase = (): CaseDraft => ({
   tags: "",
   steps: [{ action: "", expected: "" }],
   dataSetIds: [],
-  folderId: null
+  folderIds: []
 });
 
 const cloneCaseDraft = (draft: CaseDraft): CaseDraft => ({
@@ -950,7 +951,7 @@ const cloneCaseDraft = (draft: CaseDraft): CaseDraft => ({
     ? draft.steps.map((step) => ({ action: step.action, expected: step.expected }))
     : [{ action: "", expected: "" }],
   dataSetIds: [...draft.dataSetIds],
-  folderId: draft.folderId
+  folderIds: [...draft.folderIds]
 });
 
 const emptyScenario = (): ScenarioDraft => ({
@@ -1317,8 +1318,19 @@ export default function App() {
   };
 
   const loadCases = async () => {
-    const list = (await window.api.testCases.list()) as TestCase[];
-    setTestCases(list);
+    const list = (await window.api.testCases.list()) as Array<TestCase & { folder_ids?: string[] | string }>;
+    setTestCases(
+      list.map((item) => ({
+        ...item,
+        folder_ids: Array.isArray(item.folder_ids)
+          ? item.folder_ids
+          : typeof item.folder_ids === "string" && item.folder_ids.trim()
+            ? item.folder_ids.split(",").filter(Boolean)
+            : item.folder_id
+              ? [item.folder_id]
+              : []
+      }))
+    );
   };
 
   const loadCaseFolders = async () => {
@@ -1650,7 +1662,10 @@ export default function App() {
   const filteredCases = useMemo(() => {
     let items = testCases;
     if (folderFilter !== "all") {
-      items = items.filter((item) => (item.folder_id ?? "none") === folderFilter);
+      items = items.filter((item) => {
+        const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
+        return folderFilter === "none" ? folderIds.length === 0 : folderIds.includes(folderFilter);
+      });
     }
     if (casePriorityFilter !== "all") {
       items = items.filter((item) => (item.priority ?? "").trim() === casePriorityFilter);
@@ -1681,11 +1696,20 @@ export default function App() {
   const caseGroups = useMemo(() => {
     const result: Record<string, TestCase[]> = {};
     filteredCases.forEach((item) => {
-      const key = item.folder_id ?? "none";
-      if (!result[key]) {
-        result[key] = [];
+      const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
+      if (!folderIds.length) {
+        if (!result.none) {
+          result.none = [];
+        }
+        result.none.push(item);
+        return;
       }
-      result[key].push(item);
+      folderIds.forEach((key) => {
+        if (!result[key]) {
+          result[key] = [];
+        }
+        result[key].push(item);
+      });
     });
     return result;
   }, [filteredCases]);
@@ -1861,24 +1885,24 @@ export default function App() {
       dataSets.filter((item) => {
         if (item.scope === "common") {
           const folderId = item.folder_id ?? null;
-          if (folderId && folderId !== caseDraft.folderId) {
+          if (folderId && !caseDraft.folderIds.includes(folderId)) {
             return false;
           }
           return true;
         }
         return item.scope === "case" || item.scope === "scenario" || item.scope === "run";
       }),
-    [dataSets, caseDraft.folderId]
+    [dataSets, caseDraft.folderIds]
   );
 
   const autoFolderCommonDataSetIds = useMemo(() => {
-    if (!caseDraft.folderId) {
+    if (!caseDraft.folderIds.length) {
       return [] as string[];
     }
     return dataSets
-      .filter((item) => item.scope === "common" && (item.folder_id ?? null) === caseDraft.folderId)
+      .filter((item) => item.scope === "common" && caseDraft.folderIds.includes(item.folder_id ?? ""))
       .map((item) => item.id);
-  }, [dataSets, caseDraft.folderId]);
+  }, [dataSets, caseDraft.folderIds]);
 
   const effectiveCaseDataSetIds = useMemo(
     () => Array.from(new Set([...caseDraft.dataSetIds, ...autoFolderCommonDataSetIds])),
@@ -1958,7 +1982,9 @@ export default function App() {
         ? data.steps.map((step) => ({ action: step.action, expected: step.expected }))
         : [{ action: "", expected: "" }],
       dataSetIds,
-      folderId: data.testCase.folder_id ?? null
+      folderIds:
+        ((data as unknown as { folderIds?: string[] }).folderIds as string[] | undefined) ??
+        (data.testCase.folder_ids ?? []).filter(Boolean)
     });
     setCaseDataSets({});
     if (dataSetIds.length) {
@@ -1970,7 +1996,7 @@ export default function App() {
     setSelectedCaseId(null);
     const draft = source ? cloneCaseDraft(source) : emptyCase();
     if (!source) {
-      draft.folderId = folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null;
+      draft.folderIds = folderFilter !== "all" && folderFilter !== "none" ? [folderFilter] : [];
     }
     setCaseDraft(draft);
     setCaseDataSets({});
@@ -1998,7 +2024,9 @@ export default function App() {
         ? data.steps.map((step) => ({ action: step.action, expected: step.expected }))
         : [{ action: "", expected: "" }],
       dataSetIds: data.dataLinks?.map((link) => link.data_set_id) ?? [],
-      folderId: data.testCase.folder_id ?? null
+      folderIds:
+        ((data as unknown as { folderIds?: string[] }).folderIds as string[] | undefined) ??
+        (data.testCase.folder_ids ?? []).filter(Boolean)
     });
     setSelectedCaseId(null);
     setCaseDraft(duplicateDraft);
@@ -2139,7 +2167,7 @@ export default function App() {
         tags: caseDraft.tags,
         steps: caseDraft.steps.filter((step) => step.action.trim() || step.expected.trim()),
         dataSetIds: caseDraft.dataSetIds,
-        folderId: caseDraft.folderId
+        folderIds: caseDraft.folderIds
       };
 	      const id = (await window.api.testCases.save(payload)) as string;
 	      await loadCases();
@@ -2211,8 +2239,8 @@ export default function App() {
     if (folderFilter === id) {
       setFolderFilter("all");
     }
-    if (caseDraft.folderId === id) {
-      setCaseDraft({ ...caseDraft, folderId: null });
+    if (caseDraft.folderIds.includes(id)) {
+      setCaseDraft({ ...caseDraft, folderIds: caseDraft.folderIds.filter((folderId) => folderId !== id) });
     }
     await loadCases();
   };
@@ -3615,6 +3643,12 @@ export default function App() {
                                     className={cn(inputClass, "h-9")}
                                     value={editingFolderName}
                                     onChange={(event) => setEditingFolderName(event.target.value)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        void handleRenameFolder();
+                                      }
+                                    }}
                                   />
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -3718,10 +3752,7 @@ export default function App() {
 	                        </div>
 
 	                        {filteredCases.map((item) => {
-	                          const folderLabel =
-	                            item.folder_id == null
-	                              ? "未分類"
-	                              : caseFolderMap[item.folder_id]?.name ?? "フォルダ";
+	                          const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
 	                          return (
                             <div
                               key={item.id}
@@ -3763,17 +3794,36 @@ export default function App() {
 	                                <p className="text-pretty text-sm">{item.priority || "—"}</p>
 	                              </div>
 	                              <div className="px-5 py-4">
-                                  <span
-                                    className={cn(
-                                      "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium",
-                                      theme === "light"
-                                        ? "border-slate-300 bg-slate-100 text-slate-700"
-                                        : "border-slate-700 bg-slate-900/50 text-slate-200"
+                                  <div className="flex flex-wrap gap-2">
+                                    {folderIds.length === 0 ? (
+                                      <span
+                                        className={cn(
+                                          "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium",
+                                          theme === "light"
+                                            ? "border-slate-300 bg-slate-100 text-slate-700"
+                                            : "border-slate-700 bg-slate-900/50 text-slate-200"
+                                        )}
+                                      >
+                                        <FolderIcon className="size-3.5" />
+                                        <span className="truncate">未分類</span>
+                                      </span>
+                                    ) : (
+                                      folderIds.map((folderId) => (
+                                        <span
+                                          key={`${item.id}-${folderId}`}
+                                          className={cn(
+                                            "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium",
+                                            theme === "light"
+                                              ? "border-slate-300 bg-slate-100 text-slate-700"
+                                              : "border-slate-700 bg-slate-900/50 text-slate-200"
+                                          )}
+                                        >
+                                          <FolderIcon className="size-3.5" />
+	                                      <span className="truncate">{caseFolderMap[folderId]?.name ?? "フォルダ"}</span>
+                                        </span>
+                                      ))
                                     )}
-                                  >
-                                    <FolderIcon className="size-3.5" />
-	                                  <span className="truncate">{folderLabel}</span>
-                                  </span>
+                                  </div>
 	                              </div>
 	                              <div className="flex flex-wrap items-center gap-2 px-5 py-4">
 	                                <button
@@ -4039,27 +4089,55 @@ export default function App() {
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="case-folder" className="text-xs font-semibold uppercase text-slate-400">
+                    <label className="text-xs font-semibold uppercase text-slate-400">
                       フォルダ
                     </label>
-                    <select
-                      id="case-folder"
-                      className={cn(inputClass, "mt-2")}
-                      value={caseDraft.folderId ?? "none"}
-                      onChange={(event) =>
-                        setCaseDraft({
-                          ...caseDraft,
-                          folderId: event.target.value === "none" ? null : event.target.value
+                    <div className="mt-2 grid gap-2">
+                      {caseFolders.length === 0 ? (
+                        <div
+                          className={cn(
+                            "rounded-xl border px-3 py-3 text-xs",
+                            theme === "light" ? "border-slate-200 text-slate-500" : "border-slate-800 text-slate-400"
+                          )}
+                        >
+                          フォルダはまだありません。未分類のまま保存できます。
+                        </div>
+                      ) : (
+                        caseFolders.map((folder) => {
+                          const checked = caseDraft.folderIds.includes(folder.id);
+                          return (
+                            <label
+                              key={`case-folder-${folder.id}`}
+                              className={cn(
+                                "flex items-center gap-3 rounded-xl border px-3 py-2 text-sm",
+                                theme === "light"
+                                  ? checked
+                                    ? "border-sky-300 bg-sky-50 text-slate-900"
+                                    : "border-slate-200 bg-white text-slate-700"
+                                  : checked
+                                    ? "border-sky-500/60 bg-sky-950/30 text-slate-100"
+                                    : "border-slate-800 bg-slate-950/30 text-slate-300"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-sky-400"
+                                checked={checked}
+                                onChange={(event) =>
+                                  setCaseDraft({
+                                    ...caseDraft,
+                                    folderIds: event.target.checked
+                                      ? [...caseDraft.folderIds, folder.id]
+                                      : caseDraft.folderIds.filter((id) => id !== folder.id)
+                                  })
+                                }
+                              />
+                              <span>{folder.name}</span>
+                            </label>
+                          );
                         })
-                      }
-                    >
-                      <option value="none">未分類</option>
-                      {caseFolders.map((folder) => (
-                        <option key={folder.id} value={folder.id}>
-                          {folder.name}
-                        </option>
-                      ))}
-                    </select>
+                      )}
+                    </div>
                   </div>
 
                   <div
@@ -4099,7 +4177,7 @@ export default function App() {
                           const isAutoFolderCommon =
                             dataSet.scope === "common" &&
                             Boolean(dataSet.folder_id) &&
-                            (dataSet.folder_id ?? null) === caseDraft.folderId;
+                            caseDraft.folderIds.includes(dataSet.folder_id ?? "");
                           const checked = isAutoFolderCommon || caseDraft.dataSetIds.includes(dataSet.id);
                           const scopeLabel =
                             dataSet.scope === "common" && dataSet.folder_id
@@ -5781,7 +5859,7 @@ export default function App() {
                         {runCaseSidebarSections.length > 0 && (
                           <aside
                             className={cn(
-                              "mb-4 rounded-2xl border p-4 xl:fixed xl:right-8 xl:top-24 xl:z-20 xl:mb-0 xl:w-[320px] xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden",
+                              "mb-4 rounded-2xl border p-4 xl:fixed xl:left-[312px] xl:top-24 xl:z-20 xl:mb-0 xl:w-[320px] xl:max-h-[calc(100vh-6rem)] xl:overflow-hidden",
                               theme === "light"
                                 ? "border-slate-200 bg-white"
                                 : "border-slate-800 bg-slate-950/60"
@@ -5885,7 +5963,7 @@ export default function App() {
                           </aside>
                         )}
 
-                        <div className={cn("grid gap-3", runCaseSidebarSections.length > 0 && "xl:pr-[344px]")}>
+                        <div className={cn("grid gap-3", runCaseSidebarSections.length > 0 && "xl:pl-[344px]")}>
 	                      {runScenarios.map((item) => {
 	                        const scenarioCasesRaw = runScenarioCasesMap[item.id];
 	                        const scenarioCases = scenarioCasesRaw ?? [];

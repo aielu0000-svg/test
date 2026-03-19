@@ -142,6 +142,12 @@ const initSchema = (database: Database.Database) => {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS test_case_folders (
+      case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      folder_id TEXT NOT NULL REFERENCES case_folders(id) ON DELETE CASCADE,
+      PRIMARY KEY (case_id, folder_id)
+    );
+
     CREATE TABLE IF NOT EXISTS scenario_cases (
       scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
       case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
@@ -262,6 +268,7 @@ const initSchema = (database: Database.Database) => {
     CREATE INDEX IF NOT EXISTS idx_data_items ON data_items(data_set_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_data_links ON data_links(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_data_sets_folder ON data_sets(folder_id);
+    CREATE INDEX IF NOT EXISTS idx_test_case_folders_folder ON test_case_folders(folder_id, case_id);
     CREATE INDEX IF NOT EXISTS idx_run_cases ON run_cases(run_id);
     CREATE INDEX IF NOT EXISTS idx_evidence_run_case ON evidence(run_case_id);
     CREATE INDEX IF NOT EXISTS idx_case_folders_name ON case_folders(name);
@@ -274,6 +281,12 @@ const initSchema = (database: Database.Database) => {
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
   ensureColumn(database, "test_cases", "view_location", "TEXT");
   ensureColumn(database, "data_sets", "folder_id", "TEXT");
+  database.exec(`
+    INSERT OR IGNORE INTO test_case_folders (case_id, folder_id)
+    SELECT id, folder_id
+    FROM test_cases
+    WHERE folder_id IS NOT NULL AND TRIM(folder_id) != '';
+  `);
 };
 
 export const createProject = (folderPath: string, name: string) => {
@@ -375,10 +388,30 @@ export const resetProject = () => {
 
 export const listTestCases = () => {
   const { db: database } = ensureDb();
-  return database
-    .prepare("SELECT * FROM test_cases ORDER BY created_at DESC")
-    .all();
+  const rows = database
+    .prepare(
+      `SELECT
+        test_cases.*,
+        GROUP_CONCAT(test_case_folders.folder_id) AS folder_ids
+      FROM test_cases
+      LEFT JOIN test_case_folders ON test_case_folders.case_id = test_cases.id
+      GROUP BY test_cases.id
+      ORDER BY test_cases.created_at DESC`
+    )
+    .all() as Array<Record<string, any>>;
+  return rows.map((row) => ({
+    ...row,
+    folder_ids:
+      typeof row.folder_ids === "string" && row.folder_ids.trim()
+        ? String(row.folder_ids).split(",").filter(Boolean)
+        : []
+  }));
 };
+
+const getCaseFolderIdsWithDb = (database: Database.Database, caseId: string) =>
+  (database
+    .prepare("SELECT folder_id FROM test_case_folders WHERE case_id = ? ORDER BY folder_id")
+    .all(caseId) as Array<{ folder_id: string }>).map((row) => row.folder_id);
 
 export const getTestCase = (id: string) => {
   const { db: database } = ensureDb();
@@ -389,7 +422,8 @@ export const getTestCase = (id: string) => {
   const dataLinks = database
     .prepare("SELECT data_set_id FROM data_links WHERE entity_type = ? AND entity_id = ?")
     .all("case", id);
-  return { testCase, steps, dataLinks };
+  const folderIds = getCaseFolderIdsWithDb(database, id);
+  return { testCase, steps, dataLinks, folderIds };
 };
 
 const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
@@ -397,7 +431,7 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
   const steps = database
     .prepare("SELECT * FROM test_steps WHERE case_id = ? ORDER BY position")
     .all(caseId);
-  const folderId = (testCase as { folder_id?: string | null } | null | undefined)?.folder_id ?? null;
+  const folderIds = getCaseFolderIdsWithDb(database, caseId);
   const dataSetRows = database
     .prepare(
       `
@@ -425,7 +459,7 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
     value?: string;
     note?: string;
   }>;
-  const folderCommonRows = folderId
+  const folderCommonRows = folderIds.length
     ? (database
         .prepare(
           `
@@ -439,11 +473,12 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
             data_items.note
           FROM data_sets
           LEFT JOIN data_items ON data_sets.id = data_items.data_set_id
-          WHERE data_sets.scope = ? AND data_sets.folder_id = ?
+          WHERE data_sets.scope = ?
+            AND data_sets.folder_id IN (${folderIds.map(() => "?").join(",")})
           ORDER BY data_sets.updated_at DESC, data_items.sort_order
           `
         )
-        .all("common", folderId) as Array<{
+        .all("common", ...folderIds) as Array<{
         data_set_id: string;
         name: string;
         description?: string;
@@ -502,6 +537,7 @@ export const saveTestCase = (payload: {
   tags?: string;
   steps: Array<{ id?: string; action: string; expected: string }>;
   dataSetIds?: string[];
+  folderIds?: string[];
   folderId?: string | null;
 }) => {
   const { db: database } = ensureDb();
@@ -516,9 +552,21 @@ export const saveTestCase = (payload: {
   const deleteCaseLinks = database.prepare(
     "DELETE FROM data_links WHERE entity_type = ? AND entity_id = ?"
   );
+  const deleteCaseFolders = database.prepare("DELETE FROM test_case_folders WHERE case_id = ?");
+  const insertCaseFolder = database.prepare(
+    "INSERT OR IGNORE INTO test_case_folders (case_id, folder_id) VALUES (?, ?)"
+  );
   const insertCaseLink = database.prepare(
     "INSERT OR IGNORE INTO data_links (data_set_id, entity_type, entity_id) VALUES (?, ?, ?)"
   );
+  const folderIds = Array.from(
+    new Set(
+      (payload.folderIds ?? (payload.folderId ? [payload.folderId] : []))
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .map((value) => value.trim())
+    )
+  );
+  const primaryFolderId = folderIds[0] ?? null;
   const transaction = database.transaction(() => {
     if (existing) {
       database
@@ -533,7 +581,7 @@ export const saveTestCase = (payload: {
           payload.priority ?? "",
           payload.severity ?? "",
           payload.tags ?? "",
-          payload.folderId ?? null,
+          primaryFolderId,
           timestamp,
           id
         );
@@ -551,7 +599,7 @@ export const saveTestCase = (payload: {
           payload.priority ?? "",
           payload.severity ?? "",
           payload.tags ?? "",
-          payload.folderId ?? null,
+          primaryFolderId,
           timestamp,
           timestamp
         );
@@ -562,6 +610,10 @@ export const saveTestCase = (payload: {
       insertStep.run(step.id ?? randomUUID(), id, index + 1, step.action, step.expected);
     });
     deleteCaseLinks.run("case", id);
+    deleteCaseFolders.run(id);
+    folderIds.forEach((folderId) => {
+      insertCaseFolder.run(id, folderId);
+    });
     (payload.dataSetIds ?? []).forEach((dataSetId) => {
       insertCaseLink.run(dataSetId, "case", id);
     });
@@ -604,6 +656,7 @@ export const saveCaseFolder = (payload: { id?: string; name: string }) => {
 export const deleteCaseFolder = (id: string) => {
   const { db: database } = ensureDb();
   database.prepare("UPDATE test_cases SET folder_id = NULL WHERE folder_id = ?").run(id);
+  database.prepare("DELETE FROM test_case_folders WHERE folder_id = ?").run(id);
   database.prepare("UPDATE data_sets SET folder_id = NULL WHERE folder_id = ?").run(id);
   database.prepare("DELETE FROM case_folders WHERE id = ?").run(id);
 };
@@ -722,7 +775,13 @@ export const createScenarioFromFolder = (folderId: string, title?: string) => {
     throw new Error("フォルダが見つかりません。");
   }
   const cases = database
-    .prepare("SELECT id FROM test_cases WHERE folder_id = ? ORDER BY created_at DESC")
+    .prepare(
+      `SELECT test_cases.id
+      FROM test_cases
+      JOIN test_case_folders ON test_case_folders.case_id = test_cases.id
+      WHERE test_case_folders.folder_id = ?
+      ORDER BY test_cases.created_at DESC`
+    )
     .all(folderId) as Array<{ id: string }>;
   if (!cases.length) {
     throw new Error("フォルダ内にテストケースがありません。");
