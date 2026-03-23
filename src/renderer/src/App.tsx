@@ -7598,7 +7598,7 @@ export default function App() {
                   </div>
                   <canvas
                     ref={evidenceCanvasRef}
-                    className="max-h-[72vh] w-full rounded-xl object-contain touch-none"
+                    className="mx-auto block max-h-[72vh] max-w-full rounded-xl touch-none"
                     onPointerDown={(event) => {
                       const point = pointerToCanvas(event);
                       event.currentTarget.setPointerCapture(event.pointerId);
