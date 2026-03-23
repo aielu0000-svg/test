@@ -716,11 +716,68 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
     return { roots, nextIndex: cursor };
   };
 
+  const splitTableLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) {
+      return null;
+    }
+    const cells: string[] = [];
+    let current = "";
+    let escaped = false;
+    for (const char of trimmed.slice(1, -1)) {
+      if (escaped) {
+        current += char;
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === "|") {
+        cells.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    if (escaped) {
+      current += "\\";
+    }
+    cells.push(current.trim());
+    return cells;
+  };
+
+  const isTableSeparator = (cells: string[]) =>
+    cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
+
+  const parseTableBlock = (startIndex: number) => {
+    const header = splitTableLine(lines[startIndex] ?? "");
+    const separator = splitTableLine(lines[startIndex + 1] ?? "");
+    if (!header || !separator || header.length !== separator.length || !isTableSeparator(separator)) {
+      return null;
+    }
+
+    const rows: string[][] = [];
+    let cursor = startIndex + 2;
+    while (cursor < lines.length) {
+      const cells = splitTableLine(lines[cursor] ?? "");
+      if (!cells || cells.length !== header.length) {
+        break;
+      }
+      rows.push(cells);
+      cursor += 1;
+    }
+
+    return { header, rows, nextIndex: cursor };
+  };
+
   const isBlockStart = (line: string) =>
     /^```/.test(line) ||
     /^#{1,6}\s+/.test(line) ||
     /^\s*[-*]\s+/.test(line) ||
     /^\s*\d+\.\s+/.test(line) ||
+    /^\|.*\|$/.test(line.trim()) ||
     /^>\s?/.test(line);
 
   while (index < lines.length) {
@@ -787,6 +844,56 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
       );
       index = nextIndex;
       continue;
+    }
+
+    if (/^\|.*\|$/.test(line.trim())) {
+      const table = parseTableBlock(index);
+      if (table) {
+        nodes.push(
+          <div key={`table-${index}`} className="overflow-x-auto rounded-md border border-slate-700/60">
+            <table className="w-full min-w-[320px] border-collapse text-sm">
+              <thead className={theme === "light" ? "bg-slate-100" : "bg-slate-900/80"}>
+                <tr>
+                  {table.header.map((cell, cellIndex) => (
+                    <th
+                      key={`table-head-${index}-${cellIndex}`}
+                      className={cn(
+                        "border px-3 py-2 text-left font-semibold align-top",
+                        theme === "light"
+                          ? "border-slate-300 text-slate-800"
+                          : "border-slate-700 text-slate-100"
+                      )}
+                    >
+                      {renderInlineMarkdown(cell, `table-head-${index}-${cellIndex}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {table.rows.map((row, rowIndex) => (
+                  <tr key={`table-row-${index}-${rowIndex}`}>
+                    {row.map((cell, cellIndex) => (
+                      <td
+                        key={`table-cell-${index}-${rowIndex}-${cellIndex}`}
+                        className={cn(
+                          "border px-3 py-2 align-top",
+                          theme === "light"
+                            ? "border-slate-300 text-slate-700"
+                            : "border-slate-700 text-slate-200"
+                        )}
+                      >
+                        {renderInlineMarkdown(cell, `table-cell-${index}-${rowIndex}-${cellIndex}`)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        index = table.nextIndex;
+        continue;
+      }
     }
 
     if (/^>\s?/.test(line)) {
@@ -1068,7 +1175,8 @@ export default function App() {
   const [evidencePreview, setEvidencePreview] = useState<EvidencePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [evidenceResizeEnabled, setEvidenceResizeEnabled] = useState(true);
-  const [evidenceResizeMax, setEvidenceResizeMax] = useState(1600);
+  const [evidenceResizeMaxWidth, setEvidenceResizeMaxWidth] = useState(1600);
+  const [evidenceResizeMaxHeight, setEvidenceResizeMaxHeight] = useState(1600);
   const [editorMode, setEditorMode] = useState<EditorMode>("crop");
   const [editorBrushColor, setEditorBrushColor] = useState("#ff3b30");
   const [editorBrushSize, setEditorBrushSize] = useState(6);
@@ -1264,9 +1372,18 @@ export default function App() {
     if (savedResizeEnabled != null) {
       setEvidenceResizeEnabled(savedResizeEnabled === "true");
     }
-    const savedResizeMax = Number(window.localStorage.getItem("the-test-evidence-resize-max"));
-    if (Number.isFinite(savedResizeMax) && savedResizeMax >= 400 && savedResizeMax <= 4000) {
-      setEvidenceResizeMax(Math.round(savedResizeMax));
+    const savedResizeMaxWidth = Number(window.localStorage.getItem("the-test-evidence-resize-max-width"));
+    const savedResizeMaxHeight = Number(window.localStorage.getItem("the-test-evidence-resize-max-height"));
+    const savedResizeMaxLegacy = Number(window.localStorage.getItem("the-test-evidence-resize-max"));
+    if (Number.isFinite(savedResizeMaxWidth) && savedResizeMaxWidth >= 400 && savedResizeMaxWidth <= 4000) {
+      setEvidenceResizeMaxWidth(Math.round(savedResizeMaxWidth));
+    } else if (Number.isFinite(savedResizeMaxLegacy) && savedResizeMaxLegacy >= 400 && savedResizeMaxLegacy <= 4000) {
+      setEvidenceResizeMaxWidth(Math.round(savedResizeMaxLegacy));
+    }
+    if (Number.isFinite(savedResizeMaxHeight) && savedResizeMaxHeight >= 400 && savedResizeMaxHeight <= 4000) {
+      setEvidenceResizeMaxHeight(Math.round(savedResizeMaxHeight));
+    } else if (Number.isFinite(savedResizeMaxLegacy) && savedResizeMaxLegacy >= 400 && savedResizeMaxLegacy <= 4000) {
+      setEvidenceResizeMaxHeight(Math.round(savedResizeMaxLegacy));
     }
   }, []);
 
@@ -1286,9 +1403,14 @@ export default function App() {
   }, [evidenceResizeEnabled]);
 
   useEffect(() => {
-    const size = Math.min(4000, Math.max(400, Math.round(evidenceResizeMax)));
-    window.localStorage.setItem("the-test-evidence-resize-max", String(size));
-  }, [evidenceResizeMax]);
+    const size = Math.min(4000, Math.max(400, Math.round(evidenceResizeMaxWidth)));
+    window.localStorage.setItem("the-test-evidence-resize-max-width", String(size));
+  }, [evidenceResizeMaxWidth]);
+
+  useEffect(() => {
+    const size = Math.min(4000, Math.max(400, Math.round(evidenceResizeMaxHeight)));
+    window.localStorage.setItem("the-test-evidence-resize-max-height", String(size));
+  }, [evidenceResizeMaxHeight]);
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -2790,7 +2912,8 @@ export default function App() {
     try {
       await window.api.evidence.add(selectedRunScenarioId, {
         resizeEnabled: evidenceResizeEnabled,
-        resizeMax: evidenceResizeMax
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
       });
       await selectRunScenario(selectedRunScenarioId);
     } catch (err) {
@@ -2806,7 +2929,8 @@ export default function App() {
     try {
       await window.api.evidence.pasteImage(selectedRunScenarioId, {
         resizeEnabled: evidenceResizeEnabled,
-        resizeMax: evidenceResizeMax
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
       });
       await selectRunScenario(selectedRunScenarioId);
     } catch (err) {
@@ -2822,7 +2946,8 @@ export default function App() {
     try {
       const result = (await window.api.runCaseEvidence.add(runCaseId, {
         resizeEnabled: evidenceResizeEnabled,
-        resizeMax: evidenceResizeMax
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
       })) as string[] | null;
       if (!result) {
         return;
@@ -2841,7 +2966,8 @@ export default function App() {
     try {
       const result = (await window.api.runCaseEvidence.paste(runCaseId, {
         resizeEnabled: evidenceResizeEnabled,
-        resizeMax: evidenceResizeMax
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
       })) as string | null;
       if (!result) {
         return;
@@ -3087,7 +3213,8 @@ export default function App() {
     try {
       const result = (await window.api.evidence.reprocessAllImages({
         resizeEnabled: evidenceResizeEnabled,
-        resizeMax: evidenceResizeMax
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
       })) as { updated: number; scanned: number };
       setSettingsNotice(`既存の証跡画像へ設定を適用しました: ${result.updated}件 / ${result.scanned}件`);
       if (selectedRunScenarioId) {
@@ -7452,20 +7579,36 @@ export default function App() {
                     自動サイズ調整を有効にする
                   </label>
                   <div className="grid gap-2">
-                    <label htmlFor="evidence-resize-max" className="text-xs font-semibold uppercase text-slate-400">
-                      最大辺
+                    <label htmlFor="evidence-resize-max-width" className="text-xs font-semibold uppercase text-slate-400">
+                      最大横幅
                     </label>
                     <input
-                      id="evidence-resize-max"
+                      id="evidence-resize-max-width"
                       type="range"
                       min={400}
                       max={4000}
                       step={100}
-                      value={evidenceResizeMax}
-                      onChange={(event) => setEvidenceResizeMax(Number(event.target.value))}
+                      value={evidenceResizeMaxWidth}
+                      onChange={(event) => setEvidenceResizeMaxWidth(Number(event.target.value))}
                       disabled={!evidenceResizeEnabled}
                     />
-                    <p className="text-sm text-slate-400">{evidenceResizeMax}px</p>
+                    <p className="text-sm text-slate-400">{evidenceResizeMaxWidth}px</p>
+                  </div>
+                  <div className="grid gap-2">
+                    <label htmlFor="evidence-resize-max-height" className="text-xs font-semibold uppercase text-slate-400">
+                      最大縦幅
+                    </label>
+                    <input
+                      id="evidence-resize-max-height"
+                      type="range"
+                      min={400}
+                      max={4000}
+                      step={100}
+                      value={evidenceResizeMaxHeight}
+                      onChange={(event) => setEvidenceResizeMaxHeight(Number(event.target.value))}
+                      disabled={!evidenceResizeEnabled}
+                    />
+                    <p className="text-sm text-slate-400">{evidenceResizeMaxHeight}px</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <button
@@ -7477,7 +7620,7 @@ export default function App() {
                       {isReprocessingEvidenceImages ? "既存画像に適用中..." : "既存画像にもまとめて適用"}
                     </button>
                     <p className="text-sm text-slate-400">
-                      いまの最大辺設定を、保存済みの証跡画像にも一括反映します。
+                      いまの横幅・縦幅設定を、保存済みの証跡画像にも一括反映します。
                     </p>
                   </div>
                 </div>

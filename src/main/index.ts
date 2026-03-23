@@ -98,18 +98,28 @@ const inferMimeType = (fileName: string) => {
 const processImageBuffer = (
   buffer: Buffer,
   mimeType: string,
-  options?: { resizeEnabled?: boolean; resizeMax?: number }
+  options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }
 ) => {
   if (!mimeType.startsWith("image/") || !options?.resizeEnabled) {
     return { buffer, mimeType };
   }
   const image = nativeImage.createFromBuffer(buffer);
   const { width, height } = image.getSize();
-  const resizeMax = Math.max(400, Math.min(4000, Math.round(options.resizeMax ?? 1600)));
-  if (!width || !height || Math.max(width, height) <= resizeMax) {
+  const resizeMaxWidth = Math.max(
+    400,
+    Math.min(4000, Math.round(options.resizeMaxWidth ?? options.resizeMax ?? 1600))
+  );
+  const resizeMaxHeight = Math.max(
+    400,
+    Math.min(4000, Math.round(options.resizeMaxHeight ?? options.resizeMax ?? 1600))
+  );
+  if (!width || !height || (width <= resizeMaxWidth && height <= resizeMaxHeight)) {
     return { buffer, mimeType };
   }
-  const scale = resizeMax / Math.max(width, height);
+  const scale = Math.min(resizeMaxWidth / width, resizeMaxHeight / height);
+  if (scale >= 1) {
+    return { buffer, mimeType };
+  }
   const resized = image.resize({
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
@@ -250,7 +260,7 @@ ipcMain.handle("runs:updateScenarioCase", (_event, payload) => updateRunScenario
 ipcMain.handle("evidence:list", (_event, runScenarioId: string) =>
   listScenarioEvidence(runScenarioId)
 );
-ipcMain.handle("evidence:add", async (_event, runScenarioId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
+ipcMain.handle("evidence:add", async (_event, runScenarioId: string, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
   const result = await dialog.showOpenDialog({
     title: "証跡ファイルを追加",
     properties: ["openFile", "multiSelections"]
@@ -280,7 +290,7 @@ ipcMain.handle("evidence:add", async (_event, runScenarioId: string, options?: {
   return created;
 });
 
-ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
+ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
   const image = clipboard.readImage();
   if (image.isEmpty()) {
     return null;
@@ -294,7 +304,7 @@ ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string, options?: 
   });
 });
 
-ipcMain.handle("evidence:reprocessAllImages", (_event, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
+ipcMain.handle("evidence:reprocessAllImages", (_event, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
   if (!options?.resizeEnabled) {
     return { updated: 0, scanned: 0 };
   }
@@ -342,7 +352,7 @@ ipcMain.handle("evidence:open", (_event, id: string) => {
 ipcMain.handle("runCaseEvidence:list", (_event, runScenarioCaseId: string) =>
   listRunScenarioCaseEvidence(runScenarioCaseId)
 );
-ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
+ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
   const result = await dialog.showOpenDialog({
     title: "証跡ファイルを追加 (ケース)",
     properties: ["openFile", "multiSelections"]
@@ -371,7 +381,7 @@ ipcMain.handle("runCaseEvidence:add", async (_event, runScenarioCaseId: string, 
   });
   return created;
 });
-ipcMain.handle("runCaseEvidence:paste", (_event, runScenarioCaseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
+ipcMain.handle("runCaseEvidence:paste", (_event, runScenarioCaseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
   const image = clipboard.readImage();
   if (image.isEmpty()) {
     return null;
@@ -393,6 +403,12 @@ ipcMain.handle("runCaseEvidence:updateImage", (_event, id: string, payload: { ba
 
 ipcMain.handle("export:save", async (_event, payload) => {
   const ext = payload.format;
+  const caseFolderIds = Array.isArray(payload.caseFolderIds)
+    ? payload.caseFolderIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
+  const scenarioIds = Array.isArray(payload.scenarioIds)
+    ? payload.scenarioIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
   const runIds = Array.isArray(payload.runIds)
     ? payload.runIds.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
@@ -416,11 +432,22 @@ ipcMain.handle("export:save", async (_event, payload) => {
     return `${targetDir} (${runIds.length} files)`;
   }
 
-  const defaultRunName =
-    payload.entity === "test_runs" && runIds.length === 1
-      ? (listRuns().find((run: any) => run.id === runIds[0])?.name ?? "test_run")
-      : "export";
-  const safeDefaultName = String(defaultRunName).replace(/[\\/:*?"<>|]/g, "_").trim() || "export";
+  const defaultExportName = (() => {
+    if (payload.entity === "test_runs" && runIds.length === 1) {
+      return listRuns().find((run: any) => run.id === runIds[0])?.name ?? "test_run";
+    }
+    if (payload.entity === "scenarios" && scenarioIds.length === 1) {
+      return listScenarios().find((scenario: any) => scenario.id === scenarioIds[0])?.title ?? "scenario";
+    }
+    if (payload.entity === "test_cases" && caseFolderIds.length === 1) {
+      if (caseFolderIds[0] === "__NONE__") {
+        return "未分類";
+      }
+      return listCaseFolders().find((folder: any) => folder.id === caseFolderIds[0])?.name ?? "test_cases";
+    }
+    return "export";
+  })();
+  const safeDefaultName = String(defaultExportName).replace(/[\\/:*?"<>|]/g, "_").trim() || "export";
   const content = exportData(payload);
   const result = await dialog.showSaveDialog({
     title: "エクスポート先を選択",

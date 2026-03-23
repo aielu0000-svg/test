@@ -1816,6 +1816,27 @@ export const exportData = (payload: {
     ? payload.runIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
   const selectedRunIdSet = runIds.length ? new Set(runIds) : null;
+  const expectedRows = database
+    .prepare("SELECT case_id, expected FROM test_steps ORDER BY case_id, position")
+    .all() as Array<{ case_id?: string; expected?: string }>;
+  const expectedByCaseId = new Map<string, string[]>();
+  expectedRows.forEach((row) => {
+    const caseId = String(row.case_id ?? "").trim();
+    const expected = String(row.expected ?? "").trim();
+    if (!caseId || !expected) {
+      return;
+    }
+    const existing = expectedByCaseId.get(caseId) ?? [];
+    existing.push(expected);
+    expectedByCaseId.set(caseId, existing);
+  });
+  const formatExpectedText = (caseId: unknown, style: "lines" | "bullet" = "lines") => {
+    const values = expectedByCaseId.get(String(caseId ?? "").trim()) ?? [];
+    if (style === "bullet" && values.length > 1) {
+      return values.map((value) => `- ${value}`).join("\n");
+    }
+    return values.join("\n");
+  };
   if (payload.entity === "data_sets" && payload.format === "md") {
     const sourceRows = payload.scope
       ? (database
@@ -2078,6 +2099,13 @@ export const exportData = (payload: {
             lines.push(String(runCase.view_location).trimEnd());
             lines.push("```");
           }
+          const expectedText = formatExpectedText(runCase.case_id);
+          if (formatOptional(expectedText)) {
+            lines.push("- 期待結果:");
+            lines.push("```");
+            lines.push(expectedText.trimEnd());
+            lines.push("```");
+          }
           if (formatOptional(runCase.tags)) {
             lines.push(`- タグ: ${String(runCase.tags)}`);
           }
@@ -2159,6 +2187,7 @@ export const exportData = (payload: {
         lines.push("- 前提：");
         lines.push("なし");
         lines.push("- 見る場所：");
+        lines.push("");
         lines.push("なし");
         lines.push("");
         lines.push("### 手順");
@@ -2174,6 +2203,7 @@ export const exportData = (payload: {
           lines.push("- 前提：");
           lines.push(textOrDefault(testCase.preconditions));
           lines.push("- 見る場所：");
+          lines.push("");
           lines.push(textOrDefault(testCase.view_location));
           lines.push("");
           lines.push("### 手順");
@@ -2221,9 +2251,6 @@ export const exportData = (payload: {
         "SELECT id, title, objective, preconditions, priority, tags, folder_id FROM test_cases ORDER BY updated_at DESC"
       )
       .all() as Array<Record<string, any>>;
-    const expectedQuery = database.prepare(
-      "SELECT expected FROM test_steps WHERE case_id = ? ORDER BY position"
-    );
     const filteredCases = selectedCaseFolderIdSet
       ? testCases.filter((item) => {
           const folderKey =
@@ -2234,13 +2261,7 @@ export const exportData = (payload: {
         })
       : testCases;
     rows = filteredCases.map((item) => {
-      const expectedValues = (expectedQuery.all(item.id) as Array<{ expected?: string }>)
-        .map((entry) => (entry.expected ?? "").trim())
-        .filter((entry) => entry.length > 0);
-      const expectedText =
-        expectedValues.length > 1
-          ? expectedValues.map((entry) => `- ${entry}`).join("\n")
-          : expectedValues[0] ?? "";
+      const expectedText = formatExpectedText(item.id, "bullet");
       return {
         タイトル: item.title ?? "",
         目的: item.objective ?? "",
@@ -2468,6 +2489,7 @@ export const exportData = (payload: {
                 case_title: runCase.case_title ?? "",
                 preconditions: runCase.preconditions ?? "",
                 view_location: runCase.view_location ?? "",
+                expected_result: formatExpectedText(runCase.case_id),
                 tags: runCase.tags ?? "",
                 status: runCase.status ?? "not_run",
                 actual_result: runCase.actual_result ?? "",
@@ -2505,6 +2527,7 @@ export const exportData = (payload: {
           run_scenario_cases.id as run_scenario_case_id,
           run_scenario_cases.case_id,
           test_cases.title as case_title,
+          test_cases.view_location,
           run_scenario_cases.status as case_status,
           run_scenario_cases.notes as case_notes,
           run_scenario_cases.executed_at as case_executed_at
@@ -2591,10 +2614,29 @@ export const exportData = (payload: {
           ? (caseEvidenceQuery.all(row.run_scenario_case_id) as Array<Record<string, any>>)
           : [];
       return {
-        ...row,
+        run_id: row.run_id ?? "",
+        run_name: row.run_name ?? "",
         run_status: runStatusLabel(String(row.run_status ?? "")),
+        environment: row.environment ?? "",
+        build_version: row.build_version ?? "",
+        tester: row.tester ?? "",
+        started_at: row.started_at ?? "",
+        finished_at: row.finished_at ?? "",
+        run_scenario_id: row.run_scenario_id ?? "",
+        scenario_id: row.scenario_id ?? "",
+        scenario_title: row.scenario_title ?? "",
         scenario_status: scenarioStatusLabel(String(row.scenario_status ?? "")),
+        scenario_assignee: row.scenario_assignee ?? "",
+        scenario_notes: row.scenario_notes ?? "",
+        scenario_executed_at: row.scenario_executed_at ?? "",
+        run_scenario_case_id: row.run_scenario_case_id ?? "",
+        case_id: row.case_id ?? "",
+        case_title: row.case_title ?? "",
+        view_location: row.view_location ?? "",
+        expected_result: formatExpectedText(row.case_id, "bullet"),
         case_status: caseStatusLabel(String(row.case_status ?? "")),
+        case_notes: row.case_notes ?? "",
+        case_executed_at: row.case_executed_at ?? "",
         scenario_evidence: embeddedEvidence(scenarioEvidence),
         case_evidence: embeddedEvidence(caseEvidence)
       };
