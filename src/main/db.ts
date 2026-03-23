@@ -1520,6 +1520,50 @@ export const updateRunScenarioCaseEvidenceImage = (
   payload: { buffer: Buffer; mimeType: string }
 ) => updateEvidenceBinary("run_case_evidence", id, payload);
 
+export type StoredEvidenceAsset = {
+  scope: "scenario" | "run_case";
+  id: string;
+  file_name: string;
+  mime_type?: string;
+  file_path: string;
+};
+
+export const listStoredEvidenceAssets = (): StoredEvidenceAsset[] => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const rows = [
+    ...database
+      .prepare("SELECT id, file_name, stored_path, mime_type FROM scenario_evidence")
+      .all()
+      .map((row) => ({ ...row, scope: "scenario" as const })),
+    ...database
+      .prepare("SELECT id, file_name, stored_path, mime_type FROM run_case_evidence")
+      .all()
+      .map((row) => ({ ...row, scope: "run_case" as const }))
+  ] as Array<{
+    scope: "scenario" | "run_case";
+    id: string;
+    file_name: string;
+    stored_path?: string;
+    mime_type?: string;
+  }>;
+
+  return rows
+    .map((row) => {
+      const filePath = row.stored_path ? resolveAttachmentPath(folderPath, row.stored_path) : null;
+      if (!filePath) {
+        return null;
+      }
+      return {
+        scope: row.scope,
+        id: row.id,
+        file_name: row.file_name,
+        mime_type: row.mime_type,
+        file_path: filePath
+      };
+    })
+    .filter((row): row is StoredEvidenceAsset => Boolean(row));
+};
+
 const escapeCsv = (value: string) => {
   const raw = value ?? "";
   const trimmed = raw.trimStart();

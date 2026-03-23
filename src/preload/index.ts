@@ -57,6 +57,7 @@ const api = {
     list: (runScenarioId: string) => ipcRenderer.invoke("evidence:list", runScenarioId),
     add: (runScenarioId: string, options?: unknown) => ipcRenderer.invoke("evidence:add", runScenarioId, options),
     pasteImage: (runScenarioId: string, options?: unknown) => ipcRenderer.invoke("evidence:pasteImage", runScenarioId, options),
+    reprocessAllImages: (options?: unknown) => ipcRenderer.invoke("evidence:reprocessAllImages", options),
     remove: (id: string) => ipcRenderer.invoke("evidence:remove", id),
     open: (id: string) => ipcRenderer.invoke("evidence:open", id),
     preview: (id: string) => ipcRenderer.invoke("evidence:preview", id),

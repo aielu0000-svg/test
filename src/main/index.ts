@@ -35,6 +35,7 @@ import {
   listCaseFolders,
   listDataSets,
   listRuns,
+  listStoredEvidenceAssets,
   listScenarioEvidence,
   listScenarios,
   listTestCases,
@@ -291,6 +292,34 @@ ipcMain.handle("evidence:pasteImage", (_event, runScenarioId: string, options?: 
     buffer: processed.buffer,
     mimeType: processed.mimeType
   });
+});
+
+ipcMain.handle("evidence:reprocessAllImages", (_event, options?: { resizeEnabled?: boolean; resizeMax?: number }) => {
+  if (!options?.resizeEnabled) {
+    return { updated: 0, scanned: 0 };
+  }
+  const assets = listStoredEvidenceAssets();
+  let updated = 0;
+  assets.forEach((asset) => {
+    const mimeType = asset.mime_type || inferMimeType(asset.file_name);
+    if (!mimeType.startsWith("image/") || !fs.existsSync(asset.file_path)) {
+      return;
+    }
+    const processed = processImageBuffer(fs.readFileSync(asset.file_path), mimeType, options);
+    if (asset.scope === "scenario") {
+      updateScenarioEvidenceImage(asset.id, {
+        buffer: processed.buffer,
+        mimeType: processed.mimeType
+      });
+    } else {
+      updateRunScenarioCaseEvidenceImage(asset.id, {
+        buffer: processed.buffer,
+        mimeType: processed.mimeType
+      });
+    }
+    updated += 1;
+  });
+  return { updated, scanned: assets.length };
 });
 
 ipcMain.handle("evidence:remove", (_event, id: string) => removeScenarioEvidence(id));

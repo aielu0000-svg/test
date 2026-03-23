@@ -1123,6 +1123,7 @@ export default function App() {
   const exportCaseFoldersInitializedRef = useRef(false);
 
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
+  const [isReprocessingEvidenceImages, setIsReprocessingEvidenceImages] = useState(false);
   const [resetDatabaseOpen, setResetDatabaseOpen] = useState(false);
 
   const caseTitleError = caseError === "タイトルは必須です。";
@@ -3073,6 +3074,29 @@ export default function App() {
       setSettingsNotice("データベースをリセットしました。");
     } catch (err) {
       setSettingsNotice(err instanceof Error ? err.message : "リセットに失敗しました。");
+    }
+  };
+
+  const handleReprocessExistingEvidenceImages = async () => {
+    setSettingsNotice(null);
+    if (!evidenceResizeEnabled) {
+      setSettingsNotice("先に証跡画像の自動サイズ調整を有効にしてください。");
+      return;
+    }
+    setIsReprocessingEvidenceImages(true);
+    try {
+      const result = (await window.api.evidence.reprocessAllImages({
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMax: evidenceResizeMax
+      })) as { updated: number; scanned: number };
+      setSettingsNotice(`既存の証跡画像へ設定を適用しました: ${result.updated}件 / ${result.scanned}件`);
+      if (selectedRunScenarioId) {
+        await selectRunScenario(selectedRunScenarioId);
+      }
+    } catch (err) {
+      setSettingsNotice(err instanceof Error ? err.message : "既存証跡画像への適用に失敗しました。");
+    } finally {
+      setIsReprocessingEvidenceImages(false);
     }
   };
 
@@ -7442,6 +7466,19 @@ export default function App() {
                       disabled={!evidenceResizeEnabled}
                     />
                     <p className="text-sm text-slate-400">{evidenceResizeMax}px</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      className={outlineButtonClass}
+                      onClick={() => void handleReprocessExistingEvidenceImages()}
+                      disabled={!evidenceResizeEnabled || isReprocessingEvidenceImages}
+                    >
+                      {isReprocessingEvidenceImages ? "既存画像に適用中..." : "既存画像にもまとめて適用"}
+                    </button>
+                    <p className="text-sm text-slate-400">
+                      いまの最大辺設定を、保存済みの証跡画像にも一括反映します。
+                    </p>
                   </div>
                 </div>
               </div>
