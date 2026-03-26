@@ -429,6 +429,38 @@ const PlusIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const UndoArrowIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M9 7H5v4" />
+    <path d="M5 11a8 8 0 1 1 2.3 5.7" />
+  </svg>
+);
+
+const RedoArrowIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M15 7h4v4" />
+    <path d="M19 11a8 8 0 1 0-2.3 5.7" />
+  </svg>
+);
+
 const RunCasePassIcon = ({ className }: { className?: string }) => (
   <svg
     viewBox="0 0 16 16"
@@ -606,9 +638,14 @@ const NavIcon = ({ name, className }: { name: SectionKey; className?: string }) 
 };
 
 const renderInlineMarkdown = (text: string, keyPrefix: string) => {
-  const chunks = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const pattern =
+    /(!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_|<br\s*\/?>)/gi;
+  const chunks = text.split(pattern).filter((chunk) => chunk.length > 0);
   return chunks.map((chunk, index) => {
     const key = `${keyPrefix}-${index}`;
+    if (/^<br\s*\/?>$/i.test(chunk)) {
+      return <br key={key} />;
+    }
     if (chunk.startsWith("`") && chunk.endsWith("`") && chunk.length >= 2) {
       return (
         <code
@@ -619,11 +656,39 @@ const renderInlineMarkdown = (text: string, keyPrefix: string) => {
         </code>
       );
     }
-    if (chunk.startsWith("**") && chunk.endsWith("**") && chunk.length >= 4) {
+    if ((chunk.startsWith("**") && chunk.endsWith("**")) || (chunk.startsWith("__") && chunk.endsWith("__"))) {
       return <strong key={key}>{chunk.slice(2, -2)}</strong>;
     }
-    if (chunk.startsWith("*") && chunk.endsWith("*") && chunk.length >= 2) {
+    if (chunk.startsWith("~~") && chunk.endsWith("~~")) {
+      return <del key={key}>{chunk.slice(2, -2)}</del>;
+    }
+    if ((chunk.startsWith("*") && chunk.endsWith("*")) || (chunk.startsWith("_") && chunk.endsWith("_"))) {
       return <em key={key}>{chunk.slice(1, -1)}</em>;
+    }
+    const imageMatch = chunk.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (imageMatch) {
+      return (
+        <img
+          key={key}
+          src={imageMatch[2]}
+          alt={imageMatch[1]}
+          className="inline-block max-h-40 max-w-full rounded-md align-middle"
+        />
+      );
+    }
+    const linkMatch = chunk.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) {
+      return (
+        <a
+          key={key}
+          href={linkMatch[2]}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sky-400 underline underline-offset-2"
+        >
+          {linkMatch[1]}
+        </a>
+      );
     }
     return <span key={key}>{chunk}</span>;
   });
@@ -636,7 +701,7 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
   type ParsedListItem = { text: string; ordered: boolean; depth: number; children: ParsedListItem[] };
 
   const parseListLine = (line: string) => {
-    const match = line.match(/^(\s*)([-*]|\d+\.)\s+(.*)$/);
+    const match = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
     if (!match) {
       return null;
     }
@@ -667,7 +732,18 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
         >
           {group.items.map((item, itemIndex) => (
             <li key={`${keyPrefix}-item-${groupIndex}-${itemIndex}`}>
-              {renderInlineMarkdown(item.text, `${keyPrefix}-txt-${groupIndex}-${itemIndex}`)}
+              {(() => {
+                const taskMatch = item.text.match(/^\[( |x|X)\]\s+(.*)$/);
+                if (!taskMatch) {
+                  return renderInlineMarkdown(item.text, `${keyPrefix}-txt-${groupIndex}-${itemIndex}`);
+                }
+                return (
+                  <span className="inline-flex items-start gap-2">
+                    <input type="checkbox" checked={/[xX]/.test(taskMatch[1])} readOnly className="mt-1" />
+                    <span>{renderInlineMarkdown(taskMatch[2], `${keyPrefix}-txt-${groupIndex}-${itemIndex}`)}</span>
+                  </span>
+                );
+              })()}
               {item.children.length > 0 && (
                 <div className="mt-1">
                   {renderListTree(item.children, `${keyPrefix}-child-${groupIndex}-${itemIndex}`)}
@@ -749,7 +825,9 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
   };
 
   const isTableSeparator = (cells: string[]) =>
-    cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
+    cells.length > 0 && cells.every((cell) => /^:?-+:?$/.test(cell.replace(/\s+/g, "")));
+
+  const isHorizontalRule = (line: string) => /^\s*([-*_])(?:\s*\1){0,}\s*$/.test(line);
 
   const parseTableBlock = (startIndex: number) => {
     const header = splitTableLine(lines[startIndex] ?? "");
@@ -775,8 +853,9 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
   const isBlockStart = (line: string) =>
     /^```/.test(line) ||
     /^#{1,6}\s+/.test(line) ||
-    /^\s*[-*]\s+/.test(line) ||
+    /^\s*[-*+]\s+/.test(line) ||
     /^\s*\d+\.\s+/.test(line) ||
+    isHorizontalRule(line) ||
     /^\|.*\|$/.test(line.trim()) ||
     /^>\s?/.test(line);
 
@@ -818,6 +897,17 @@ const MarkdownPreview = ({ value, theme }: { value: string; theme: "light" | "da
           </pre>
         </div>
       );
+      continue;
+    }
+
+    if (isHorizontalRule(line)) {
+      nodes.push(
+        <hr
+          key={`hr-${index}`}
+          className={cn("border-0 border-t", theme === "light" ? "border-slate-300" : "border-slate-700")}
+        />
+      );
+      index += 1;
       continue;
     }
 
@@ -1105,6 +1195,10 @@ export default function App() {
   const evidenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const editorImageRef = useRef<HTMLCanvasElement | null>(null);
   const originalEditorImageRef = useRef<HTMLCanvasElement | null>(null);
+  const savedEditorImageRef = useRef<HTMLCanvasElement | null>(null);
+  const editorHistoryRef = useRef<HTMLCanvasElement[]>([]);
+  const editorFutureRef = useRef<HTMLCanvasElement[]>([]);
+  const editorPreviewIdRef = useRef<string | null>(null);
   const pointerStateRef = useRef<null | { mode: EditorMode; x: number; y: number; pointerId: number }>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [fontSizePx, setFontSizePx] = useState(21);
@@ -1184,6 +1278,7 @@ export default function App() {
   const [editorBorderWidth, setEditorBorderWidth] = useState(8);
   const [editorSelection, setEditorSelection] = useState<EditorSelection | null>(null);
   const [editorCanvasSize, setEditorCanvasSize] = useState({ width: 0, height: 0 });
+  const [editorHistoryState, setEditorHistoryState] = useState({ undo: 0, redo: 0 });
   const [scenarioFolderId, setScenarioFolderId] = useState("");
   const [scenarioFromFolderTitle, setScenarioFromFolderTitle] = useState("");
 
@@ -1452,9 +1547,14 @@ export default function App() {
       const originalContext = originalCanvas.getContext("2d");
       originalContext?.drawImage(image, 0, 0);
       editorImageRef.current = sourceCanvas;
-      originalEditorImageRef.current = originalCanvas;
+      savedEditorImageRef.current = cloneEditorCanvas(sourceCanvas);
+      if (editorPreviewIdRef.current !== evidencePreview.id || !originalEditorImageRef.current) {
+        originalEditorImageRef.current = originalCanvas;
+        editorPreviewIdRef.current = evidencePreview.id;
+      }
       setEditorSelection(null);
       setEditorCanvasSize({ width: image.naturalWidth, height: image.naturalHeight });
+      resetEditorHistory();
       drawEvidenceCanvas(null);
     };
     image.src = evidencePreview.dataUrl;
@@ -1466,6 +1566,30 @@ export default function App() {
     }
     drawEvidenceCanvas(editorSelection);
   }, [editorMode, editorSelection, evidencePreview?.id]);
+
+  useEffect(() => {
+    if (!evidencePreview || !evidencePreview.mimeType.startsWith("image/")) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isModifier = event.ctrlKey || event.metaKey;
+      if (!isModifier) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undoEditorAction();
+        return;
+      }
+      if (key === "y" || (key === "z" && event.shiftKey)) {
+        event.preventDefault();
+        redoEditorAction();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [evidencePreview?.id, evidencePreview?.mimeType]);
 
   useEffect(() => {
     if (!project) {
@@ -2757,6 +2881,8 @@ export default function App() {
     setEvidencePreview(null);
     setPreviewError(null);
     setEditorSelection(null);
+    editorPreviewIdRef.current = null;
+    resetEditorHistory();
   };
 
   const cloneEditorCanvas = (source: HTMLCanvasElement) => {
@@ -2766,6 +2892,76 @@ export default function App() {
     const context = clone.getContext("2d");
     context?.drawImage(source, 0, 0);
     return clone;
+  };
+
+  const syncEditorHistoryState = () => {
+    setEditorHistoryState({
+      undo: editorHistoryRef.current.length,
+      redo: editorFutureRef.current.length
+    });
+  };
+
+  const resetEditorHistory = () => {
+    editorHistoryRef.current = [];
+    editorFutureRef.current = [];
+    syncEditorHistoryState();
+  };
+
+  const pushEditorHistorySnapshot = () => {
+    if (!editorImageRef.current) {
+      return;
+    }
+    editorHistoryRef.current.push(cloneEditorCanvas(editorImageRef.current));
+    if (editorHistoryRef.current.length > 50) {
+      editorHistoryRef.current.shift();
+    }
+    editorFutureRef.current = [];
+    syncEditorHistoryState();
+  };
+
+  const restoreEditorCanvas = (snapshot: HTMLCanvasElement | null) => {
+    if (!snapshot) {
+      return;
+    }
+    editorImageRef.current = cloneEditorCanvas(snapshot);
+    setEditorSelection(null);
+    drawEvidenceCanvas(null);
+  };
+
+  const undoEditorAction = () => {
+    if (!editorImageRef.current || editorHistoryRef.current.length === 0) {
+      return;
+    }
+    editorFutureRef.current.unshift(cloneEditorCanvas(editorImageRef.current));
+    const snapshot = editorHistoryRef.current.pop() ?? null;
+    restoreEditorCanvas(snapshot);
+    syncEditorHistoryState();
+  };
+
+  const redoEditorAction = () => {
+    if (!editorImageRef.current || editorFutureRef.current.length === 0) {
+      return;
+    }
+    editorHistoryRef.current.push(cloneEditorCanvas(editorImageRef.current));
+    const snapshot = editorFutureRef.current.shift() ?? null;
+    restoreEditorCanvas(snapshot);
+    syncEditorHistoryState();
+  };
+
+  const resetEditorToSavedImage = () => {
+    if (!savedEditorImageRef.current) {
+      return;
+    }
+    pushEditorHistorySnapshot();
+    restoreEditorCanvas(savedEditorImageRef.current);
+  };
+
+  const resetEditorToOriginalImage = () => {
+    if (!originalEditorImageRef.current) {
+      return;
+    }
+    pushEditorHistorySnapshot();
+    restoreEditorCanvas(originalEditorImageRef.current);
   };
 
   const drawEvidenceCanvas = (selection?: EditorSelection | null) => {
@@ -2812,6 +3008,7 @@ export default function App() {
     if (!sourceCanvas || !editorSelection || editorSelection.w < 4 || editorSelection.h < 4) {
       return;
     }
+    pushEditorHistorySnapshot();
     const temp = document.createElement("canvas");
     temp.width = Math.round(editorSelection.w);
     temp.height = Math.round(editorSelection.h);
@@ -2841,6 +3038,7 @@ export default function App() {
     if (!sourceCanvas || !editorSelection || editorSelection.w < 4 || editorSelection.h < 4) {
       return;
     }
+    pushEditorHistorySnapshot();
     const context = sourceCanvas.getContext("2d");
     if (!context) {
       return;
@@ -2864,6 +3062,8 @@ export default function App() {
     if (!sourceCanvas || !evidencePreview) {
       return;
     }
+    savedEditorImageRef.current = cloneEditorCanvas(sourceCanvas);
+    resetEditorHistory();
     const dataUrl = sourceCanvas.toDataURL("image/png");
     const base64 = dataUrl.split(",")[1] ?? "";
     if (!base64) {
@@ -2891,6 +3091,51 @@ export default function App() {
     if (matchingRunCaseId) {
       await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
     }
+  };
+
+  const moveOrderedIds = (ids: string[], targetId: string, direction: -1 | 1) => {
+    const index = ids.indexOf(targetId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) {
+      return null;
+    }
+    const next = [...ids];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    return next;
+  };
+
+  const handleReorderScenarioEvidence = async (evidenceId: string, direction: -1 | 1) => {
+    if (!selectedRunScenarioId) {
+      return;
+    }
+    const nextIds = moveOrderedIds(
+      evidenceList.map((item) => item.id),
+      evidenceId,
+      direction
+    );
+    if (!nextIds) {
+      return;
+    }
+    await window.api.evidence.reorder(selectedRunScenarioId, nextIds);
+    await selectRunScenario(selectedRunScenarioId);
+  };
+
+  const handleReorderRunCaseEvidence = async (
+    runCaseId: string,
+    evidenceId: string,
+    direction: -1 | 1
+  ) => {
+    const previews = runCaseEvidenceMap[runCaseId] ?? [];
+    const nextIds = moveOrderedIds(
+      previews.map((item) => item.id),
+      evidenceId,
+      direction
+    );
+    if (!nextIds) {
+      return;
+    }
+    await window.api.runCaseEvidence.reorder(runCaseId, nextIds);
+    await loadRunCaseEvidenceForIds([runCaseId], { overwrite: false });
   };
 
   const updateRunScenarioDraft = (id: string, patch: Partial<RunCase>) => {
@@ -6764,6 +7009,36 @@ export default function App() {
                                                   <div className="flex flex-wrap gap-3">
                                                     {caseEvidence.map((preview) => (
                                                       <div key={preview.id} className="group relative w-30">
+                                                        <div className="absolute left-1 top-1 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                                                          <button
+                                                            type="button"
+                                                            className={cn(
+                                                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                                              theme === "light"
+                                                                ? "border-slate-200 bg-white text-slate-700"
+                                                                : "border-slate-700 bg-slate-950/90 text-slate-100"
+                                                            )}
+                                                            onClick={() =>
+                                                              void handleReorderRunCaseEvidence(runCase.id, preview.id, -1)
+                                                            }
+                                                          >
+                                                            ↑
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            className={cn(
+                                                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                                              theme === "light"
+                                                                ? "border-slate-200 bg-white text-slate-700"
+                                                                : "border-slate-700 bg-slate-950/90 text-slate-100"
+                                                            )}
+                                                            onClick={() =>
+                                                              void handleReorderRunCaseEvidence(runCase.id, preview.id, 1)
+                                                            }
+                                                          >
+                                                            ↓
+                                                          </button>
+                                                        </div>
                                                         <button
                                                           type="button"
                                                           aria-label="証跡を削除"
@@ -6948,6 +7223,18 @@ export default function App() {
                                   onClick={() => handlePreviewEvidence(evidence.id, evidence.file_name)}
                                 >
                                   プレビュー
+                                </button>
+                                <button
+                                  className="shrink-0 rounded-full border border-slate-600 px-2 py-1 text-[10px] font-semibold text-slate-200"
+                                  onClick={() => void handleReorderScenarioEvidence(evidence.id, -1)}
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  className="shrink-0 rounded-full border border-slate-600 px-2 py-1 text-[10px] font-semibold text-slate-200"
+                                  onClick={() => void handleReorderScenarioEvidence(evidence.id, 1)}
+                                >
+                                  ↓
                                 </button>
                               </div>
                               <button
@@ -7677,6 +7964,26 @@ export default function App() {
               <div className="mt-4 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
                   <p className="text-xs font-semibold uppercase text-slate-400">編集</p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={outlineButtonClass}
+                      onClick={undoEditorAction}
+                      disabled={editorHistoryState.undo === 0}
+                      title="元に戻す (Ctrl+Z)"
+                    >
+                      <UndoArrowIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className={outlineButtonClass}
+                      onClick={redoEditorAction}
+                      disabled={editorHistoryState.redo === 0}
+                      title="やり直し (Ctrl+Y)"
+                    >
+                      <RedoArrowIcon />
+                    </button>
+                  </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -7748,15 +8055,16 @@ export default function App() {
                     <button
                       type="button"
                       className={outlineButtonClass}
-                      onClick={() => {
-                        if (originalEditorImageRef.current) {
-                          editorImageRef.current = cloneEditorCanvas(originalEditorImageRef.current);
-                        }
-                        setEditorSelection(null);
-                        drawEvidenceCanvas(null);
-                      }}
+                      onClick={resetEditorToSavedImage}
                     >
-                      編集をリセット
+                      保存前に戻す
+                    </button>
+                    <button
+                      type="button"
+                      className={outlineButtonClass}
+                      onClick={resetEditorToOriginalImage}
+                    >
+                      元の画像に戻す
                     </button>
                     <button type="button" className={primaryButtonClass} onClick={() => void saveEditedEvidence()}>
                       編集内容を保存
@@ -7798,6 +8106,7 @@ export default function App() {
                         y: point.y,
                         pointerId: event.pointerId
                       };
+                      pushEditorHistorySnapshot();
                       const context = editorImageRef.current?.getContext("2d");
                       if (!context) return;
                       context.strokeStyle = editorBrushColor;

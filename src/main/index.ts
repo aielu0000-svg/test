@@ -30,6 +30,8 @@ import {
   listRunScenarioCases,
   previewScenarioEvidence,
   previewRunScenarioCaseEvidence,
+  reorderRunScenarioCaseEvidence,
+  reorderScenarioEvidence,
   updateRunScenarioCaseEvidenceImage,
   updateScenarioEvidenceImage,
   listCaseFolders,
@@ -333,6 +335,10 @@ ipcMain.handle("evidence:reprocessAllImages", (_event, options?: { resizeEnabled
 });
 
 ipcMain.handle("evidence:remove", (_event, id: string) => removeScenarioEvidence(id));
+ipcMain.handle("evidence:reorder", (_event, runScenarioId: string, orderedIds: string[]) => {
+  reorderScenarioEvidence(runScenarioId, orderedIds);
+  return true;
+});
 
 ipcMain.handle("evidence:preview", (_event, id: string) => previewScenarioEvidence(id));
 ipcMain.handle("evidence:updateImage", (_event, id: string, payload: { base64: string; mimeType: string }) => {
@@ -395,6 +401,10 @@ ipcMain.handle("runCaseEvidence:paste", (_event, runScenarioCaseId: string, opti
   });
 });
 ipcMain.handle("runCaseEvidence:remove", (_event, id: string) => removeRunScenarioCaseEvidence(id));
+ipcMain.handle("runCaseEvidence:reorder", (_event, runScenarioCaseId: string, orderedIds: string[]) => {
+  reorderRunScenarioCaseEvidence(runScenarioCaseId, orderedIds);
+  return true;
+});
 ipcMain.handle("runCaseEvidence:preview", (_event, id: string) => previewRunScenarioCaseEvidence(id));
 ipcMain.handle("runCaseEvidence:updateImage", (_event, id: string, payload: { base64: string; mimeType: string }) => {
   updateRunScenarioCaseEvidenceImage(id, { buffer: Buffer.from(payload.base64, "base64"), mimeType: payload.mimeType });

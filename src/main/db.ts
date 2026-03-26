@@ -77,6 +77,36 @@ const ensureColumn = (
   }
 };
 
+const normalizeEvidenceSortOrder = (
+  database: Database.Database,
+  table: "scenario_evidence" | "run_case_evidence",
+  parentColumn: "run_scenario_id" | "run_scenario_case_id"
+) => {
+  const rows = database
+    .prepare(
+      `SELECT id, ${parentColumn} as parent_id, created_at, sort_order
+       FROM ${table}
+       ORDER BY ${parentColumn}, COALESCE(sort_order, 0), created_at, id`
+    )
+    .all() as Array<{ id: string; parent_id: string; created_at: string; sort_order?: number }>;
+  const update = database.prepare(`UPDATE ${table} SET sort_order = ? WHERE id = ?`);
+  const transaction = database.transaction(() => {
+    let currentParent = "";
+    let nextOrder = 1;
+    rows.forEach((row) => {
+      if (row.parent_id !== currentParent) {
+        currentParent = row.parent_id;
+        nextOrder = 1;
+      }
+      if (Number(row.sort_order ?? 0) !== nextOrder) {
+        update.run(nextOrder, row.id);
+      }
+      nextOrder += 1;
+    });
+  });
+  transaction();
+};
+
 const ensureDb = () => {
   if (!db || !projectPath) {
     throw new Error("プロジェクトが開かれていません。");
@@ -240,6 +270,7 @@ const initSchema = (database: Database.Database) => {
       stored_path TEXT NOT NULL,
       mime_type TEXT,
       size INTEGER,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -260,6 +291,7 @@ const initSchema = (database: Database.Database) => {
       stored_path TEXT NOT NULL,
       mime_type TEXT,
       size INTEGER,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -281,12 +313,16 @@ const initSchema = (database: Database.Database) => {
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
   ensureColumn(database, "test_cases", "view_location", "TEXT");
   ensureColumn(database, "data_sets", "folder_id", "TEXT");
+  ensureColumn(database, "scenario_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "run_case_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   database.exec(`
     INSERT OR IGNORE INTO test_case_folders (case_id, folder_id)
     SELECT id, folder_id
     FROM test_cases
     WHERE folder_id IS NOT NULL AND TRIM(folder_id) != '';
   `);
+  normalizeEvidenceSortOrder(database, "scenario_evidence", "run_scenario_id");
+  normalizeEvidenceSortOrder(database, "run_case_evidence", "run_scenario_case_id");
 };
 
 export const createProject = (folderPath: string, name: string) => {
@@ -1245,13 +1281,53 @@ export const updateRunScenarioCase = (payload: {
 export const listScenarioEvidence = (runScenarioId: string) => {
   const { db: database } = ensureDb();
   return database
-    .prepare("SELECT * FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at DESC")
+    .prepare("SELECT * FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY sort_order ASC, created_at ASC")
     .all(runScenarioId);
+};
+
+const getNextEvidenceSortOrder = (
+  database: Database.Database,
+  table: "scenario_evidence" | "run_case_evidence",
+  parentColumn: "run_scenario_id" | "run_scenario_case_id",
+  parentId: string
+) => {
+  const row = database
+    .prepare(`SELECT COALESCE(MAX(sort_order), 0) AS max_sort_order FROM ${table} WHERE ${parentColumn} = ?`)
+    .get(parentId) as { max_sort_order?: number } | undefined;
+  return Number(row?.max_sort_order ?? 0) + 1;
+};
+
+const reorderEvidenceRows = (
+  table: "scenario_evidence" | "run_case_evidence",
+  parentColumn: "run_scenario_id" | "run_scenario_case_id",
+  parentId: string,
+  orderedIds: string[]
+) => {
+  const { db: database } = ensureDb();
+  const currentRows = database
+    .prepare(
+      `SELECT id FROM ${table} WHERE ${parentColumn} = ? ORDER BY sort_order ASC, created_at ASC, id ASC`
+    )
+    .all(parentId) as Array<{ id: string }>;
+  const currentIds = currentRows.map((row) => row.id);
+  const requestedIds = orderedIds.filter((id) => currentIds.includes(id));
+  const finalIds = [
+    ...requestedIds,
+    ...currentIds.filter((id) => !requestedIds.includes(id))
+  ];
+  const update = database.prepare(`UPDATE ${table} SET sort_order = ? WHERE id = ?`);
+  const transaction = database.transaction(() => {
+    finalIds.forEach((id, index) => {
+      update.run(index + 1, id);
+    });
+  });
+  transaction();
 };
 
 export const addScenarioEvidence = (payload: EvidenceInput & { runScenarioId: string }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
+  const sortOrder = getNextEvidenceSortOrder(database, "scenario_evidence", "run_scenario_id", payload.runScenarioId);
   const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
   if (!fs.existsSync(attachmentsPath)) {
     fs.mkdirSync(attachmentsPath, { recursive: true });
@@ -1263,7 +1339,7 @@ export const addScenarioEvidence = (payload: EvidenceInput & { runScenarioId: st
 
   database
     .prepare(
-      "INSERT INTO scenario_evidence (id, run_scenario_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO scenario_evidence (id, run_scenario_id, file_name, stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       id,
@@ -1272,6 +1348,7 @@ export const addScenarioEvidence = (payload: EvidenceInput & { runScenarioId: st
       storedPath,
       payload.mimeType,
       payload.size,
+      sortOrder,
       now()
     );
 
@@ -1286,6 +1363,7 @@ export const addScenarioEvidenceBuffer = (payload: {
 }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
+  const sortOrder = getNextEvidenceSortOrder(database, "scenario_evidence", "run_scenario_id", payload.runScenarioId);
   const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
   if (!fs.existsSync(attachmentsPath)) {
     fs.mkdirSync(attachmentsPath, { recursive: true });
@@ -1297,7 +1375,7 @@ export const addScenarioEvidenceBuffer = (payload: {
 
   database
     .prepare(
-      "INSERT INTO scenario_evidence (id, run_scenario_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO scenario_evidence (id, run_scenario_id, file_name, stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       id,
@@ -1306,6 +1384,7 @@ export const addScenarioEvidenceBuffer = (payload: {
       storedPath,
       payload.mimeType,
       payload.buffer.length,
+      sortOrder,
       now()
     );
 
@@ -1324,6 +1403,7 @@ export const removeScenarioEvidence = (id: string) => {
     }
   }
   database.prepare("DELETE FROM scenario_evidence WHERE id = ?").run(id);
+  normalizeEvidenceSortOrder(database, "scenario_evidence", "run_scenario_id");
 };
 
 export const getScenarioEvidencePath = (id: string) => {
@@ -1379,7 +1459,7 @@ export const listRunScenarioCaseEvidence = (runScenarioCaseId: string) => {
   const { db: database } = ensureDb();
   return database
     .prepare(
-      "SELECT * FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at DESC"
+      "SELECT * FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY sort_order ASC, created_at ASC"
     )
     .all(runScenarioCaseId) as RunCaseEvidenceRow[];
 };
@@ -1387,6 +1467,7 @@ export const listRunScenarioCaseEvidence = (runScenarioCaseId: string) => {
 export const addRunScenarioCaseEvidence = (payload: EvidenceInput & { runScenarioCaseId: string }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
+  const sortOrder = getNextEvidenceSortOrder(database, "run_case_evidence", "run_scenario_case_id", payload.runScenarioCaseId);
   const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
   if (!fs.existsSync(attachmentsPath)) {
     fs.mkdirSync(attachmentsPath, { recursive: true });
@@ -1398,7 +1479,7 @@ export const addRunScenarioCaseEvidence = (payload: EvidenceInput & { runScenari
 
   database
     .prepare(
-      "INSERT INTO run_case_evidence (id, run_scenario_case_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO run_case_evidence (id, run_scenario_case_id, file_name, stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       id,
@@ -1407,6 +1488,7 @@ export const addRunScenarioCaseEvidence = (payload: EvidenceInput & { runScenari
       storedPath,
       payload.mimeType,
       payload.size,
+      sortOrder,
       now()
     );
 
@@ -1421,6 +1503,7 @@ export const addRunScenarioCaseEvidenceBuffer = (payload: {
 }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
+  const sortOrder = getNextEvidenceSortOrder(database, "run_case_evidence", "run_scenario_case_id", payload.runScenarioCaseId);
   const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
   if (!fs.existsSync(attachmentsPath)) {
     fs.mkdirSync(attachmentsPath, { recursive: true });
@@ -1432,7 +1515,7 @@ export const addRunScenarioCaseEvidenceBuffer = (payload: {
 
   database
     .prepare(
-      "INSERT INTO run_case_evidence (id, run_scenario_case_id, file_name, stored_path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO run_case_evidence (id, run_scenario_case_id, file_name, stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       id,
@@ -1441,6 +1524,7 @@ export const addRunScenarioCaseEvidenceBuffer = (payload: {
       storedPath,
       payload.mimeType,
       payload.buffer.length,
+      sortOrder,
       now()
     );
 
@@ -1459,6 +1543,7 @@ export const removeRunScenarioCaseEvidence = (id: string) => {
     }
   }
   database.prepare("DELETE FROM run_case_evidence WHERE id = ?").run(id);
+  normalizeEvidenceSortOrder(database, "run_case_evidence", "run_scenario_case_id");
 };
 
 export const previewRunScenarioCaseEvidence = (id: string) => {
@@ -1519,6 +1604,14 @@ export const updateRunScenarioCaseEvidenceImage = (
   id: string,
   payload: { buffer: Buffer; mimeType: string }
 ) => updateEvidenceBinary("run_case_evidence", id, payload);
+
+export const reorderScenarioEvidence = (runScenarioId: string, orderedIds: string[]) => {
+  reorderEvidenceRows("scenario_evidence", "run_scenario_id", runScenarioId, orderedIds);
+};
+
+export const reorderRunScenarioCaseEvidence = (runScenarioCaseId: string, orderedIds: string[]) => {
+  reorderEvidenceRows("run_case_evidence", "run_scenario_case_id", runScenarioCaseId, orderedIds);
+};
 
 export type StoredEvidenceAsset = {
   scope: "scenario" | "run_case";
@@ -1897,7 +1990,7 @@ export const exportData = (payload: {
       ORDER BY run_scenarios.created_at`
     );
     const scenarioEvidenceQuery = database.prepare(
-      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY sort_order ASC, created_at ASC"
     );
     const caseQuery = database.prepare(
       `SELECT
@@ -1912,7 +2005,7 @@ export const exportData = (payload: {
       ORDER BY run_scenario_cases.created_at`
     );
     const caseEvidenceQuery = database.prepare(
-      "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at"
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY sort_order ASC, created_at ASC"
     );
 
     const formatOptional = (value: unknown) => {
@@ -2332,7 +2425,7 @@ export const exportData = (payload: {
     );
     const runNameQuery = database.prepare("SELECT name FROM test_runs WHERE id = ?");
     const evidenceQuery = database.prepare(
-      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY sort_order ASC, created_at ASC"
     );
 
     rows = filteredScenarios.map((scenario) => {
@@ -2424,10 +2517,10 @@ export const exportData = (payload: {
         ORDER BY run_scenario_cases.created_at`
       );
       const scenarioEvidenceQuery = database.prepare(
-        "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+        "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY sort_order ASC, created_at ASC"
       );
       const caseEvidenceQuery = database.prepare(
-        "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at"
+        "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY sort_order ASC, created_at ASC"
       );
       const isImageAttachment = (fileName: string, mimeType?: string) => {
         if (mimeType?.startsWith("image/")) {
@@ -2540,10 +2633,10 @@ export const exportData = (payload: {
       )
       .all()) as Array<Record<string, any>>;
     const scenarioEvidenceQuery = database.prepare(
-      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY created_at"
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM scenario_evidence WHERE run_scenario_id = ? ORDER BY sort_order ASC, created_at ASC"
     );
     const caseEvidenceQuery = database.prepare(
-      "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY created_at"
+      "SELECT file_name, stored_path, mime_type, size, created_at FROM run_case_evidence WHERE run_scenario_case_id = ? ORDER BY sort_order ASC, created_at ASC"
     );
     const isImageAttachment = (fileName: string, mimeType?: string) => {
       if (mimeType?.startsWith("image/")) {

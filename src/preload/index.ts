@@ -59,6 +59,7 @@ const api = {
     pasteImage: (runScenarioId: string, options?: unknown) => ipcRenderer.invoke("evidence:pasteImage", runScenarioId, options),
     reprocessAllImages: (options?: unknown) => ipcRenderer.invoke("evidence:reprocessAllImages", options),
     remove: (id: string) => ipcRenderer.invoke("evidence:remove", id),
+    reorder: (runScenarioId: string, orderedIds: string[]) => ipcRenderer.invoke("evidence:reorder", runScenarioId, orderedIds),
     open: (id: string) => ipcRenderer.invoke("evidence:open", id),
     preview: (id: string) => ipcRenderer.invoke("evidence:preview", id),
     updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("evidence:updateImage", id, payload)
@@ -68,6 +69,7 @@ const api = {
     add: (runScenarioCaseId: string, options?: unknown) => ipcRenderer.invoke("runCaseEvidence:add", runScenarioCaseId, options),
     paste: (runScenarioCaseId: string, options?: unknown) => ipcRenderer.invoke("runCaseEvidence:paste", runScenarioCaseId, options),
     remove: (id: string) => ipcRenderer.invoke("runCaseEvidence:remove", id),
+    reorder: (runScenarioCaseId: string, orderedIds: string[]) => ipcRenderer.invoke("runCaseEvidence:reorder", runScenarioCaseId, orderedIds),
     preview: (id: string) => ipcRenderer.invoke("runCaseEvidence:preview", id),
     updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("runCaseEvidence:updateImage", id, payload)
   },
