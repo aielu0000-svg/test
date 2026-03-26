@@ -201,6 +201,22 @@ type DataDraftItem = {
   note: string;
 };
 
+type FolderDialogState =
+  | {
+      open: false;
+      mode: "create" | "rename";
+      folderId: string | null;
+      parentId: string | null;
+      name: string;
+    }
+  | {
+      open: true;
+      mode: "create" | "rename";
+      folderId: string | null;
+      parentId: string | null;
+      name: string;
+    };
+
 type RunDraft = {
   name: string;
   environment: string;
@@ -1270,15 +1286,20 @@ export default function App() {
   const [folderFilter, setFolderFilter] = useState("all");
   const [casePriorityFilter, setCasePriorityFilter] = useState("all");
   const [tagFilters, setTagFilters] = useState<string[]>([]);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
-  const [editingFolderName, setEditingFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const [caseSelectionAnchorId, setCaseSelectionAnchorId] = useState<string | null>(null);
   const [caseFolderContextMenu, setCaseFolderContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const [expandedCaseFolderIds, setExpandedCaseFolderIds] = useState<string[]>([]);
+  const [folderDialog, setFolderDialog] = useState<FolderDialogState>({
+    open: false,
+    mode: "create",
+    folderId: null,
+    parentId: null,
+    name: ""
+  });
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
   const [caseDataSets, setCaseDataSets] = useState<
     Record<string, { dataSet: DataSet; items: DataItem[] }>
@@ -2169,49 +2190,10 @@ export default function App() {
     () => selectedCaseIds.filter((id) => allFilteredCaseIds.includes(id)).length,
     [selectedCaseIds, allFilteredCaseIds]
   );
-  const allFilteredSelected = allFilteredCaseIds.length > 0 && selectedFilteredCaseCount === allFilteredCaseIds.length;
-
-  const caseGroups = useMemo(() => {
-    const result: Record<string, TestCase[]> = {};
-    filteredCases.forEach((item) => {
-      const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
-      if (!folderIds.length) {
-        if (!result.none) {
-          result.none = [];
-        }
-        result.none.push(item);
-        return;
-      }
-      folderIds.forEach((key) => {
-        if (!result[key]) {
-          result[key] = [];
-        }
-        result[key].push(item);
-      });
-    });
-    return result;
-  }, [filteredCases]);
-
-  const folderOrder = useMemo(() => {
-    const order = caseFolders.map((folder) => folder.id);
-    if (!order.includes("none")) {
-      order.push("none");
-    }
-    return order;
-  }, [caseFolders]);
-
   const exportCaseFolderOptions = useMemo(
     () => [...caseFolders.map((folder) => ({ id: folder.id, label: folder.name })), { id: "__NONE__", label: "未分類" }],
     [caseFolders]
   );
-
-  const displayFolderKeys = useMemo(() => {
-    return folderFilter === "all" ? folderOrder : [folderFilter];
-  }, [folderFilter, folderOrder]);
-
-  const hasCasesInView = useMemo(() => {
-    return displayFolderKeys.some((key) => (caseGroups[key]?.length ?? 0) > 0);
-  }, [displayFolderKeys, caseGroups]);
 
   const availableScenarioCases = useMemo(() => {
     const selected = new Set(scenarioDraft.caseIds);
@@ -2658,22 +2640,48 @@ export default function App() {
 	    }
 	  };
 
-  const handleCreateFolder = async (parentId?: string | null) => {
-    const name = window.prompt("フォルダ名を入力してください。", "")?.trim() ?? "";
-    if (!name) {
-      return;
-    }
-    await window.api.caseFolders.save({ name, parentId: parentId ?? null });
-    await loadCaseFolders();
+  const openCreateFolderDialog = (parentId?: string | null) => {
+    setFolderDialog({
+      open: true,
+      mode: "create",
+      folderId: null,
+      parentId: parentId ?? null,
+      name: ""
+    });
   };
 
-  const handleRenameFolder = async (id: string, initialName: string, parentId?: string | null) => {
-    const name = window.prompt("新しいフォルダ名を入力してください。", initialName)?.trim() ?? "";
+  const openRenameFolderDialog = (folder: CaseFolder) => {
+    setFolderDialog({
+      open: true,
+      mode: "rename",
+      folderId: folder.id,
+      parentId: folder.parent_id ?? null,
+      name: folder.name
+    });
+  };
+
+  const closeFolderDialog = () => {
+    setFolderDialog((prev) => ({ ...prev, open: false }));
+  };
+
+  const submitFolderDialog = async () => {
+    const name = folderDialog.name.trim();
     if (!name) {
       return;
     }
-    await window.api.caseFolders.save({ id, name, parentId: parentId ?? null });
+    const savedId = (await window.api.caseFolders.save({
+      id: folderDialog.folderId ?? undefined,
+      name,
+      parentId: folderDialog.parentId
+    })) as string;
     await loadCaseFolders();
+    if (folderDialog.mode === "create") {
+      setExpandedCaseFolderIds((prev) =>
+        Array.from(new Set([...prev, ...(folderDialog.parentId ? [folderDialog.parentId] : []), savedId]))
+      );
+      setFolderFilter(savedId);
+    }
+    closeFolderDialog();
   };
 
   const moveScenarioCase = (caseId: string, direction: "up" | "down") => {
@@ -2754,6 +2762,9 @@ export default function App() {
       parentId: nextParentId
     });
     await loadCaseFolders();
+    setExpandedCaseFolderIds((prev) =>
+      nextParentId && !prev.includes(nextParentId) ? [...prev, nextParentId] : prev
+    );
   };
 
   const toggleExpandedCaseFolder = (folderId: string) => {
@@ -2820,20 +2831,42 @@ export default function App() {
           key={`case-folder-tree-${folder.id}`}
           className={cn(
             "rounded-xl",
-            draggingFolderId === folder.id && "opacity-60"
+            draggingFolderId === folder.id && "opacity-60",
+            dragOverFolderId === folder.id &&
+              (theme === "light" ? "bg-sky-50 ring-1 ring-sky-300" : "bg-sky-950/20 ring-1 ring-sky-700")
           )}
         >
           <button
             type="button"
             draggable
-            onDragStart={() => setDraggingFolderId(folder.id)}
-            onDragOver={(event) => event.preventDefault()}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", folder.id);
+              setDraggingFolderId(folder.id);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              if (draggingFolderId && draggingFolderId !== folder.id && dragOverFolderId !== folder.id) {
+                setDragOverFolderId(folder.id);
+              }
+            }}
+            onDragLeave={() => {
+              if (dragOverFolderId === folder.id) {
+                setDragOverFolderId(null);
+              }
+            }}
             onDrop={(event) => {
               event.preventDefault();
-              void handleMoveFolder(draggingFolderId ?? "", folder.id);
+              const droppedFolderId = event.dataTransfer.getData("text/plain") || draggingFolderId || "";
+              void handleMoveFolder(droppedFolderId, folder.id);
               setDraggingFolderId(null);
+              setDragOverFolderId(null);
             }}
-            onDragEnd={() => setDraggingFolderId(null)}
+            onDragEnd={() => {
+              setDraggingFolderId(null);
+              setDragOverFolderId(null);
+            }}
             onContextMenu={(event) => {
               event.preventDefault();
               setCaseFolderContextMenu({ id: folder.id, x: event.clientX, y: event.clientY });
@@ -4519,24 +4552,43 @@ export default function App() {
                               : "border-slate-800 bg-slate-900/70 text-slate-200"
                           )}
                           title={folderFilter !== "all" && folderFilter !== "none" ? "選択中フォルダに追加" : "ルートに追加"}
-                          onClick={() => void handleCreateFolder(folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null)}
+                          onClick={() =>
+                            openCreateFolderDialog(folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null)
+                          }
                         >
                           <FolderPlusIcon />
                         </button>
                       </div>
                       <div
-                        className={cn(
-                          "mt-3 rounded-xl border p-1",
-                          theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/40"
-                        )}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => {
+                        onDragOver={(event) => {
                           event.preventDefault();
-                          if (draggingFolderId) {
-                            void handleMoveFolder(draggingFolderId, null);
-                            setDraggingFolderId(null);
+                          event.dataTransfer.dropEffect = "move";
+                          if (dragOverFolderId !== "__ROOT__") {
+                            setDragOverFolderId("__ROOT__");
                           }
                         }}
+                        onDragLeave={() => {
+                          if (dragOverFolderId === "__ROOT__") {
+                            setDragOverFolderId(null);
+                          }
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const droppedFolderId = event.dataTransfer.getData("text/plain") || draggingFolderId;
+                          if (droppedFolderId) {
+                            void handleMoveFolder(droppedFolderId, null);
+                            setDraggingFolderId(null);
+                          }
+                          setDragOverFolderId(null);
+                        }}
+                        className={cn(
+                          "mt-3 rounded-xl border p-1",
+                          theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/40",
+                          dragOverFolderId === "__ROOT__" &&
+                            (theme === "light"
+                              ? "ring-1 ring-sky-300 bg-sky-50"
+                              : "ring-1 ring-sky-700 bg-sky-950/20")
+                        )}
                       >
                         {[
                           { id: "all", label: "すべてのテストケース" },
@@ -4602,7 +4654,7 @@ export default function App() {
                             onClick={() => {
                               const folder = caseFolderMap[caseFolderContextMenu.id];
                               if (folder) {
-                                void handleRenameFolder(folder.id, folder.name, folder.parent_id ?? null);
+                                openRenameFolderDialog(folder);
                               }
                               setCaseFolderContextMenu(null);
                             }}
@@ -4786,459 +4838,6 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-	                <div className="mt-3 hidden grid gap-3">
-	                  <div>
-	                    <label
-	                      htmlFor="case-folder-filter"
-	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
-	                    >
-	                      フォルダ
-	                    </label>
-	                    <select
-	                      id="case-folder-filter"
-	                      className={cn(inputClass, "mt-2")}
-                      value={folderFilter}
-                      onChange={(event) => setFolderFilter(event.target.value)}
-                    >
-	                      <option value="all">すべてのフォルダ</option>
-	                      <option value="none">未分類</option>
-	                      {caseFolders.map((folder) => (
-	                        <option key={folder.id} value={folder.id}>
-	                          {folder.name}
-	                        </option>
-	                      ))}
-	                    </select>
-	                  </div>
-	                  <div>
-	                    <label
-	                      htmlFor="case-priority-filter"
-	                      className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}
-	                    >
-	                      優先度
-	                    </label>
-	                    <select
-	                      id="case-priority-filter"
-	                      className={cn(inputClass, "mt-2")}
-	                      value={casePriorityFilter}
-	                      onChange={(event) => setCasePriorityFilter(event.target.value)}
-	                    >
-	                      <option value="all">優先度</option>
-	                      {priorityOptions.map((option) => (
-	                        <option key={option} value={option}>
-	                          {option}
-	                        </option>
-	                      ))}
-	                    </select>
-	                  </div>
-	                  <div>
-	                    <p className={cn("text-xs font-semibold uppercase", mutedForegroundClass)}>タグ</p>
-	                    {tagOptions.length === 0 ? (
-	                      <p className={cn("mt-2 text-xs", mutedForegroundClass)}>タグはまだありません。</p>
-	                    ) : (
-	                      <div className="mt-2 flex flex-wrap gap-2">
-                        {tagOptions.map((tag) => {
-                          const checked = tagFilters.includes(tag);
-                          return (
-                            <button
-                              key={tag}
-                              className={cn(
-                                "rounded-full border px-3 py-1 text-xs",
-                                theme === "light"
-                                  ? checked
-                                    ? "border-sky-300 bg-sky-50 text-slate-800"
-                                    : "border-slate-200 text-slate-600"
-                                  : checked
-                                    ? "border-sky-400 bg-sky-950/40 text-slate-100"
-                                    : "border-slate-800 text-slate-300"
-                              )}
-                              onClick={() => {
-                                setTagFilters((prev) =>
-                                  prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
-                                );
-                              }}
-                            >
-                              {tag}
-                            </button>
-                          );
-                        })}
-                        {tagFilters.length > 0 && (
-                          <button
-                            className={cn(
-                              "rounded-full border px-3 py-1 text-xs",
-                              theme === "light"
-                                ? "border-slate-200 text-slate-600"
-                                : "border-slate-700 text-slate-300"
-                            )}
-                            onClick={() => setTagFilters([])}
-                          >
-                            クリア
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="case-folder-name"
-                      className="text-xs font-semibold uppercase text-slate-400"
-                    >
-                      フォルダ管理
-                    </label>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        id="case-folder-name"
-                        className={inputClass}
-                        placeholder="新しいフォルダ名"
-                        value={newFolderName}
-                        onChange={(event) => setNewFolderName(event.target.value)}
-                      />
-                      <button
-                        className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold"
-                        onClick={handleCreateFolder}
-                      >
-                        追加
-                      </button>
-                    </div>
-                    {caseFolders.length > 0 && (
-                      <div className="mt-2 grid gap-2">
-                        {caseFolders.map((folder) => (
-                          <div
-                            key={folder.id}
-                            className={cn(
-                              "flex items-center justify-between rounded-lg border px-3 py-2 text-xs",
-                              theme === "light"
-                                ? "border-slate-200 bg-slate-50 text-slate-700"
-                                : "border-slate-800 bg-slate-900/50 text-slate-300"
-                            )}
-                          >
-                            {editingFolderId === folder.id ? (
-                              <>
-                                <div className="flex min-w-0 flex-1 items-center gap-2">
-                                  <FolderIcon className={theme === "light" ? "text-slate-600" : "text-slate-400"} />
-                                  <input
-                                    className={cn(inputClass, "h-9")}
-                                    value={editingFolderName}
-                                    onChange={(event) => setEditingFolderName(event.target.value)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter") {
-                                        event.preventDefault();
-                                        void handleRenameFolder();
-                                      }
-                                    }}
-                                  />
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    className={outlineButtonClass}
-                                    onClick={handleRenameFolder}
-                                  >
-                                    保存
-                                  </button>
-                                  <button
-                                    className={outlineButtonClass}
-                                    onClick={() => {
-                                      setEditingFolderId(null);
-                                      setEditingFolderName("");
-                                    }}
-                                  >
-                                    キャンセル
-                                  </button>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <span className="inline-flex items-center gap-2">
-                                  <FolderIcon className={theme === "light" ? "text-slate-600" : "text-slate-400"} />
-                                  {folder.name}
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    className={outlineButtonClass}
-                                    onClick={() => {
-                                      setEditingFolderId(folder.id);
-                                      setEditingFolderName(folder.name);
-                                    }}
-                                  >
-                                    名前変更
-                                  </button>
-                                  <button
-                                    className={cn(
-                                      "rounded-full border px-2 py-1 text-[10px] font-semibold hover:opacity-90",
-                                      theme === "light"
-                                        ? "border-destructive-light text-destructive-light"
-                                        : "border-destructive-dark text-destructive-dark"
-                                    )}
-                                    onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
-                                  >
-                                    削除
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-	                  </div>
-	                </div>
-	                <div
-	                  className={cn(
-	                    "mt-4 rounded-none border",
-	                    theme === "light"
-	                      ? "border-border-light bg-card-light text-card-foreground-light"
-	                      : "border-border-dark bg-card-dark text-card-foreground-dark"
-	                  )}
-	                >
-	                  {filteredCases.length === 0 ? (
-	                    <div className="px-5 py-8">
-	                      <p className={cn("text-pretty text-sm", mutedForegroundClass)}>
-	                        テストケースが見つかりません。最初のテストケースを作成しましょう。
-	                      </p>
-	                    </div>
-	                  ) : (
-	                    <div className="overflow-x-auto">
-	                      <div className="min-w-[920px]">
-	                        <div
-	                          className={cn(
-	                            "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_320px] items-center text-sm",
-	                            borderClass,
-	                            "border-b",
-	                            theme === "light" ? "divide-x divide-border-light" : "divide-x divide-border-dark",
-	                            mutedForegroundClass
-	                          )}
-	                        >
-	                          <div className="flex items-center justify-center px-2 py-4">
-                              <input
-                                type="checkbox"
-                                checked={allFilteredSelected}
-                                onChange={(event) => {
-                                  if (event.target.checked) {
-                                    setSelectedCaseIds((prev) => Array.from(new Set([...prev, ...allFilteredCaseIds])));
-                                  } else {
-                                    setSelectedCaseIds((prev) => prev.filter((id) => !allFilteredCaseIds.includes(id)));
-                                  }
-                                }}
-                                aria-label="表示中のテストケースを全選択"
-                              />
-                            </div>
-	                          <div className="px-5 py-4">テストケース</div>
-	                          <div className="px-5 py-4">優先度</div>
-	                          <div className="px-5 py-4">フォルダ</div>
-	                          <div className="px-5 py-4">操作</div>
-	                        </div>
-
-	                        {filteredCases.map((item) => {
-	                          const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
-	                          return (
-                            <div
-                              key={item.id}
-                              className={cn(
-                                "grid grid-cols-[56px_minmax(0,1fr)_140px_200px_320px] items-center text-sm cursor-pointer",
-                                borderClass,
-                                "border-b last:border-b-0",
-                                theme === "light"
-                                  ? "divide-x divide-border-light hover:bg-muted-light"
-                                  : "divide-x divide-border-dark hover:bg-muted-dark"
-                              )}
-                              onClick={() => selectCase(item.id)}
-                            >
-                                <div className="flex items-center justify-center px-2 py-4">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedCaseIds.includes(item.id)}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onChange={(event) => {
-                                      setSelectedCaseIds((prev) => {
-                                        if (event.target.checked) {
-                                          return prev.includes(item.id) ? prev : [...prev, item.id];
-                                        }
-                                        return prev.filter((id) => id !== item.id);
-                                      });
-                                    }}
-                                    aria-label={`${item.title} を選択`}
-                                  />
-                                </div>
-	                              <div className="px-5 py-4">
-                                  <p className="max-w-full truncate text-left text-pretty text-sm font-medium">
-	                                  {item.title}
-                                  </p>
-	                                <p className={cn("mt-1 truncate text-pretty text-sm", mutedForegroundClass)}>
-	                                  {item.objective || "—"}
-	                                </p>
-	                              </div>
-	                              <div className="px-5 py-4">
-	                                <p className="text-pretty text-sm">{item.priority || "—"}</p>
-	                              </div>
-	                              <div className="px-5 py-4">
-                                  <div className="flex flex-wrap gap-2">
-                                    {folderIds.length === 0 ? (
-                                      <span
-                                        className={cn(
-                                          "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium",
-                                          theme === "light"
-                                            ? "border-slate-300 bg-slate-100 text-slate-700"
-                                            : "border-slate-700 bg-slate-900/50 text-slate-200"
-                                        )}
-                                      >
-                                        <FolderIcon className="size-3.5" />
-                                        <span className="truncate">未分類</span>
-                                      </span>
-                                    ) : (
-                                      folderIds.map((folderId) => (
-                                        <span
-                                          key={`${item.id}-${folderId}`}
-                                          className={cn(
-                                            "inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-medium",
-                                            theme === "light"
-                                              ? "border-slate-300 bg-slate-100 text-slate-700"
-                                              : "border-slate-700 bg-slate-900/50 text-slate-200"
-                                          )}
-                                        >
-                                          <FolderIcon className="size-3.5" />
-	                                      <span className="truncate">{caseFolderMap[folderId]?.name ?? "フォルダ"}</span>
-                                        </span>
-                                      ))
-                                    )}
-                                  </div>
-	                              </div>
-	                              <div className="flex flex-wrap items-center gap-2 px-5 py-4">
-	                                <button
-                                    type="button"
-                                    className={outlineButtonClass}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void selectCase(item.id);
-                                    }}
-                                  >
-	                                  開く
-	                                </button>
-	                                <button
-	                                  type="button"
-	                                  className={outlineButtonClass}
-	                                  onClick={(event) => {
-                                      event.stopPropagation();
-                                      void handleDuplicateCase(item.id);
-                                    }}
-	                                >
-	                                  複製して新規
-	                                </button>
-	                                <button
-	                                  type="button"
-	                                  className={cn(
-	                                    "inline-flex h-10 items-center justify-center rounded-pill border px-4 text-sm font-medium hover:opacity-90",
-	                                    theme === "light"
-	                                      ? "border-destructive-light text-destructive-light"
-	                                      : "border-destructive-dark text-destructive-dark"
-	                                  )}
-	                                  onClick={(event) => {
-                                      event.stopPropagation();
-                                      setDeleteTarget({ type: "case", id: item.id });
-                                    }}
-	                                >
-	                                  削除
-	                                </button>
-	                              </div>
-	                            </div>
-	                          );
-	                        })}
-	                      </div>
-	                    </div>
-	                  )}
-
-                </div>
-
-	                <div className="hidden mt-4 space-y-3">
-	                  {hasCasesInView ? (
-	                    displayFolderKeys.map((folderKey) => {
-	                      const cases = caseGroups[folderKey] ?? [];
-	                      if (!cases.length) {
-                        if (folderFilter === "all") {
-                          return null;
-                        }
-                        return (
-                          <div
-                            key={folderKey}
-                            className={cn(
-                              "rounded-xl border px-4 py-3 text-xs text-slate-400",
-                              theme === "light" ? "border-slate-200" : "border-slate-800"
-                            )}
-                          >
-                            このフォルダにはまだケースがありません。
-                          </div>
-                        );
-                      }
-                      const folderLabel =
-                        folderKey === "none" ? "未分類" : caseFolderMap[folderKey]?.name ?? "フォルダ";
-                      return (
-                        <div
-                          key={folderKey}
-                          className={cn(
-                            "rounded-2xl border p-4",
-                            theme === "light"
-                              ? "border-slate-200 bg-white/60"
-                              : "border-slate-800 bg-slate-950/40"
-                          )}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-semibold uppercase text-slate-400">{folderLabel}</p>
-                              <p className="text-sm font-semibold text-slate-100">
-                                {cases.length} ケース
-                              </p>
-                            </div>
-                            {folderKey !== "none" && (
-                              <button
-                                className={cn(
-                                  "rounded-full border px-3 py-1 text-[11px] font-semibold",
-                                  theme === "light" ? "border-slate-300 text-slate-600" : "border-slate-800"
-                                )}
-                                onClick={() => setFolderFilter(folderKey)}
-                              >
-                                このフォルダを表示
-                              </button>
-                            )}
-                          </div>
-                          <div className="mt-3 grid gap-2">
-                        {cases.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={cn(
-                              "rounded-xl border px-3 py-2 text-left text-sm",
-                                  selectedCaseId === item.id
-                                    ? "border-sky-400 bg-slate-900 text-slate-100"
-                                    : theme === "light"
-                                      ? "border-slate-200 text-slate-900"
-                                      : "border-slate-800 text-slate-300"
-                                )}
-                                onClick={() => selectCase(item.id)}
-                              >
-                                <div className="text-balance font-semibold">{item.title}</div>
-                                <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
-                                  <span className="text-slate-400">{item.updated_at}</span>
-                                  {item.tags && (
-                                    <span className="rounded-full border px-2 py-0.5 text-xs text-slate-400">
-                                      {item.tags}
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div
-                      className={cn(
-                        "rounded-xl border px-4 py-3 text-xs text-slate-400",
-                        theme === "light" ? "border-slate-200" : "border-slate-800"
-                      )}
-                    >
-                      表示対象のケースが見つかりません。別のフォルダ/タグで検索してください。
-                    </div>
-                  )}
-                </div>
               </div>
 
 	              <div className={cn(panelClass, caseMode === "list" && "hidden")}>
@@ -8823,6 +8422,63 @@ export default function App() {
             ) : (
               <p className="mt-4 text-sm text-slate-300">このファイルはプレビューできません。</p>
             )}
+          </div>
+        </div>
+      )}
+      {folderDialog.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div
+            className={cn(
+              "w-full max-w-md rounded-none border p-6 shadow-xl",
+              theme === "light"
+                ? "border-border-light bg-card-light text-card-foreground-light"
+                : "border-border-dark bg-card-dark text-card-foreground-dark"
+            )}
+          >
+            <h3 className="text-lg font-semibold">
+              {folderDialog.mode === "create" ? "新規フォルダ" : "フォルダ名を変更"}
+            </h3>
+            <p className={cn("mt-2 text-sm", mutedForegroundClass)}>
+              {folderDialog.mode === "create"
+                ? folderDialog.parentId
+                  ? `${getCaseFolderLabel(folderDialog.parentId)} の直下に作成します。`
+                  : "ルート階層に作成します。"
+                : "新しいフォルダ名を入力してください。"}
+            </p>
+            <label htmlFor="folder-dialog-name" className="mt-5 block text-xs font-semibold uppercase text-slate-400">
+              フォルダ名
+            </label>
+            <input
+              id="folder-dialog-name"
+              autoFocus
+              className={cn(inputClass, "mt-2")}
+              value={folderDialog.name}
+              onChange={(event) =>
+                setFolderDialog((prev) => ({
+                  ...prev,
+                  name: event.target.value
+                }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void submitFolderDialog();
+                }
+              }}
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" className={outlineButtonClass} onClick={closeFolderDialog}>
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className={primaryButtonClass}
+                disabled={!folderDialog.name.trim()}
+                onClick={() => void submitFolderDialog()}
+              >
+                {folderDialog.mode === "create" ? "作成" : "保存"}
+              </button>
+            </div>
           </div>
         </div>
       )}
