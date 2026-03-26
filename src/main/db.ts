@@ -268,6 +268,7 @@ const initSchema = (database: Database.Database) => {
       run_scenario_case_id TEXT NOT NULL REFERENCES run_scenario_cases(id) ON DELETE CASCADE,
       file_name TEXT NOT NULL,
       stored_path TEXT NOT NULL,
+      original_stored_path TEXT,
       mime_type TEXT,
       size INTEGER,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -289,6 +290,7 @@ const initSchema = (database: Database.Database) => {
       run_scenario_id TEXT NOT NULL REFERENCES run_scenarios(id) ON DELETE CASCADE,
       file_name TEXT NOT NULL,
       stored_path TEXT NOT NULL,
+      original_stored_path TEXT,
       mime_type TEXT,
       size INTEGER,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -313,6 +315,8 @@ const initSchema = (database: Database.Database) => {
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
   ensureColumn(database, "test_cases", "view_location", "TEXT");
   ensureColumn(database, "data_sets", "folder_id", "TEXT");
+  ensureColumn(database, "scenario_evidence", "original_stored_path", "TEXT");
+  ensureColumn(database, "run_case_evidence", "original_stored_path", "TEXT");
   ensureColumn(database, "scenario_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "run_case_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   database.exec(`
@@ -1324,6 +1328,33 @@ const reorderEvidenceRows = (
   transaction();
 };
 
+const ensureEvidenceOriginalBackup = (
+  table: "scenario_evidence" | "run_case_evidence",
+  id: string
+) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare(`SELECT file_name, stored_path, original_stored_path FROM ${table} WHERE id = ?`)
+    .get(id) as
+    | { file_name?: string; stored_path?: string; original_stored_path?: string | null }
+    | undefined;
+  if (!row?.stored_path) {
+    throw new Error("証跡が見つかりません。");
+  }
+  if (row.original_stored_path) {
+    return row.original_stored_path;
+  }
+  const currentPath = resolveAttachmentPath(folderPath, row.stored_path);
+  if (!currentPath || !fs.existsSync(currentPath)) {
+    throw new Error("元画像のバックアップ元が見つかりません。");
+  }
+  const safeName = String(row.file_name ?? path.basename(row.stored_path)).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const backupPath = path.join(ATTACHMENTS_DIR, `${id}_original_${safeName}`);
+  fs.copyFileSync(currentPath, path.join(folderPath, backupPath));
+  database.prepare(`UPDATE ${table} SET original_stored_path = ? WHERE id = ?`).run(backupPath, id);
+  return backupPath;
+};
+
 export const addScenarioEvidence = (payload: EvidenceInput & { runScenarioId: string }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
@@ -1393,13 +1424,19 @@ export const addScenarioEvidenceBuffer = (payload: {
 
 export const removeScenarioEvidence = (id: string) => {
   const { db: database, projectPath: folderPath } = ensureDb();
-  const row = database.prepare("SELECT stored_path FROM scenario_evidence WHERE id = ?").get(id) as
-    | { stored_path: string }
+  const row = database.prepare("SELECT stored_path, original_stored_path FROM scenario_evidence WHERE id = ?").get(id) as
+    | { stored_path: string; original_stored_path?: string | null }
     | undefined;
   if (row?.stored_path) {
     const filePath = resolveAttachmentPath(folderPath, row.stored_path);
     if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+    }
+  }
+  if (row?.original_stored_path) {
+    const originalPath = resolveAttachmentPath(folderPath, row.original_stored_path);
+    if (originalPath && fs.existsSync(originalPath)) {
+      fs.unlinkSync(originalPath);
     }
   }
   database.prepare("DELETE FROM scenario_evidence WHERE id = ?").run(id);
@@ -1534,12 +1571,18 @@ export const addRunScenarioCaseEvidenceBuffer = (payload: {
 export const removeRunScenarioCaseEvidence = (id: string) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const row = database
-    .prepare("SELECT stored_path FROM run_case_evidence WHERE id = ?")
-    .get(id) as { stored_path: string } | undefined;
+    .prepare("SELECT stored_path, original_stored_path FROM run_case_evidence WHERE id = ?")
+    .get(id) as { stored_path: string; original_stored_path?: string | null } | undefined;
   if (row?.stored_path) {
     const filePath = resolveAttachmentPath(folderPath, row.stored_path);
     if (filePath && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+    }
+  }
+  if (row?.original_stored_path) {
+    const originalPath = resolveAttachmentPath(folderPath, row.original_stored_path);
+    if (originalPath && fs.existsSync(originalPath)) {
+      fs.unlinkSync(originalPath);
     }
   }
   database.prepare("DELETE FROM run_case_evidence WHERE id = ?").run(id);
@@ -1580,14 +1623,17 @@ const updateEvidenceBinary = (
 ) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const row = database
-    .prepare(`SELECT stored_path FROM ${table} WHERE id = ?`)
-    .get(id) as { stored_path?: string } | undefined;
+    .prepare(`SELECT stored_path, original_stored_path FROM ${table} WHERE id = ?`)
+    .get(id) as { stored_path?: string; original_stored_path?: string | null } | undefined;
   if (!row?.stored_path) {
     throw new Error("証跡が見つかりません。");
   }
   const filePath = resolveAttachmentPath(folderPath, row.stored_path);
   if (!filePath) {
     throw new Error("証跡ファイルのパスが不正です。");
+  }
+  if (!row.original_stored_path && fs.existsSync(filePath)) {
+    ensureEvidenceOriginalBackup(table, id);
   }
   fs.writeFileSync(filePath, payload.buffer);
   database
@@ -1604,6 +1650,34 @@ export const updateRunScenarioCaseEvidenceImage = (
   id: string,
   payload: { buffer: Buffer; mimeType: string }
 ) => updateEvidenceBinary("run_case_evidence", id, payload);
+
+const restoreOriginalEvidenceBinary = (table: "scenario_evidence" | "run_case_evidence", id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare(`SELECT stored_path, original_stored_path, mime_type FROM ${table} WHERE id = ?`)
+    .get(id) as
+    | { stored_path?: string; original_stored_path?: string | null; mime_type?: string }
+    | undefined;
+  if (!row?.stored_path || !row.original_stored_path) {
+    return false;
+  }
+  const storedPath = resolveAttachmentPath(folderPath, row.stored_path);
+  const originalPath = resolveAttachmentPath(folderPath, row.original_stored_path);
+  if (!storedPath || !originalPath || !fs.existsSync(originalPath)) {
+    return false;
+  }
+  const buffer = fs.readFileSync(originalPath);
+  const mimeType = row.mime_type || inferMimeTypeFromName(row.original_stored_path) || "application/octet-stream";
+  fs.writeFileSync(storedPath, buffer);
+  database.prepare(`UPDATE ${table} SET mime_type = ?, size = ? WHERE id = ?`).run(mimeType, buffer.length, id);
+  return true;
+};
+
+export const restoreScenarioEvidenceOriginal = (id: string) =>
+  restoreOriginalEvidenceBinary("scenario_evidence", id);
+
+export const restoreRunScenarioCaseEvidenceOriginal = (id: string) =>
+  restoreOriginalEvidenceBinary("run_case_evidence", id);
 
 export const reorderScenarioEvidence = (runScenarioId: string, orderedIds: string[]) => {
   reorderEvidenceRows("scenario_evidence", "run_scenario_id", runScenarioId, orderedIds);

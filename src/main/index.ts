@@ -32,6 +32,8 @@ import {
   previewRunScenarioCaseEvidence,
   reorderRunScenarioCaseEvidence,
   reorderScenarioEvidence,
+  restoreRunScenarioCaseEvidenceOriginal,
+  restoreScenarioEvidenceOriginal,
   updateRunScenarioCaseEvidenceImage,
   updateScenarioEvidenceImage,
   listCaseFolders,
@@ -345,6 +347,7 @@ ipcMain.handle("evidence:updateImage", (_event, id: string, payload: { base64: s
   updateScenarioEvidenceImage(id, { buffer: Buffer.from(payload.base64, "base64"), mimeType: payload.mimeType });
   return true;
 });
+ipcMain.handle("evidence:restoreOriginal", (_event, id: string) => restoreScenarioEvidenceOriginal(id));
 
 ipcMain.handle("evidence:open", (_event, id: string) => {
   const fullPath = getScenarioEvidencePath(id);
@@ -410,6 +413,7 @@ ipcMain.handle("runCaseEvidence:updateImage", (_event, id: string, payload: { ba
   updateRunScenarioCaseEvidenceImage(id, { buffer: Buffer.from(payload.base64, "base64"), mimeType: payload.mimeType });
   return true;
 });
+ipcMain.handle("runCaseEvidence:restoreOriginal", (_event, id: string) => restoreRunScenarioCaseEvidenceOriginal(id));
 
 ipcMain.handle("export:save", async (_event, payload) => {
   const ext = payload.format;

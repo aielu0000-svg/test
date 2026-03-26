@@ -1195,7 +1195,6 @@ export default function App() {
   const evidenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const editorImageRef = useRef<HTMLCanvasElement | null>(null);
   const originalEditorImageRef = useRef<HTMLCanvasElement | null>(null);
-  const savedEditorImageRef = useRef<HTMLCanvasElement | null>(null);
   const editorHistoryRef = useRef<HTMLCanvasElement[]>([]);
   const editorFutureRef = useRef<HTMLCanvasElement[]>([]);
   const editorPreviewIdRef = useRef<string | null>(null);
@@ -1279,6 +1278,9 @@ export default function App() {
   const [editorSelection, setEditorSelection] = useState<EditorSelection | null>(null);
   const [editorCanvasSize, setEditorCanvasSize] = useState({ width: 0, height: 0 });
   const [editorHistoryState, setEditorHistoryState] = useState({ undo: 0, redo: 0 });
+  const [editorSaveNotice, setEditorSaveNotice] = useState<string | null>(null);
+  const [draggingScenarioEvidenceId, setDraggingScenarioEvidenceId] = useState<string | null>(null);
+  const [draggingRunCaseEvidence, setDraggingRunCaseEvidence] = useState<{ runCaseId: string; evidenceId: string } | null>(null);
   const [scenarioFolderId, setScenarioFolderId] = useState("");
   const [scenarioFromFolderTitle, setScenarioFromFolderTitle] = useState("");
 
@@ -1547,13 +1549,13 @@ export default function App() {
       const originalContext = originalCanvas.getContext("2d");
       originalContext?.drawImage(image, 0, 0);
       editorImageRef.current = sourceCanvas;
-      savedEditorImageRef.current = cloneEditorCanvas(sourceCanvas);
       if (editorPreviewIdRef.current !== evidencePreview.id || !originalEditorImageRef.current) {
         originalEditorImageRef.current = originalCanvas;
         editorPreviewIdRef.current = evidencePreview.id;
       }
       setEditorSelection(null);
       setEditorCanvasSize({ width: image.naturalWidth, height: image.naturalHeight });
+      setEditorSaveNotice(null);
       resetEditorHistory();
       drawEvidenceCanvas(null);
     };
@@ -1590,6 +1592,14 @@ export default function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [evidencePreview?.id, evidencePreview?.mimeType]);
+
+  useEffect(() => {
+    if (!editorSaveNotice) {
+      return;
+    }
+    const timer = window.setTimeout(() => setEditorSaveNotice(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [editorSaveNotice]);
 
   useEffect(() => {
     if (!project) {
@@ -2007,6 +2017,24 @@ export default function App() {
 
     return items;
   }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter]);
+
+  const caseCountByFolder = useMemo(() => {
+    const counts: Record<string, number> = { all: testCases.length, none: 0 };
+    caseFolders.forEach((folder) => {
+      counts[folder.id] = 0;
+    });
+    testCases.forEach((item) => {
+      const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
+      if (folderIds.length === 0) {
+        counts.none += 1;
+        return;
+      }
+      folderIds.forEach((folderId) => {
+        counts[folderId] = (counts[folderId] ?? 0) + 1;
+      });
+    });
+    return counts;
+  }, [testCases, caseFolders]);
 
   const allFilteredCaseIds = useMemo(() => filteredCases.map((item) => item.id), [filteredCases]);
   const selectedFilteredCaseCount = useMemo(
@@ -2881,6 +2909,7 @@ export default function App() {
     setEvidencePreview(null);
     setPreviewError(null);
     setEditorSelection(null);
+    setEditorSaveNotice(null);
     editorPreviewIdRef.current = null;
     resetEditorHistory();
   };
@@ -2946,22 +2975,6 @@ export default function App() {
     const snapshot = editorFutureRef.current.shift() ?? null;
     restoreEditorCanvas(snapshot);
     syncEditorHistoryState();
-  };
-
-  const resetEditorToSavedImage = () => {
-    if (!savedEditorImageRef.current) {
-      return;
-    }
-    pushEditorHistorySnapshot();
-    restoreEditorCanvas(savedEditorImageRef.current);
-  };
-
-  const resetEditorToOriginalImage = () => {
-    if (!originalEditorImageRef.current) {
-      return;
-    }
-    pushEditorHistorySnapshot();
-    restoreEditorCanvas(originalEditorImageRef.current);
   };
 
   const drawEvidenceCanvas = (selection?: EditorSelection | null) => {
@@ -3062,7 +3075,6 @@ export default function App() {
     if (!sourceCanvas || !evidencePreview) {
       return;
     }
-    savedEditorImageRef.current = cloneEditorCanvas(sourceCanvas);
     resetEditorHistory();
     const dataUrl = sourceCanvas.toDataURL("image/png");
     const base64 = dataUrl.split(",")[1] ?? "";
@@ -3078,6 +3090,7 @@ export default function App() {
       if (selectedRunScenarioId) {
         await selectRunScenario(selectedRunScenarioId);
       }
+      setEditorSaveNotice("保存しました");
       return;
     }
     await window.api.runCaseEvidence.updateImage(evidencePreview.id, {
@@ -3091,6 +3104,31 @@ export default function App() {
     if (matchingRunCaseId) {
       await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
     }
+    setEditorSaveNotice("保存しました");
+  };
+
+  const restoreOriginalEvidence = async () => {
+    if (!evidencePreview) {
+      return;
+    }
+    if (evidencePreview.scope === "scenario") {
+      await window.api.evidence.restoreOriginal(evidencePreview.id);
+      await handlePreviewEvidence(evidencePreview.id, evidencePreview.fileName);
+      if (selectedRunScenarioId) {
+        await selectRunScenario(selectedRunScenarioId);
+      }
+      setEditorSaveNotice("元の画像に戻しました");
+      return;
+    }
+    await window.api.runCaseEvidence.restoreOriginal(evidencePreview.id);
+    await handlePreviewRunCaseEvidence(evidencePreview.id, evidencePreview.fileName);
+    const matchingRunCaseId = Object.entries(runCaseEvidenceMap).find(([, previews]) =>
+      previews.some((preview) => preview.id === evidencePreview.id)
+    )?.[0];
+    if (matchingRunCaseId) {
+      await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
+    }
+    setEditorSaveNotice("元の画像に戻しました");
   };
 
   const moveOrderedIds = (ids: string[], targetId: string, direction: -1 | 1) => {
@@ -3120,6 +3158,26 @@ export default function App() {
     await selectRunScenario(selectedRunScenarioId);
   };
 
+  const handleDropScenarioEvidence = async (targetEvidenceId: string) => {
+    if (!selectedRunScenarioId || !draggingScenarioEvidenceId || draggingScenarioEvidenceId === targetEvidenceId) {
+      setDraggingScenarioEvidenceId(null);
+      return;
+    }
+    const ids = evidenceList.map((item) => item.id);
+    const fromIndex = ids.indexOf(draggingScenarioEvidenceId);
+    const toIndex = ids.indexOf(targetEvidenceId);
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggingScenarioEvidenceId(null);
+      return;
+    }
+    const nextIds = [...ids];
+    const [moved] = nextIds.splice(fromIndex, 1);
+    nextIds.splice(toIndex, 0, moved);
+    await window.api.evidence.reorder(selectedRunScenarioId, nextIds);
+    setDraggingScenarioEvidenceId(null);
+    await selectRunScenario(selectedRunScenarioId);
+  };
+
   const handleReorderRunCaseEvidence = async (
     runCaseId: string,
     evidenceId: string,
@@ -3135,6 +3193,31 @@ export default function App() {
       return;
     }
     await window.api.runCaseEvidence.reorder(runCaseId, nextIds);
+    await loadRunCaseEvidenceForIds([runCaseId], { overwrite: false });
+  };
+
+  const handleDropRunCaseEvidence = async (runCaseId: string, targetEvidenceId: string) => {
+    if (
+      !draggingRunCaseEvidence ||
+      draggingRunCaseEvidence.runCaseId !== runCaseId ||
+      draggingRunCaseEvidence.evidenceId === targetEvidenceId
+    ) {
+      setDraggingRunCaseEvidence(null);
+      return;
+    }
+    const previews = runCaseEvidenceMap[runCaseId] ?? [];
+    const ids = previews.map((item) => item.id);
+    const fromIndex = ids.indexOf(draggingRunCaseEvidence.evidenceId);
+    const toIndex = ids.indexOf(targetEvidenceId);
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggingRunCaseEvidence(null);
+      return;
+    }
+    const nextIds = [...ids];
+    const [moved] = nextIds.splice(fromIndex, 1);
+    nextIds.splice(toIndex, 0, moved);
+    await window.api.runCaseEvidence.reorder(runCaseId, nextIds);
+    setDraggingRunCaseEvidence(null);
     await loadRunCaseEvidenceForIds([runCaseId], { overwrite: false });
   };
 
@@ -4151,7 +4234,287 @@ export default function App() {
 	                  value={caseQuery}
 	                  onChange={(event) => setCaseQuery(event.target.value)}
 	                />
-	                <div className="mt-3 grid gap-3">
+	                <div className="mt-4 grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <div
+                      className={cn(
+                        "rounded-2xl border p-3",
+                        theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950/30"
+                      )}
+                    >
+                      <p className="text-xs font-semibold uppercase text-slate-400">フォルダ</p>
+                      <div className="mt-3 space-y-1">
+                        {[
+                          { id: "all", label: "すべてのテストケース" },
+                          { id: "none", label: "未分類" },
+                          ...caseFolders.map((folder) => ({ id: folder.id, label: folder.name }))
+                        ].map((entry) => {
+                          const active = folderFilter === entry.id;
+                          return (
+                            <button
+                              key={`case-explorer-folder-${entry.id}`}
+                              type="button"
+                              className={cn(
+                                "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
+                                active
+                                  ? theme === "light"
+                                    ? "bg-sky-100 text-slate-900"
+                                    : "bg-sky-950/40 text-slate-100"
+                                  : theme === "light"
+                                    ? "text-slate-700 hover:bg-white"
+                                    : "text-slate-300 hover:bg-slate-900/70"
+                              )}
+                              onClick={() => setFolderFilter(entry.id)}
+                            >
+                              <span className="inline-flex items-center gap-2 truncate">
+                                <FolderIcon className="size-4" />
+                                <span className="truncate">{entry.label}</span>
+                              </span>
+                              <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-semibold">
+                                {caseCountByFolder[entry.id] ?? 0}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-4 border-t border-slate-800 pt-4">
+                        <label htmlFor="case-folder-name" className="text-xs font-semibold uppercase text-slate-400">
+                          フォルダ追加
+                        </label>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            id="case-folder-name"
+                            className={inputClass}
+                            placeholder="新しいフォルダ名"
+                            value={newFolderName}
+                            onChange={(event) => setNewFolderName(event.target.value)}
+                          />
+                          <button className={outlineButtonClass} onClick={handleCreateFolder}>
+                            追加
+                          </button>
+                        </div>
+                        {caseFolders.length > 0 && (
+                          <div className="mt-3 grid gap-2">
+                            {caseFolders.map((folder) => (
+                              <div
+                                key={`case-folder-manage-${folder.id}`}
+                                className={cn(
+                                  "rounded-xl border px-3 py-2 text-xs",
+                                  theme === "light" ? "border-slate-200 bg-white text-slate-700" : "border-slate-800 bg-slate-900/50 text-slate-300"
+                                )}
+                              >
+                                {editingFolderId === folder.id ? (
+                                  <div className="grid gap-2">
+                                    <input
+                                      className={cn(inputClass, "h-9")}
+                                      value={editingFolderName}
+                                      onChange={(event) => setEditingFolderName(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          void handleRenameFolder();
+                                        }
+                                      }}
+                                    />
+                                    <div className="flex gap-2">
+                                      <button className={outlineButtonClass} onClick={handleRenameFolder}>保存</button>
+                                      <button
+                                        className={outlineButtonClass}
+                                        onClick={() => {
+                                          setEditingFolderId(null);
+                                          setEditingFolderName("");
+                                        }}
+                                      >
+                                        キャンセル
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between gap-2">
+                                    <button
+                                      type="button"
+                                      className="min-w-0 truncate text-left font-semibold"
+                                      onClick={() => setFolderFilter(folder.id)}
+                                    >
+                                      {folder.name}
+                                    </button>
+                                    <div className="flex gap-2">
+                                      <button
+                                        className={outlineButtonClass}
+                                        onClick={() => {
+                                          setEditingFolderId(folder.id);
+                                          setEditingFolderName(folder.name);
+                                        }}
+                                      >
+                                        名前変更
+                                      </button>
+                                      <button
+                                        className={cn(
+                                          "rounded-full border px-2 py-1 text-[10px] font-semibold",
+                                          theme === "light" ? "border-destructive-light text-destructive-light" : "border-destructive-dark text-destructive-dark"
+                                        )}
+                                        onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
+                                      >
+                                        削除
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div
+                      className={cn(
+                        "rounded-2xl border p-4",
+                        theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/20"
+                      )}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-slate-400">
+                            {folderFilter === "all"
+                              ? "すべてのテストケース"
+                              : folderFilter === "none"
+                                ? "未分類"
+                                : caseFolderMap[folderFilter]?.name ?? "フォルダ"}
+                          </p>
+                          <p className="mt-1 text-sm text-slate-400">
+                            フォルダを選択して中のテストケースを管理します。
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className={primaryButtonClass}
+                          onClick={() => startNewCaseDraft()}
+                        >
+                          <PlusIcon className="size-5" />
+                          {folderFilter !== "all" && folderFilter !== "none" ? "このフォルダで新規作成" : "新規テストケース"}
+                        </button>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label htmlFor="case-priority-filter" className="text-xs font-semibold uppercase text-slate-400">
+                            優先度
+                          </label>
+                          <select
+                            id="case-priority-filter"
+                            className={cn(inputClass, "mt-2")}
+                            value={casePriorityFilter}
+                            onChange={(event) => setCasePriorityFilter(event.target.value)}
+                          >
+                            <option value="all">優先度</option>
+                            {priorityOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase text-slate-400">タグ</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {tagOptions.map((tag) => {
+                              const checked = tagFilters.includes(tag);
+                              return (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  className={cn(
+                                    "rounded-full border px-3 py-1 text-xs",
+                                    theme === "light"
+                                      ? checked
+                                        ? "border-sky-300 bg-sky-50 text-slate-800"
+                                        : "border-slate-200 text-slate-600"
+                                      : checked
+                                        ? "border-sky-400 bg-sky-950/40 text-slate-100"
+                                        : "border-slate-800 text-slate-300"
+                                  )}
+                                  onClick={() =>
+                                    setTagFilters((prev) =>
+                                      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+                                    )
+                                  }
+                                >
+                                  {tag}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 rounded-xl border border-slate-800">
+                        {filteredCases.length === 0 ? (
+                          <div className="px-4 py-8 text-sm text-slate-400">
+                            この表示条件ではテストケースがありません。
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-800">
+                            {filteredCases.map((item) => (
+                              <button
+                                key={`explorer-case-${item.id}`}
+                                type="button"
+                                className={cn(
+                                  "flex w-full items-start justify-between gap-3 px-4 py-3 text-left",
+                                  theme === "light" ? "hover:bg-slate-50" : "hover:bg-slate-900/40"
+                                )}
+                                onClick={() => selectCase(item.id)}
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold">{item.title}</p>
+                                  <p className="mt-1 truncate text-xs text-slate-400">{item.objective || "—"}</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-semibold">
+                                      {item.priority || "—"}
+                                    </span>
+                                    {item.tags
+                                      .split(",")
+                                      .map((tag) => tag.trim())
+                                      .filter(Boolean)
+                                      .slice(0, 3)
+                                      .map((tag) => (
+                                        <span key={`${item.id}-${tag}`} className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px]">
+                                          {tag}
+                                        </span>
+                                      ))}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 gap-2">
+                                  <button
+                                    type="button"
+                                    className={outlineButtonClass}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleDuplicateCase(item.id);
+                                    }}
+                                  >
+                                    複製
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "inline-flex h-10 items-center justify-center rounded-pill border px-4 text-sm font-medium hover:opacity-90",
+                                      theme === "light"
+                                        ? "border-destructive-light text-destructive-light"
+                                        : "border-destructive-dark text-destructive-dark"
+                                    )}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setDeleteTarget({ type: "case", id: item.id });
+                                    }}
+                                  >
+                                    削除
+                                  </button>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+	                <div className="mt-3 hidden grid gap-3">
 	                  <div>
 	                    <label
 	                      htmlFor="case-folder-filter"
@@ -7008,7 +7371,20 @@ export default function App() {
                                                 {caseEvidence.length ? (
                                                   <div className="flex flex-wrap gap-3">
                                                     {caseEvidence.map((preview) => (
-                                                      <div key={preview.id} className="group relative w-30">
+                                                      <div
+                                                        key={preview.id}
+                                                        className="group relative w-30"
+                                                        draggable
+                                                        onDragStart={() =>
+                                                          setDraggingRunCaseEvidence({ runCaseId: runCase.id, evidenceId: preview.id })
+                                                        }
+                                                        onDragOver={(event) => event.preventDefault()}
+                                                        onDrop={(event) => {
+                                                          event.preventDefault();
+                                                          void handleDropRunCaseEvidence(runCase.id, preview.id);
+                                                        }}
+                                                        onDragEnd={() => setDraggingRunCaseEvidence(null)}
+                                                      >
                                                         <div className="absolute left-1 top-1 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
                                                           <button
                                                             type="button"
@@ -7210,7 +7586,18 @@ export default function App() {
                         </div>
                         <div className="mt-3 grid gap-2">
                           {evidenceList.map((evidence) => (
-                            <div key={evidence.id} className="flex items-center justify-between gap-2 text-sm">
+                            <div
+                              key={evidence.id}
+                              className="flex items-center justify-between gap-2 text-sm"
+                              draggable
+                              onDragStart={() => setDraggingScenarioEvidenceId(evidence.id)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                void handleDropScenarioEvidence(evidence.id);
+                              }}
+                              onDragEnd={() => setDraggingScenarioEvidenceId(null)}
+                            >
                               <div className="flex min-w-0 items-center gap-2">
                                 <button
                                   className="min-w-0 truncate text-left text-sky-300"
@@ -7948,6 +8335,11 @@ export default function App() {
 
       {evidencePreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 [padding:calc(env(safe-area-inset-top)+1rem)_calc(env(safe-area-inset-right)+1rem)_calc(env(safe-area-inset-bottom)+1rem)_calc(env(safe-area-inset-left)+1rem)]">
+          {editorSaveNotice && (
+            <div className="absolute right-6 top-6 rounded-full border border-emerald-600/60 bg-emerald-950/90 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg">
+              {editorSaveNotice}
+            </div>
+          )}
           <div className="relative w-full max-w-6xl rounded-2xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">
             <div className="flex items-center justify-between text-sm font-semibold text-slate-100">
               <span>{evidencePreview.fileName}</span>
@@ -8055,14 +8447,7 @@ export default function App() {
                     <button
                       type="button"
                       className={outlineButtonClass}
-                      onClick={resetEditorToSavedImage}
-                    >
-                      保存前に戻す
-                    </button>
-                    <button
-                      type="button"
-                      className={outlineButtonClass}
-                      onClick={resetEditorToOriginalImage}
+                      onClick={() => void restoreOriginalEvidence()}
                     >
                       元の画像に戻す
                     </button>

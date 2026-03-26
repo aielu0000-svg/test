@@ -62,7 +62,8 @@ const api = {
     reorder: (runScenarioId: string, orderedIds: string[]) => ipcRenderer.invoke("evidence:reorder", runScenarioId, orderedIds),
     open: (id: string) => ipcRenderer.invoke("evidence:open", id),
     preview: (id: string) => ipcRenderer.invoke("evidence:preview", id),
-    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("evidence:updateImage", id, payload)
+    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("evidence:updateImage", id, payload),
+    restoreOriginal: (id: string) => ipcRenderer.invoke("evidence:restoreOriginal", id)
   },
   runCaseEvidence: {
     list: (runScenarioCaseId: string) => ipcRenderer.invoke("runCaseEvidence:list", runScenarioCaseId),
@@ -71,7 +72,8 @@ const api = {
     remove: (id: string) => ipcRenderer.invoke("runCaseEvidence:remove", id),
     reorder: (runScenarioCaseId: string, orderedIds: string[]) => ipcRenderer.invoke("runCaseEvidence:reorder", runScenarioCaseId, orderedIds),
     preview: (id: string) => ipcRenderer.invoke("runCaseEvidence:preview", id),
-    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("runCaseEvidence:updateImage", id, payload)
+    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("runCaseEvidence:updateImage", id, payload),
+    restoreOriginal: (id: string) => ipcRenderer.invoke("runCaseEvidence:restoreOriginal", id)
   },
   export: {
     save: (payload: unknown) => ipcRenderer.invoke("export:save", payload)
