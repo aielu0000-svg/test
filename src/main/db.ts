@@ -168,6 +168,7 @@ const initSchema = (database: Database.Database) => {
     CREATE TABLE IF NOT EXISTS case_folders (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      parent_id TEXT REFERENCES case_folders(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -315,6 +316,7 @@ const initSchema = (database: Database.Database) => {
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
   ensureColumn(database, "test_cases", "view_location", "TEXT");
   ensureColumn(database, "data_sets", "folder_id", "TEXT");
+  ensureColumn(database, "case_folders", "parent_id", "TEXT");
   ensureColumn(database, "scenario_evidence", "original_stored_path", "TEXT");
   ensureColumn(database, "run_case_evidence", "original_stored_path", "TEXT");
   ensureColumn(database, "scenario_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
@@ -671,23 +673,24 @@ export const deleteTestCase = (id: string) => {
 
 export const listCaseFolders = () => {
   const { db: database } = ensureDb();
-  return database.prepare("SELECT * FROM case_folders ORDER BY updated_at DESC").all();
+  return database.prepare("SELECT * FROM case_folders ORDER BY COALESCE(parent_id, ''), updated_at DESC").all();
 };
 
-export const saveCaseFolder = (payload: { id?: string; name: string }) => {
+export const saveCaseFolder = (payload: { id?: string; name: string; parentId?: string | null }) => {
   const { db: database } = ensureDb();
   const id = payload.id ?? randomUUID();
   const timestamp = now();
   const existing = database.prepare("SELECT id FROM case_folders WHERE id = ?").get(id);
+  const parentId = payload.parentId ?? null;
 
   if (existing) {
     database
-      .prepare("UPDATE case_folders SET name = ?, updated_at = ? WHERE id = ?")
-      .run(payload.name, timestamp, id);
+      .prepare("UPDATE case_folders SET name = ?, parent_id = ?, updated_at = ? WHERE id = ?")
+      .run(payload.name, parentId, timestamp, id);
   } else {
     database
-      .prepare("INSERT INTO case_folders (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-      .run(id, payload.name, timestamp, timestamp);
+      .prepare("INSERT INTO case_folders (id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, payload.name, parentId, timestamp, timestamp);
   }
 
   return id;
@@ -695,10 +698,16 @@ export const saveCaseFolder = (payload: { id?: string; name: string }) => {
 
 export const deleteCaseFolder = (id: string) => {
   const { db: database } = ensureDb();
-  database.prepare("UPDATE test_cases SET folder_id = NULL WHERE folder_id = ?").run(id);
-  database.prepare("DELETE FROM test_case_folders WHERE folder_id = ?").run(id);
-  database.prepare("UPDATE data_sets SET folder_id = NULL WHERE folder_id = ?").run(id);
-  database.prepare("DELETE FROM case_folders WHERE id = ?").run(id);
+  const childQuery = database.prepare("SELECT id FROM case_folders WHERE parent_id = ?");
+  const deleteFolder = (folderId: string) => {
+    const children = childQuery.all(folderId) as Array<{ id: string }>;
+    children.forEach((child) => deleteFolder(child.id));
+    database.prepare("UPDATE test_cases SET folder_id = NULL WHERE folder_id = ?").run(folderId);
+    database.prepare("DELETE FROM test_case_folders WHERE folder_id = ?").run(folderId);
+    database.prepare("UPDATE data_sets SET folder_id = NULL WHERE folder_id = ?").run(folderId);
+    database.prepare("DELETE FROM case_folders WHERE id = ?").run(folderId);
+  };
+  deleteFolder(id);
 };
 
 export const listScenarios = () => {

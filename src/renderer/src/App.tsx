@@ -45,6 +45,7 @@ type ScenarioCase = {
 type CaseFolder = {
   id: string;
   name: string;
+  parent_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -551,6 +552,54 @@ const FolderIcon = ({ className }: { className?: string }) => (
     strokeLinejoin="round"
   >
     <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z" />
+  </svg>
+);
+
+const FolderPlusIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z" />
+    <path d="M16.5 11.5v5" />
+    <path d="M14 14h5" />
+  </svg>
+);
+
+const ChevronRightIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+);
+
+const FileIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={cn("size-4", className)}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M7 3.5h7l4.5 4.5v12A2.5 2.5 0 0 1 16 22.5H7A2.5 2.5 0 0 1 4.5 20V6A2.5 2.5 0 0 1 7 3.5z" />
+    <path d="M14 3.5V8h4.5" />
   </svg>
 );
 
@@ -1226,6 +1275,10 @@ export default function App() {
   const [editingFolderName, setEditingFolderName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
+  const [caseSelectionAnchorId, setCaseSelectionAnchorId] = useState<string | null>(null);
+  const [caseFolderContextMenu, setCaseFolderContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [expandedCaseFolderIds, setExpandedCaseFolderIds] = useState<string[]>([]);
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
   const [caseDataSets, setCaseDataSets] = useState<
     Record<string, { dataSet: DataSet; items: DataItem[] }>
@@ -1600,6 +1653,19 @@ export default function App() {
     const timer = window.setTimeout(() => setEditorSaveNotice(null), 2000);
     return () => window.clearTimeout(timer);
   }, [editorSaveNotice]);
+
+  useEffect(() => {
+    if (!caseFolderContextMenu) {
+      return;
+    }
+    const closeMenu = () => setCaseFolderContextMenu(null);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, [caseFolderContextMenu]);
+
+  useEffect(() => {
+    setExpandedCaseFolderIds((prev) => Array.from(new Set([...prev, ...caseFolders.map((folder) => folder.id)])));
+  }, [caseFolders]);
 
   useEffect(() => {
     if (!project) {
@@ -1991,12 +2057,54 @@ export default function App() {
     }
   };
 
+  const caseFolderMap = useMemo(() => {
+    const map: Record<string, CaseFolder> = {};
+    caseFolders.forEach((folder) => {
+      map[folder.id] = folder;
+    });
+    return map;
+  }, [caseFolders]);
+
+  const caseFolderChildrenMap = useMemo(() => {
+    const map: Record<string, CaseFolder[]> = {};
+    caseFolders.forEach((folder) => {
+      const parentKey = folder.parent_id ?? "__ROOT__";
+      if (!map[parentKey]) {
+        map[parentKey] = [];
+      }
+      map[parentKey].push(folder);
+    });
+    Object.values(map).forEach((items) =>
+      items.sort((a, b) => a.name.localeCompare(b.name, "ja"))
+    );
+    return map;
+  }, [caseFolders]);
+
   const filteredCases = useMemo(() => {
+    const collectDescendantFolderIds = (folderId: string): string[] => {
+      const collected = new Set<string>([folderId]);
+      const stack = [folderId];
+      while (stack.length > 0) {
+        const current = stack.pop() as string;
+        const children = caseFolderChildrenMap[current] ?? [];
+        children.forEach((child) => {
+          if (!collected.has(child.id)) {
+            collected.add(child.id);
+            stack.push(child.id);
+          }
+        });
+      }
+      return Array.from(collected);
+    };
+
     let items = testCases;
     if (folderFilter !== "all") {
+      const targetFolderIds = folderFilter === "none" ? [] : collectDescendantFolderIds(folderFilter);
       items = items.filter((item) => {
         const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
-        return folderFilter === "none" ? folderIds.length === 0 : folderIds.includes(folderFilter);
+        return folderFilter === "none"
+          ? folderIds.length === 0
+          : folderIds.some((folderId) => targetFolderIds.includes(folderId));
       });
     }
     if (casePriorityFilter !== "all") {
@@ -2016,25 +2124,45 @@ export default function App() {
     }
 
     return items;
-  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter]);
+  }, [testCases, caseQuery, folderFilter, tagFilters, casePriorityFilter, caseFolderChildrenMap]);
 
   const caseCountByFolder = useMemo(() => {
     const counts: Record<string, number> = { all: testCases.length, none: 0 };
     caseFolders.forEach((folder) => {
       counts[folder.id] = 0;
     });
+    const collectDescendantFolderIds = (folderId: string): string[] => {
+      const collected = new Set<string>([folderId]);
+      const stack = [folderId];
+      while (stack.length > 0) {
+        const current = stack.pop() as string;
+        const children = caseFolderChildrenMap[current] ?? [];
+        children.forEach((child) => {
+          if (!collected.has(child.id)) {
+            collected.add(child.id);
+            stack.push(child.id);
+          }
+        });
+      }
+      return Array.from(collected);
+    };
+    const descendantsByFolder = Object.fromEntries(
+      caseFolders.map((folder) => [folder.id, collectDescendantFolderIds(folder.id)])
+    );
     testCases.forEach((item) => {
       const folderIds = item.folder_ids ?? (item.folder_id ? [item.folder_id] : []);
       if (folderIds.length === 0) {
         counts.none += 1;
         return;
       }
-      folderIds.forEach((folderId) => {
-        counts[folderId] = (counts[folderId] ?? 0) + 1;
+      caseFolders.forEach((folder) => {
+        if (folderIds.some((folderId) => descendantsByFolder[folder.id]?.includes(folderId))) {
+          counts[folder.id] = (counts[folder.id] ?? 0) + 1;
+        }
       });
     });
     return counts;
-  }, [testCases, caseFolders]);
+  }, [testCases, caseFolders, caseFolderChildrenMap]);
 
   const allFilteredCaseIds = useMemo(() => filteredCases.map((item) => item.id), [filteredCases]);
   const selectedFilteredCaseCount = useMemo(
@@ -2070,14 +2198,6 @@ export default function App() {
       order.push("none");
     }
     return order;
-  }, [caseFolders]);
-
-  const caseFolderMap = useMemo(() => {
-    const map: Record<string, CaseFolder> = {};
-    caseFolders.forEach((folder) => {
-      map[folder.id] = folder;
-    });
-    return map;
   }, [caseFolders]);
 
   const exportCaseFolderOptions = useMemo(
@@ -2538,24 +2658,21 @@ export default function App() {
 	    }
 	  };
 
-  const handleCreateFolder = async () => {
-    const name = newFolderName.trim();
+  const handleCreateFolder = async (parentId?: string | null) => {
+    const name = window.prompt("フォルダ名を入力してください。", "")?.trim() ?? "";
     if (!name) {
       return;
     }
-    await window.api.caseFolders.save({ name });
-    setNewFolderName("");
+    await window.api.caseFolders.save({ name, parentId: parentId ?? null });
     await loadCaseFolders();
   };
 
-  const handleRenameFolder = async () => {
-    const name = editingFolderName.trim();
-    if (!editingFolderId || !name) {
+  const handleRenameFolder = async (id: string, initialName: string, parentId?: string | null) => {
+    const name = window.prompt("新しいフォルダ名を入力してください。", initialName)?.trim() ?? "";
+    if (!name) {
       return;
     }
-    await window.api.caseFolders.save({ id: editingFolderId, name });
-    setEditingFolderId(null);
-    setEditingFolderName("");
+    await window.api.caseFolders.save({ id, name, parentId: parentId ?? null });
     await loadCaseFolders();
   };
 
@@ -2610,6 +2727,164 @@ export default function App() {
       setCaseDraft({ ...caseDraft, folderIds: caseDraft.folderIds.filter((folderId) => folderId !== id) });
     }
     await loadCases();
+  };
+
+  const isFolderDescendant = (folderId: string, targetParentId: string | null) => {
+    let current = targetParentId;
+    while (current) {
+      if (current === folderId) {
+        return true;
+      }
+      current = caseFolderMap[current]?.parent_id ?? null;
+    }
+    return false;
+  };
+
+  const handleMoveFolder = async (folderId: string, nextParentId: string | null) => {
+    const folder = caseFolderMap[folderId];
+    if (!folder) {
+      return;
+    }
+    if (folderId === nextParentId || isFolderDescendant(folderId, nextParentId)) {
+      return;
+    }
+    await window.api.caseFolders.save({
+      id: folder.id,
+      name: folder.name,
+      parentId: nextParentId
+    });
+    await loadCaseFolders();
+  };
+
+  const toggleExpandedCaseFolder = (folderId: string) => {
+    setExpandedCaseFolderIds((prev) =>
+      prev.includes(folderId) ? prev.filter((id) => id !== folderId) : [...prev, folderId]
+    );
+  };
+
+  const getCaseFolderLabel = (folderId: string) => {
+    const names: string[] = [];
+    let current: string | null = folderId;
+    while (current) {
+      const folder = caseFolderMap[current];
+      if (!folder) {
+        break;
+      }
+      names.unshift(folder.name);
+      current = folder.parent_id ?? null;
+    }
+    return names.join(" / ");
+  };
+
+  const handleCaseListItemClick = (
+    event: React.MouseEvent<HTMLElement>,
+    caseId: string
+  ) => {
+    const orderedIds = filteredCases.map((item) => item.id);
+    if (event.shiftKey && caseSelectionAnchorId) {
+      const start = orderedIds.indexOf(caseSelectionAnchorId);
+      const end = orderedIds.indexOf(caseId);
+      if (start >= 0 && end >= 0) {
+        const [from, to] = start < end ? [start, end] : [end, start];
+        const rangeSelection = orderedIds.slice(from, to + 1);
+        setSelectedCaseIds((prev) =>
+          event.ctrlKey || event.metaKey
+            ? Array.from(new Set([...prev, ...rangeSelection]))
+            : rangeSelection
+        );
+        setSelectedCaseId(caseId);
+        return;
+      }
+    }
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedCaseIds((prev) =>
+        prev.includes(caseId) ? prev.filter((id) => id !== caseId) : [...prev, caseId]
+      );
+      setSelectedCaseId(caseId);
+      setCaseSelectionAnchorId(caseId);
+      return;
+    }
+    setSelectedCaseIds([caseId]);
+    setSelectedCaseId(caseId);
+    setCaseSelectionAnchorId(caseId);
+  };
+
+  const renderCaseFolderTree = (parentId: string | null = null, depth = 0): JSX.Element[] => {
+    const folders = caseFolderChildrenMap[parentId ?? "__ROOT__"] ?? [];
+    return folders.flatMap((folder) => {
+      const active = folderFilter === folder.id;
+      const isExpanded = expandedCaseFolderIds.includes(folder.id);
+      const children = renderCaseFolderTree(folder.id, depth + 1);
+      return [
+        <div
+          key={`case-folder-tree-${folder.id}`}
+          className={cn(
+            "rounded-xl",
+            draggingFolderId === folder.id && "opacity-60"
+          )}
+        >
+          <button
+            type="button"
+            draggable
+            onDragStart={() => setDraggingFolderId(folder.id)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              void handleMoveFolder(draggingFolderId ?? "", folder.id);
+              setDraggingFolderId(null);
+            }}
+            onDragEnd={() => setDraggingFolderId(null)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setCaseFolderContextMenu({ id: folder.id, x: event.clientX, y: event.clientY });
+            }}
+            onClick={() => setFolderFilter(folder.id)}
+            className={cn(
+              "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
+              active
+                ? theme === "light"
+                  ? "bg-sky-100 text-slate-900"
+                  : "bg-sky-950/40 text-slate-100"
+                : theme === "light"
+                  ? "text-slate-700 hover:bg-white"
+                  : "text-slate-300 hover:bg-slate-900/70"
+            )}
+            style={{ paddingLeft: `${12 + depth * 18}px` }}
+          >
+            <span className="inline-flex min-w-0 items-center gap-2 truncate">
+              <span
+                role="button"
+                tabIndex={0}
+                className="inline-flex size-4 items-center justify-center rounded text-slate-400 hover:bg-slate-800/50"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (children.length > 0) {
+                    toggleExpandedCaseFolder(folder.id);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if ((event.key === "Enter" || event.key === " ") && children.length > 0) {
+                    event.preventDefault();
+                    toggleExpandedCaseFolder(folder.id);
+                  }
+                }}
+              >
+                {children.length > 0 && (
+                  <ChevronRightIcon className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
+                )}
+              </span>
+              <FolderIcon className="size-4" />
+              <span className="truncate">{folder.name}</span>
+            </span>
+            <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-semibold">
+              {caseCountByFolder[folder.id] ?? 0}
+            </span>
+          </button>
+          {children.length > 0 && isExpanded && <div className="mt-1 space-y-1">{children}</div>}
+        </div>
+      ];
+    });
   };
 
   const handleDeleteSelectedCases = async () => {
@@ -4188,14 +4463,6 @@ export default function App() {
                     >
                       選択削除 ({selectedFilteredCaseCount})
                     </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-pill bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90"
-                      onClick={() => startNewCaseDraft()}
-                    >
-                      <PlusIcon className="size-5" />
-                      新規テストケース
-                    </button>
                   </div>
                 )}
 
@@ -4241,12 +4508,39 @@ export default function App() {
                         theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950/30"
                       )}
                     >
-                      <p className="text-xs font-semibold uppercase text-slate-400">フォルダ</p>
-                      <div className="mt-3 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase text-slate-400">フォルダ</p>
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex size-9 items-center justify-center rounded-xl border transition hover:opacity-90",
+                            theme === "light"
+                              ? "border-slate-200 bg-white text-slate-700"
+                              : "border-slate-800 bg-slate-900/70 text-slate-200"
+                          )}
+                          title={folderFilter !== "all" && folderFilter !== "none" ? "選択中フォルダに追加" : "ルートに追加"}
+                          onClick={() => void handleCreateFolder(folderFilter !== "all" && folderFilter !== "none" ? folderFilter : null)}
+                        >
+                          <FolderPlusIcon />
+                        </button>
+                      </div>
+                      <div
+                        className={cn(
+                          "mt-3 rounded-xl border p-1",
+                          theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-950/40"
+                        )}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          if (draggingFolderId) {
+                            void handleMoveFolder(draggingFolderId, null);
+                            setDraggingFolderId(null);
+                          }
+                        }}
+                      >
                         {[
                           { id: "all", label: "すべてのテストケース" },
-                          { id: "none", label: "未分類" },
-                          ...caseFolders.map((folder) => ({ id: folder.id, label: folder.name }))
+                          { id: "none", label: "未分類" }
                         ].map((entry) => {
                           const active = folderFilter === entry.id;
                           return (
@@ -4260,12 +4554,12 @@ export default function App() {
                                     ? "bg-sky-100 text-slate-900"
                                     : "bg-sky-950/40 text-slate-100"
                                   : theme === "light"
-                                    ? "text-slate-700 hover:bg-white"
+                                    ? "text-slate-700 hover:bg-slate-50"
                                     : "text-slate-300 hover:bg-slate-900/70"
                               )}
                               onClick={() => setFolderFilter(entry.id)}
                             >
-                              <span className="inline-flex items-center gap-2 truncate">
+                              <span className="inline-flex min-w-0 items-center gap-2 truncate">
                                 <FolderIcon className="size-4" />
                                 <span className="truncate">{entry.label}</span>
                               </span>
@@ -4275,95 +4569,63 @@ export default function App() {
                             </button>
                           );
                         })}
-                      </div>
-                      <div className="mt-4 border-t border-slate-800 pt-4">
-                        <label htmlFor="case-folder-name" className="text-xs font-semibold uppercase text-slate-400">
-                          フォルダ追加
-                        </label>
-                        <div className="mt-2 flex gap-2">
-                          <input
-                            id="case-folder-name"
-                            className={inputClass}
-                            placeholder="新しいフォルダ名"
-                            value={newFolderName}
-                            onChange={(event) => setNewFolderName(event.target.value)}
-                          />
-                          <button className={outlineButtonClass} onClick={handleCreateFolder}>
-                            追加
-                          </button>
-                        </div>
                         {caseFolders.length > 0 && (
-                          <div className="mt-3 grid gap-2">
-                            {caseFolders.map((folder) => (
-                              <div
-                                key={`case-folder-manage-${folder.id}`}
-                                className={cn(
-                                  "rounded-xl border px-3 py-2 text-xs",
-                                  theme === "light" ? "border-slate-200 bg-white text-slate-700" : "border-slate-800 bg-slate-900/50 text-slate-300"
-                                )}
-                              >
-                                {editingFolderId === folder.id ? (
-                                  <div className="grid gap-2">
-                                    <input
-                                      className={cn(inputClass, "h-9")}
-                                      value={editingFolderName}
-                                      onChange={(event) => setEditingFolderName(event.target.value)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Enter") {
-                                          event.preventDefault();
-                                          void handleRenameFolder();
-                                        }
-                                      }}
-                                    />
-                                    <div className="flex gap-2">
-                                      <button className={outlineButtonClass} onClick={handleRenameFolder}>保存</button>
-                                      <button
-                                        className={outlineButtonClass}
-                                        onClick={() => {
-                                          setEditingFolderId(null);
-                                          setEditingFolderName("");
-                                        }}
-                                      >
-                                        キャンセル
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center justify-between gap-2">
-                                    <button
-                                      type="button"
-                                      className="min-w-0 truncate text-left font-semibold"
-                                      onClick={() => setFolderFilter(folder.id)}
-                                    >
-                                      {folder.name}
-                                    </button>
-                                    <div className="flex gap-2">
-                                      <button
-                                        className={outlineButtonClass}
-                                        onClick={() => {
-                                          setEditingFolderId(folder.id);
-                                          setEditingFolderName(folder.name);
-                                        }}
-                                      >
-                                        名前変更
-                                      </button>
-                                      <button
-                                        className={cn(
-                                          "rounded-full border px-2 py-1 text-[10px] font-semibold",
-                                          theme === "light" ? "border-destructive-light text-destructive-light" : "border-destructive-dark text-destructive-dark"
-                                        )}
-                                        onClick={() => setDeleteTarget({ type: "folder", id: folder.id })}
-                                      >
-                                        削除
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                          <div className="mt-1 space-y-1 border-t border-slate-200 pt-2 dark:border-slate-800">
+                            {renderCaseFolderTree()}
                           </div>
                         )}
                       </div>
+                      <p className="mt-3 text-xs text-slate-400">
+                        右クリックで名前変更・削除。ドラッグ&ドロップで入れ子や並べ替えができます。
+                      </p>
+                      {folderFilter !== "all" && folderFilter !== "none" && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          追加ボタンは選択中フォルダの直下に作成します。
+                        </p>
+                      )}
+                      {caseFolderContextMenu && caseFolderMap[caseFolderContextMenu.id] && (
+                        <div
+                          className={cn(
+                            "fixed z-50 min-w-40 rounded-xl border p-1 shadow-2xl",
+                            theme === "light"
+                              ? "border-slate-200 bg-white text-slate-800"
+                              : "border-slate-800 bg-slate-950 text-slate-100"
+                          )}
+                          style={{ left: caseFolderContextMenu.x, top: caseFolderContextMenu.y }}
+                        >
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex w-full rounded-lg px-3 py-2 text-left text-sm",
+                              theme === "light" ? "hover:bg-slate-100" : "hover:bg-slate-900"
+                            )}
+                            onClick={() => {
+                              const folder = caseFolderMap[caseFolderContextMenu.id];
+                              if (folder) {
+                                void handleRenameFolder(folder.id, folder.name, folder.parent_id ?? null);
+                              }
+                              setCaseFolderContextMenu(null);
+                            }}
+                          >
+                            名前変更
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex w-full rounded-lg px-3 py-2 text-left text-sm",
+                              theme === "light"
+                                ? "text-destructive-light hover:bg-red-50"
+                                : "text-destructive-dark hover:bg-red-950/30"
+                            )}
+                            onClick={() => {
+                              setDeleteTarget({ type: "folder", id: caseFolderContextMenu.id });
+                              setCaseFolderContextMenu(null);
+                            }}
+                          >
+                            削除
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div
                       className={cn(
@@ -4378,7 +4640,7 @@ export default function App() {
                               ? "すべてのテストケース"
                               : folderFilter === "none"
                                 ? "未分類"
-                                : caseFolderMap[folderFilter]?.name ?? "フォルダ"}
+                                : getCaseFolderLabel(folderFilter) || "フォルダ"}
                           </p>
                           <p className="mt-1 text-sm text-slate-400">
                             フォルダを選択して中のテストケースを管理します。
@@ -4457,12 +4719,22 @@ export default function App() {
                                 type="button"
                                 className={cn(
                                   "flex w-full items-start justify-between gap-3 px-4 py-3 text-left",
-                                  theme === "light" ? "hover:bg-slate-50" : "hover:bg-slate-900/40"
+                                  selectedCaseIds.includes(item.id)
+                                    ? theme === "light"
+                                      ? "bg-sky-50"
+                                      : "bg-sky-950/30"
+                                    : theme === "light"
+                                      ? "hover:bg-slate-50"
+                                      : "hover:bg-slate-900/40"
                                 )}
-                                onClick={() => selectCase(item.id)}
+                                onClick={(event) => handleCaseListItemClick(event, item.id)}
+                                onDoubleClick={() => selectCase(item.id)}
                               >
                                 <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold">{item.title}</p>
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <FileIcon className="shrink-0 text-slate-400" />
+                                    <p className="truncate text-sm font-semibold">{item.title}</p>
+                                  </div>
                                   <p className="mt-1 truncate text-xs text-slate-400">{item.objective || "—"}</p>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-semibold">
