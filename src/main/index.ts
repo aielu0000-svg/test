@@ -7,10 +7,13 @@ import {
   addRunScenario,
   addRunScenarioCaseEvidence,
   addRunScenarioCaseEvidenceBuffer,
+  addCaseViewImage,
+  addCaseViewImageBuffer,
   backupProject,
   createScenarioFromFolder,
   createProject,
   deleteCaseFolder,
+  duplicateCaseFolderTree,
   deleteDataSet,
   deleteRun,
   deleteScenario,
@@ -26,14 +29,19 @@ import {
   getScenarioDetails,
   getScenarioEvidencePath,
   getTestCase,
+  listCaseViewImages,
   listRunScenarioCaseEvidence,
   listRunScenarioCases,
+  previewCaseViewImage,
   previewScenarioEvidence,
   previewRunScenarioCaseEvidence,
+  reorderCaseViewImages,
   reorderRunScenarioCaseEvidence,
   reorderScenarioEvidence,
+  restoreCaseViewImageOriginal,
   restoreRunScenarioCaseEvidenceOriginal,
   restoreScenarioEvidenceOriginal,
+  updateCaseViewImage,
   updateRunScenarioCaseEvidenceImage,
   updateScenarioEvidenceImage,
   listCaseFolders,
@@ -48,6 +56,7 @@ import {
   removeRunScenario,
   removeScenarioCase,
   removeRunScenarioCaseEvidence,
+  removeCaseViewImage,
   removeScenarioEvidence,
   resetProject,
   saveCaseFolder,
@@ -231,6 +240,9 @@ ipcMain.handle("testCases:delete", (_event, id: string) => deleteTestCase(id));
 ipcMain.handle("caseFolders:list", () => listCaseFolders());
 ipcMain.handle("caseFolders:save", (_event, payload) => saveCaseFolder(payload));
 ipcMain.handle("caseFolders:delete", (_event, id: string) => deleteCaseFolder(id));
+ipcMain.handle("caseFolders:duplicate", (_event, sourceId: string, targetParentId: string | null) =>
+  duplicateCaseFolderTree(sourceId, targetParentId)
+);
 
 ipcMain.handle("scenarios:list", () => listScenarios());
 ipcMain.handle("scenarios:get", (_event, id: string) => getScenario(id));
@@ -414,6 +426,62 @@ ipcMain.handle("runCaseEvidence:updateImage", (_event, id: string, payload: { ba
   return true;
 });
 ipcMain.handle("runCaseEvidence:restoreOriginal", (_event, id: string) => restoreRunScenarioCaseEvidenceOriginal(id));
+
+ipcMain.handle("caseViewImages:list", (_event, caseId: string) => listCaseViewImages(caseId));
+ipcMain.handle("caseViewImages:add", async (_event, caseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
+  const result = await dialog.showOpenDialog({
+    title: "見る場所の画像を追加",
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] }]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return [];
+  }
+  const created: string[] = [];
+  result.filePaths.forEach((filePath) => {
+    const stat = fs.statSync(filePath);
+    const fileName = path.basename(filePath);
+    const mimeType = inferMimeType(fileName);
+    if (mimeType.startsWith("image/")) {
+      const processed = processImageBuffer(fs.readFileSync(filePath), mimeType, options);
+      created.push(
+        addCaseViewImageBuffer({
+          caseId,
+          fileName,
+          buffer: processed.buffer,
+          mimeType: processed.mimeType
+        })
+      );
+      return;
+    }
+    created.push(addCaseViewImage({ caseId, sourcePath: filePath, fileName, mimeType, size: stat.size }));
+  });
+  return created;
+});
+ipcMain.handle("caseViewImages:paste", (_event, caseId: string, options?: { resizeEnabled?: boolean; resizeMax?: number; resizeMaxWidth?: number; resizeMaxHeight?: number }) => {
+  const image = clipboard.readImage();
+  if (image.isEmpty()) {
+    return null;
+  }
+  const processed = processImageBuffer(image.toPNG(), "image/png", options);
+  return addCaseViewImageBuffer({
+    caseId,
+    fileName: `clipboard_${Date.now()}.png`,
+    buffer: processed.buffer,
+    mimeType: processed.mimeType
+  });
+});
+ipcMain.handle("caseViewImages:remove", (_event, id: string) => removeCaseViewImage(id));
+ipcMain.handle("caseViewImages:reorder", (_event, caseId: string, orderedIds: string[]) => {
+  reorderCaseViewImages(caseId, orderedIds);
+  return true;
+});
+ipcMain.handle("caseViewImages:preview", (_event, id: string) => previewCaseViewImage(id));
+ipcMain.handle("caseViewImages:updateImage", (_event, id: string, payload: { base64: string; mimeType: string }) => {
+  updateCaseViewImage(id, { buffer: Buffer.from(payload.base64, "base64"), mimeType: payload.mimeType });
+  return true;
+});
+ipcMain.handle("caseViewImages:restoreOriginal", (_event, id: string) => restoreCaseViewImageOriginal(id));
 
 ipcMain.handle("export:save", async (_event, payload) => {
   const ext = payload.format;

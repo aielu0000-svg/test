@@ -82,6 +82,7 @@ type DataSetDetail = {
 type CaseDetail = {
   case: TestCase;
   steps: TestStep[];
+  viewLocationImages?: CaseViewImage[];
   dataSets: DataSetDetail[];
 };
 
@@ -147,7 +148,15 @@ type EvidencePreview = {
   fileName: string;
   dataUrl: string;
   mimeType: string;
-  scope: "scenario" | "run_case";
+  scope: "scenario" | "run_case" | "case_view";
+};
+
+type CaseViewImage = {
+  id: string;
+  case_id: string;
+  file_name: string;
+  mime_type?: string;
+  created_at: string;
 };
 
 type EditorMode = "crop" | "paint" | "border";
@@ -1292,6 +1301,7 @@ export default function App() {
   const [caseFolderContextMenu, setCaseFolderContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [copiedCaseFolder, setCopiedCaseFolder] = useState<{ id: string; name: string } | null>(null);
   const [expandedCaseFolderIds, setExpandedCaseFolderIds] = useState<string[]>([]);
   const [folderDialog, setFolderDialog] = useState<FolderDialogState>({
     open: false,
@@ -1301,6 +1311,8 @@ export default function App() {
     name: ""
   });
   const [caseDraft, setCaseDraft] = useState<CaseDraft>(emptyCase());
+  const [caseViewImages, setCaseViewImages] = useState<CaseViewImage[]>([]);
+  const [caseViewImagePreviewMap, setCaseViewImagePreviewMap] = useState<Record<string, string>>({});
   const [caseDataSets, setCaseDataSets] = useState<
     Record<string, { dataSet: DataSet; items: DataItem[] }>
   >({});
@@ -2413,11 +2425,43 @@ export default function App() {
     }
   }, [effectiveCaseDataSetIds, caseDataSets]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!caseViewImages.length) {
+      setCaseViewImagePreviewMap({});
+      return;
+    }
+    void (async () => {
+      const entries = await Promise.all(
+        caseViewImages.map(async (image) => {
+          try {
+            const result = (await window.api.caseViewImages.preview(image.id)) as
+              | { base64: string; mimeType: string; tooLarge?: boolean }
+              | null;
+            if (!result?.base64 || result.tooLarge) {
+              return [image.id, ""] as const;
+            }
+            return [image.id, `data:${result.mimeType};base64,${result.base64}`] as const;
+          } catch {
+            return [image.id, ""] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setCaseViewImagePreviewMap(Object.fromEntries(entries));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseViewImages]);
+
   const loadCaseById = async (id: string) => {
     const data = (await window.api.testCases.get(id)) as {
       testCase: TestCase;
       steps: TestStep[];
       dataLinks: CaseDataLink[];
+      viewLocationImages?: CaseViewImage[];
     };
     if (!data.testCase) {
       return;
@@ -2439,6 +2483,7 @@ export default function App() {
         (data.testCase.folder_ids ?? []).filter(Boolean)
     });
     setCaseDataSets({});
+    setCaseViewImages(data.viewLocationImages ?? []);
     if (dataSetIds.length) {
       await loadCaseDataSetDetails(dataSetIds);
     }
@@ -2452,6 +2497,7 @@ export default function App() {
     }
     setCaseDraft(draft);
     setCaseDataSets({});
+    setCaseViewImages([]);
     setCaseError(null);
     setCaseMode("detail");
   };
@@ -2461,6 +2507,7 @@ export default function App() {
       testCase: TestCase;
       steps: TestStep[];
       dataLinks: CaseDataLink[];
+      viewLocationImages?: CaseViewImage[];
     };
     if (!data.testCase) {
       return;
@@ -2483,6 +2530,7 @@ export default function App() {
     setSelectedCaseId(null);
     setCaseDraft(duplicateDraft);
     setCaseDataSets({});
+    setCaseViewImages([]);
     if (duplicateDraft.dataSetIds.length) {
       await loadCaseDataSetDetails(duplicateDraft.dataSetIds);
     }
@@ -2767,6 +2815,21 @@ export default function App() {
     );
   };
 
+  const handlePasteFolder = async (targetParentId: string | null) => {
+    if (!copiedCaseFolder) {
+      return;
+    }
+    const createdId = (await window.api.caseFolders.duplicate(copiedCaseFolder.id, targetParentId)) as string | null;
+    await loadCaseFolders();
+    await loadCases();
+    if (createdId) {
+      setExpandedCaseFolderIds((prev) =>
+        Array.from(new Set([...prev, ...(targetParentId ? [targetParentId] : []), createdId]))
+      );
+      setFolderFilter(createdId);
+    }
+  };
+
   const toggleExpandedCaseFolder = (folderId: string) => {
     setExpandedCaseFolderIds((prev) =>
       prev.includes(folderId) ? prev.filter((id) => id !== folderId) : [...prev, folderId]
@@ -2846,18 +2909,21 @@ export default function App() {
             }}
             onDragOver={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               event.dataTransfer.dropEffect = "move";
               if (draggingFolderId && draggingFolderId !== folder.id && dragOverFolderId !== folder.id) {
                 setDragOverFolderId(folder.id);
               }
             }}
-            onDragLeave={() => {
+            onDragLeave={(event) => {
+              event.stopPropagation();
               if (dragOverFolderId === folder.id) {
                 setDragOverFolderId(null);
               }
             }}
             onDrop={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               const droppedFolderId = event.dataTransfer.getData("text/plain") || draggingFolderId || "";
               void handleMoveFolder(droppedFolderId, folder.id);
               setDraggingFolderId(null);
@@ -2876,8 +2942,8 @@ export default function App() {
               "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
               active
                 ? theme === "light"
-                  ? "bg-sky-100 text-slate-900"
-                  : "bg-sky-950/40 text-slate-100"
+                  ? "bg-sky-200 text-slate-950 ring-2 ring-sky-400"
+                  : "bg-sky-900/70 text-slate-50 ring-2 ring-sky-500/80"
                 : theme === "light"
                   ? "text-slate-700 hover:bg-white"
                   : "text-slate-300 hover:bg-slate-900/70"
@@ -3213,6 +3279,47 @@ export default function App() {
     }
   };
 
+  const handlePreviewCaseViewImage = async (id: string, fileName: string) => {
+    try {
+      const result = (await window.api.caseViewImages.preview(id)) as
+        | { base64: string; mimeType: string; tooLarge?: boolean; size?: number }
+        | null;
+      if (!result) {
+        setPreviewError("プレビューを読み込めませんでした。");
+        setEvidencePreview({
+          id,
+          fileName,
+          dataUrl: "",
+          mimeType: "application/octet-stream",
+          scope: "case_view"
+        });
+        return;
+      }
+      if (result.tooLarge) {
+        const mb = result.size ? (result.size / 1024 / 1024).toFixed(1) : "";
+        setPreviewError(`ファイルサイズ${mb ? ` (${mb}MB)` : ""}が大きすぎるためプレビューできません。`);
+        setEvidencePreview({
+          id,
+          fileName,
+          dataUrl: "",
+          mimeType: result.mimeType ?? "application/octet-stream",
+          scope: "case_view"
+        });
+        return;
+      }
+      setPreviewError(null);
+      setEvidencePreview({
+        id,
+        fileName,
+        dataUrl: result.base64 ? `data:${result.mimeType};base64,${result.base64}` : "",
+        mimeType: result.mimeType,
+        scope: "case_view"
+      });
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "プレビューに失敗しました。");
+    }
+  };
+
   const closeEvidencePreview = () => {
     setEvidencePreview(null);
     setPreviewError(null);
@@ -3401,16 +3508,28 @@ export default function App() {
       setEditorSaveNotice("保存しました");
       return;
     }
-    await window.api.runCaseEvidence.updateImage(evidencePreview.id, {
+    if (evidencePreview.scope === "run_case") {
+      await window.api.runCaseEvidence.updateImage(evidencePreview.id, {
+        base64,
+        mimeType: "image/png"
+      });
+      await handlePreviewRunCaseEvidence(evidencePreview.id, evidencePreview.fileName);
+      const matchingRunCaseId = Object.entries(runCaseEvidenceMap).find(([, previews]) =>
+        previews.some((preview) => preview.id === evidencePreview.id)
+      )?.[0];
+      if (matchingRunCaseId) {
+        await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
+      }
+      setEditorSaveNotice("保存しました");
+      return;
+    }
+    await window.api.caseViewImages.updateImage(evidencePreview.id, {
       base64,
       mimeType: "image/png"
     });
-    await handlePreviewRunCaseEvidence(evidencePreview.id, evidencePreview.fileName);
-    const matchingRunCaseId = Object.entries(runCaseEvidenceMap).find(([, previews]) =>
-      previews.some((preview) => preview.id === evidencePreview.id)
-    )?.[0];
-    if (matchingRunCaseId) {
-      await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
+    await handlePreviewCaseViewImage(evidencePreview.id, evidencePreview.fileName);
+    if (selectedCaseId) {
+      await loadCaseById(selectedCaseId);
     }
     setEditorSaveNotice("保存しました");
   };
@@ -3428,13 +3547,22 @@ export default function App() {
       setEditorSaveNotice("元の画像に戻しました");
       return;
     }
-    await window.api.runCaseEvidence.restoreOriginal(evidencePreview.id);
-    await handlePreviewRunCaseEvidence(evidencePreview.id, evidencePreview.fileName);
-    const matchingRunCaseId = Object.entries(runCaseEvidenceMap).find(([, previews]) =>
-      previews.some((preview) => preview.id === evidencePreview.id)
-    )?.[0];
-    if (matchingRunCaseId) {
-      await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
+    if (evidencePreview.scope === "run_case") {
+      await window.api.runCaseEvidence.restoreOriginal(evidencePreview.id);
+      await handlePreviewRunCaseEvidence(evidencePreview.id, evidencePreview.fileName);
+      const matchingRunCaseId = Object.entries(runCaseEvidenceMap).find(([, previews]) =>
+        previews.some((preview) => preview.id === evidencePreview.id)
+      )?.[0];
+      if (matchingRunCaseId) {
+        await loadRunCaseEvidenceForIds([matchingRunCaseId], { overwrite: false });
+      }
+      setEditorSaveNotice("元の画像に戻しました");
+      return;
+    }
+    await window.api.caseViewImages.restoreOriginal(evidencePreview.id);
+    await handlePreviewCaseViewImage(evidencePreview.id, evidencePreview.fileName);
+    if (selectedCaseId) {
+      await loadCaseById(selectedCaseId);
     }
     setEditorSaveNotice("元の画像に戻しました");
   };
@@ -3622,6 +3750,69 @@ export default function App() {
     } catch (err) {
       setRunError(err instanceof Error ? err.message : "テストケースのエビデンス削除に失敗しました。");
     }
+  };
+
+  const handleAddCaseViewImage = async () => {
+    if (!selectedCaseId) {
+      return;
+    }
+    setCaseError(null);
+    try {
+      await window.api.caseViewImages.add(selectedCaseId, {
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
+      });
+      await loadCaseById(selectedCaseId);
+    } catch (err) {
+      setCaseError(err instanceof Error ? err.message : "見る場所の画像追加に失敗しました。");
+    }
+  };
+
+  const handlePasteCaseViewImage = async () => {
+    if (!selectedCaseId) {
+      return;
+    }
+    setCaseError(null);
+    try {
+      await window.api.caseViewImages.paste(selectedCaseId, {
+        resizeEnabled: evidenceResizeEnabled,
+        resizeMaxWidth: evidenceResizeMaxWidth,
+        resizeMaxHeight: evidenceResizeMaxHeight
+      });
+      await loadCaseById(selectedCaseId);
+    } catch (err) {
+      setCaseError(err instanceof Error ? err.message : "見る場所の画像貼り付けに失敗しました。");
+    }
+  };
+
+  const handleRemoveCaseViewImage = async (imageId: string) => {
+    if (!selectedCaseId) {
+      return;
+    }
+    setCaseError(null);
+    try {
+      await window.api.caseViewImages.remove(imageId);
+      await loadCaseById(selectedCaseId);
+    } catch (err) {
+      setCaseError(err instanceof Error ? err.message : "見る場所の画像削除に失敗しました。");
+    }
+  };
+
+  const handleReorderCaseViewImage = async (imageId: string, direction: -1 | 1) => {
+    if (!selectedCaseId) {
+      return;
+    }
+    const nextIds = moveOrderedIds(
+      caseViewImages.map((item) => item.id),
+      imageId,
+      direction
+    );
+    if (!nextIds) {
+      return;
+    }
+    await window.api.caseViewImages.reorder(selectedCaseId, nextIds);
+    await loadCaseById(selectedCaseId);
   };
 
   const handleExport = async () => {
@@ -4603,8 +4794,8 @@ export default function App() {
                                 "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
                                 active
                                   ? theme === "light"
-                                    ? "bg-sky-100 text-slate-900"
-                                    : "bg-sky-950/40 text-slate-100"
+                                    ? "bg-sky-200 text-slate-950 ring-2 ring-sky-400"
+                                    : "bg-sky-900/70 text-slate-50 ring-2 ring-sky-500/80"
                                   : theme === "light"
                                     ? "text-slate-700 hover:bg-slate-50"
                                     : "text-slate-300 hover:bg-slate-900/70"
@@ -4660,6 +4851,36 @@ export default function App() {
                             }}
                           >
                             名前変更
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex w-full rounded-lg px-3 py-2 text-left text-sm",
+                              theme === "light" ? "hover:bg-slate-100" : "hover:bg-slate-900"
+                            )}
+                            onClick={() => {
+                              const folder = caseFolderMap[caseFolderContextMenu.id];
+                              if (folder) {
+                                setCopiedCaseFolder({ id: folder.id, name: folder.name });
+                              }
+                              setCaseFolderContextMenu(null);
+                            }}
+                          >
+                            コピー
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!copiedCaseFolder}
+                            className={cn(
+                              "flex w-full rounded-lg px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40",
+                              theme === "light" ? "hover:bg-slate-100" : "hover:bg-slate-900"
+                            )}
+                            onClick={() => {
+                              void handlePasteFolder(caseFolderContextMenu.id);
+                              setCaseFolderContextMenu(null);
+                            }}
+                          >
+                            {copiedCaseFolder ? `貼り付け: ${copiedCaseFolder.name}` : "貼り付け"}
                           </button>
                           <button
                             type="button"
@@ -4770,14 +4991,14 @@ export default function App() {
                                 key={`explorer-case-${item.id}`}
                                 type="button"
                                 className={cn(
-                                  "flex w-full items-start justify-between gap-3 px-4 py-3 text-left",
+                                  "flex w-full items-start justify-between gap-3 border-l-4 px-4 py-3 text-left transition-colors",
                                   selectedCaseIds.includes(item.id)
                                     ? theme === "light"
-                                      ? "bg-sky-50"
-                                      : "bg-sky-950/30"
+                                      ? "border-l-sky-500 bg-sky-100 text-slate-950"
+                                      : "border-l-sky-400 bg-sky-900/35 text-slate-50"
                                     : theme === "light"
-                                      ? "hover:bg-slate-50"
-                                      : "hover:bg-slate-900/40"
+                                      ? "border-l-transparent hover:bg-slate-50"
+                                      : "border-l-transparent hover:bg-slate-900/40"
                                 )}
                                 onClick={(event) => handleCaseListItemClick(event, item.id)}
                                 onDoubleClick={() => selectCase(item.id)}
@@ -4929,6 +5150,130 @@ export default function App() {
                     theme={theme}
                     autoResize
                   />
+                  <div
+                    className={cn(
+                      "rounded-2xl border p-4",
+                      theme === "light"
+                        ? "border-slate-200 bg-slate-50"
+                        : "border-slate-800 bg-slate-950/40"
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">見る場所の画像</h3>
+                        <p className="mt-1 text-xs text-slate-400">
+                          画面位置を画像でも残せます。画像は証跡と同じ編集機能で加工できます。
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className={outlineButtonClass}
+                          disabled={!selectedCaseId}
+                          onClick={() => void handleAddCaseViewImage()}
+                        >
+                          画像を追加
+                        </button>
+                        <button
+                          type="button"
+                          className={outlineButtonClass}
+                          disabled={!selectedCaseId}
+                          onClick={() => void handlePasteCaseViewImage()}
+                        >
+                          画像を貼り付け
+                        </button>
+                      </div>
+                    </div>
+                    {!selectedCaseId ? (
+                      <div
+                        className={cn(
+                          "mt-3 rounded-xl border px-3 py-3 text-xs",
+                          theme === "light" ? "border-slate-200 text-slate-500" : "border-slate-800 text-slate-400"
+                        )}
+                      >
+                        画像を追加するには、先にこのテストケースを保存してください。
+                      </div>
+                    ) : caseViewImages.length === 0 ? (
+                      <div
+                        className={cn(
+                          "mt-3 rounded-xl border px-3 py-3 text-xs",
+                          theme === "light" ? "border-slate-200 text-slate-500" : "border-slate-800 text-slate-400"
+                        )}
+                      >
+                        まだ画像はありません。
+                      </div>
+                    ) : (
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {caseViewImages.map((image, index) => (
+                          <div
+                            key={image.id}
+                            className={cn(
+                              "overflow-hidden rounded-2xl border",
+                              theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900/50"
+                            )}
+                          >
+                            <button
+                              type="button"
+                              className="block w-full"
+                              onClick={() => void handlePreviewCaseViewImage(image.id, image.file_name)}
+                            >
+                              <div className="flex aspect-[4/3] items-center justify-center bg-slate-950/70">
+                                {caseViewImagePreviewMap[image.id] ? (
+                                  <img
+                                    src={caseViewImagePreviewMap[image.id]}
+                                    alt={image.file_name}
+                                    className="h-full w-full object-contain"
+                                  />
+                                ) : (
+                                  <span className="px-4 text-xs text-slate-400">クリックしてプレビュー / 編集</span>
+                                )}
+                              </div>
+                            </button>
+                            <div className="space-y-3 p-3">
+                              <p className="truncate text-sm font-medium">{image.file_name}</p>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  className={outlineButtonClass}
+                                  onClick={() => void handlePreviewCaseViewImage(image.id, image.file_name)}
+                                >
+                                  開く
+                                </button>
+                                <button
+                                  type="button"
+                                  className={outlineButtonClass}
+                                  disabled={index === 0}
+                                  onClick={() => void handleReorderCaseViewImage(image.id, -1)}
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  className={outlineButtonClass}
+                                  disabled={index === caseViewImages.length - 1}
+                                  onClick={() => void handleReorderCaseViewImage(image.id, 1)}
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "inline-flex h-10 items-center justify-center rounded-pill border px-4 text-sm font-medium hover:opacity-90",
+                                    theme === "light"
+                                      ? "border-destructive-light text-destructive-light"
+                                      : "border-destructive-dark text-destructive-dark"
+                                  )}
+                                  onClick={() => void handleRemoveCaseViewImage(image.id)}
+                                >
+                                  削除
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label

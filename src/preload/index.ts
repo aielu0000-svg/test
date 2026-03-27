@@ -21,7 +21,9 @@ const api = {
   caseFolders: {
     list: () => ipcRenderer.invoke("caseFolders:list"),
     save: (payload: unknown) => ipcRenderer.invoke("caseFolders:save", payload),
-    delete: (id: string) => ipcRenderer.invoke("caseFolders:delete", id)
+    delete: (id: string) => ipcRenderer.invoke("caseFolders:delete", id),
+    duplicate: (sourceId: string, targetParentId: string | null) =>
+      ipcRenderer.invoke("caseFolders:duplicate", sourceId, targetParentId)
   },
   scenarios: {
     list: () => ipcRenderer.invoke("scenarios:list"),
@@ -74,6 +76,16 @@ const api = {
     preview: (id: string) => ipcRenderer.invoke("runCaseEvidence:preview", id),
     updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("runCaseEvidence:updateImage", id, payload),
     restoreOriginal: (id: string) => ipcRenderer.invoke("runCaseEvidence:restoreOriginal", id)
+  },
+  caseViewImages: {
+    list: (caseId: string) => ipcRenderer.invoke("caseViewImages:list", caseId),
+    add: (caseId: string, options?: unknown) => ipcRenderer.invoke("caseViewImages:add", caseId, options),
+    paste: (caseId: string, options?: unknown) => ipcRenderer.invoke("caseViewImages:paste", caseId, options),
+    remove: (id: string) => ipcRenderer.invoke("caseViewImages:remove", id),
+    reorder: (caseId: string, orderedIds: string[]) => ipcRenderer.invoke("caseViewImages:reorder", caseId, orderedIds),
+    preview: (id: string) => ipcRenderer.invoke("caseViewImages:preview", id),
+    updateImage: (id: string, payload: unknown) => ipcRenderer.invoke("caseViewImages:updateImage", id, payload),
+    restoreOriginal: (id: string) => ipcRenderer.invoke("caseViewImages:restoreOriginal", id)
   },
   export: {
     save: (payload: unknown) => ipcRenderer.invoke("export:save", payload)

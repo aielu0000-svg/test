@@ -22,12 +22,23 @@ type DataItem = {
   note: string;
 };
 
+type CaseFolder = {
+  id: string;
+  name: string;
+  parent_id?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 let db: Database.Database | null = null;
 let projectPath: string | null = null;
 
 const DB_FILE = "the-test.sqlite";
 const ATTACHMENTS_DIR = "attachments";
 const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
+
+type EvidenceTable = "scenario_evidence" | "run_case_evidence" | "case_view_images";
+type EvidenceParentColumn = "run_scenario_id" | "run_scenario_case_id" | "case_id";
 
 const now = () => new Date().toISOString();
 
@@ -79,8 +90,8 @@ const ensureColumn = (
 
 const normalizeEvidenceSortOrder = (
   database: Database.Database,
-  table: "scenario_evidence" | "run_case_evidence",
-  parentColumn: "run_scenario_id" | "run_scenario_case_id"
+  table: EvidenceTable,
+  parentColumn: EvidenceParentColumn
 ) => {
   const rows = database
     .prepare(
@@ -298,6 +309,18 @@ const initSchema = (database: Database.Database) => {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS case_view_images (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      original_stored_path TEXT,
+      mime_type TEXT,
+      size INTEGER,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_test_steps_case ON test_steps(case_id, position);
     CREATE INDEX IF NOT EXISTS idx_scenario_cases ON scenario_cases(scenario_id, position);
     CREATE INDEX IF NOT EXISTS idx_data_items ON data_items(data_set_id, sort_order);
@@ -311,6 +334,7 @@ const initSchema = (database: Database.Database) => {
     CREATE INDEX IF NOT EXISTS idx_scenario_evidence ON scenario_evidence(run_scenario_id);
     CREATE INDEX IF NOT EXISTS idx_run_scenario_cases ON run_scenario_cases(run_scenario_id);
     CREATE INDEX IF NOT EXISTS idx_run_case_evidence ON run_case_evidence(run_scenario_case_id);
+    CREATE INDEX IF NOT EXISTS idx_case_view_images ON case_view_images(case_id);
   `);
 
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
@@ -319,8 +343,10 @@ const initSchema = (database: Database.Database) => {
   ensureColumn(database, "case_folders", "parent_id", "TEXT");
   ensureColumn(database, "scenario_evidence", "original_stored_path", "TEXT");
   ensureColumn(database, "run_case_evidence", "original_stored_path", "TEXT");
+  ensureColumn(database, "case_view_images", "original_stored_path", "TEXT");
   ensureColumn(database, "scenario_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "run_case_evidence", "sort_order", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "case_view_images", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   database.exec(`
     INSERT OR IGNORE INTO test_case_folders (case_id, folder_id)
     SELECT id, folder_id
@@ -329,6 +355,7 @@ const initSchema = (database: Database.Database) => {
   `);
   normalizeEvidenceSortOrder(database, "scenario_evidence", "run_scenario_id");
   normalizeEvidenceSortOrder(database, "run_case_evidence", "run_scenario_case_id");
+  normalizeEvidenceSortOrder(database, "case_view_images", "case_id");
 };
 
 export const createProject = (folderPath: string, name: string) => {
@@ -465,7 +492,10 @@ export const getTestCase = (id: string) => {
     .prepare("SELECT data_set_id FROM data_links WHERE entity_type = ? AND entity_id = ?")
     .all("case", id);
   const folderIds = getCaseFolderIdsWithDb(database, id);
-  return { testCase, steps, dataLinks, folderIds };
+  const viewLocationImages = database
+    .prepare("SELECT * FROM case_view_images WHERE case_id = ? ORDER BY sort_order ASC, created_at ASC")
+    .all(id);
+  return { testCase, steps, dataLinks, folderIds, viewLocationImages };
 };
 
 const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
@@ -474,6 +504,9 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
     .prepare("SELECT * FROM test_steps WHERE case_id = ? ORDER BY position")
     .all(caseId);
   const folderIds = getCaseFolderIdsWithDb(database, caseId);
+  const viewLocationImages = database
+    .prepare("SELECT * FROM case_view_images WHERE case_id = ? ORDER BY sort_order ASC, created_at ASC")
+    .all(caseId);
   const dataSetRows = database
     .prepare(
       `
@@ -559,6 +592,7 @@ const getCaseDetailWithDb = (database: Database.Database, caseId: string) => {
   return {
     case: testCase,
     steps,
+    viewLocationImages,
     dataSets: Array.from(dataSetsMap.values())
   };
 };
@@ -708,6 +742,180 @@ export const deleteCaseFolder = (id: string) => {
     database.prepare("DELETE FROM case_folders WHERE id = ?").run(folderId);
   };
   deleteFolder(id);
+};
+
+const copyAttachmentFile = (
+  folderPath: string,
+  sourceStoredPath: string,
+  destinationId: string,
+  fileName: string
+) => {
+  const sourcePath = resolveAttachmentPath(folderPath, sourceStoredPath);
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    return null;
+  }
+  const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const nextStoredPath = path.join(ATTACHMENTS_DIR, `${destinationId}_${safeName}`);
+  fs.copyFileSync(sourcePath, path.join(folderPath, nextStoredPath));
+  return nextStoredPath;
+};
+
+const cloneCaseViewImagesWithDb = (
+  database: Database.Database,
+  folderPath: string,
+  sourceCaseId: string,
+  targetCaseId: string
+) => {
+  const rows = database
+    .prepare(
+      "SELECT file_name, stored_path, original_stored_path, mime_type, size, sort_order, created_at FROM case_view_images WHERE case_id = ? ORDER BY sort_order ASC, created_at ASC"
+    )
+    .all(sourceCaseId) as Array<{
+    file_name: string;
+    stored_path: string;
+    original_stored_path?: string | null;
+    mime_type?: string;
+    size?: number | null;
+    sort_order?: number | null;
+    created_at: string;
+  }>;
+  const insert = database.prepare(
+    "INSERT INTO case_view_images (id, case_id, file_name, stored_path, original_stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  rows.forEach((row, index) => {
+    const id = randomUUID();
+    const storedPath = copyAttachmentFile(folderPath, row.stored_path, id, row.file_name);
+    if (!storedPath) {
+      return;
+    }
+    const originalStoredPath = row.original_stored_path
+      ? copyAttachmentFile(folderPath, row.original_stored_path, `${id}_original`, row.file_name)
+      : null;
+    insert.run(
+      id,
+      targetCaseId,
+      row.file_name,
+      storedPath,
+      originalStoredPath,
+      row.mime_type ?? inferMimeTypeFromName(row.file_name),
+      row.size ?? null,
+      row.sort_order ?? index + 1,
+      now()
+    );
+  });
+};
+
+export const duplicateCaseFolderTree = (sourceFolderId: string, targetParentId: string | null) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const sourceFolder = database
+    .prepare("SELECT * FROM case_folders WHERE id = ?")
+    .get(sourceFolderId) as CaseFolder | undefined;
+  if (!sourceFolder) {
+    throw new Error("コピー元フォルダが見つかりません。");
+  }
+
+  const folderMap = new Map<string, string>();
+  const listChildren = database.prepare("SELECT * FROM case_folders WHERE parent_id = ? ORDER BY updated_at DESC, id ASC");
+  const insertFolder = database.prepare(
+    "INSERT INTO case_folders (id, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
+  );
+  const insertCase = database.prepare(
+    "INSERT INTO test_cases (id, title, objective, preconditions, view_location, priority, severity, tags, folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const insertStep = database.prepare(
+    "INSERT INTO test_steps (id, case_id, position, action, expected) VALUES (?, ?, ?, ?, ?)"
+  );
+  const insertCaseFolder = database.prepare(
+    "INSERT OR IGNORE INTO test_case_folders (case_id, folder_id) VALUES (?, ?)"
+  );
+  const insertCaseLink = database.prepare(
+    "INSERT OR IGNORE INTO data_links (data_set_id, entity_type, entity_id) VALUES (?, ?, ?)"
+  );
+  const transaction = database.transaction(() => {
+    const cloneFolder = (
+      folderId: string,
+      parentId: string | null,
+      rootSourceId: string
+    ) => {
+      const folder = database
+        .prepare("SELECT * FROM case_folders WHERE id = ?")
+        .get(folderId) as CaseFolder | undefined;
+      if (!folder) {
+        return;
+      }
+      const nextId = randomUUID();
+      folderMap.set(folder.id, nextId);
+      const timestamp = now();
+      insertFolder.run(
+        nextId,
+        folder.id === rootSourceId ? `${folder.name} のコピー` : folder.name,
+        parentId,
+        timestamp,
+        timestamp
+      );
+      const children = listChildren.all(folder.id) as CaseFolder[];
+      children.forEach((child) => cloneFolder(child.id, nextId, rootSourceId));
+    };
+
+    cloneFolder(sourceFolderId, targetParentId, sourceFolderId);
+
+    const sourceFolderIds = Array.from(folderMap.keys());
+    const caseIds = (
+      database
+        .prepare(
+          `SELECT DISTINCT case_id
+           FROM test_case_folders
+           WHERE folder_id IN (${sourceFolderIds.map(() => "?").join(",")})`
+        )
+        .all(...sourceFolderIds) as Array<{ case_id: string }>
+    ).map((row) => row.case_id);
+
+    caseIds.forEach((caseId) => {
+      const sourceCase = database.prepare("SELECT * FROM test_cases WHERE id = ?").get(caseId) as Record<string, any> | undefined;
+      if (!sourceCase) {
+        return;
+      }
+      const sourceFolderMemberships = getCaseFolderIdsWithDb(database, caseId);
+      const clonedFolderIds = sourceFolderMemberships
+        .filter((folderId) => folderMap.has(folderId))
+        .map((folderId) => folderMap.get(folderId) as string);
+      if (!clonedFolderIds.length) {
+        return;
+      }
+      const nextCaseId = randomUUID();
+      const timestamp = now();
+      insertCase.run(
+        nextCaseId,
+        sourceCase.title,
+        sourceCase.objective ?? "",
+        sourceCase.preconditions ?? "",
+        sourceCase.view_location ?? "",
+        sourceCase.priority ?? "",
+        sourceCase.severity ?? "",
+        sourceCase.tags ?? "",
+        clonedFolderIds[0] ?? null,
+        timestamp,
+        timestamp
+      );
+
+      const steps = database
+        .prepare("SELECT position, action, expected FROM test_steps WHERE case_id = ? ORDER BY position ASC")
+        .all(caseId) as Array<{ position: number; action: string; expected: string }>;
+      steps.forEach((step, index) => {
+        insertStep.run(randomUUID(), nextCaseId, step.position ?? index + 1, step.action, step.expected);
+      });
+
+      const links = database
+        .prepare("SELECT data_set_id FROM data_links WHERE entity_type = ? AND entity_id = ?")
+        .all("case", caseId) as Array<{ data_set_id: string }>;
+      links.forEach((link) => insertCaseLink.run(link.data_set_id, "case", nextCaseId));
+      clonedFolderIds.forEach((folderId) => insertCaseFolder.run(nextCaseId, folderId));
+      cloneCaseViewImagesWithDb(database, folderPath, caseId, nextCaseId);
+    });
+  });
+
+  transaction();
+  return folderMap.get(sourceFolderId) ?? null;
 };
 
 export const listScenarios = () => {
@@ -1300,8 +1508,8 @@ export const listScenarioEvidence = (runScenarioId: string) => {
 
 const getNextEvidenceSortOrder = (
   database: Database.Database,
-  table: "scenario_evidence" | "run_case_evidence",
-  parentColumn: "run_scenario_id" | "run_scenario_case_id",
+  table: EvidenceTable,
+  parentColumn: EvidenceParentColumn,
   parentId: string
 ) => {
   const row = database
@@ -1311,8 +1519,8 @@ const getNextEvidenceSortOrder = (
 };
 
 const reorderEvidenceRows = (
-  table: "scenario_evidence" | "run_case_evidence",
-  parentColumn: "run_scenario_id" | "run_scenario_case_id",
+  table: EvidenceTable,
+  parentColumn: EvidenceParentColumn,
   parentId: string,
   orderedIds: string[]
 ) => {
@@ -1338,7 +1546,7 @@ const reorderEvidenceRows = (
 };
 
 const ensureEvidenceOriginalBackup = (
-  table: "scenario_evidence" | "run_case_evidence",
+  table: EvidenceTable,
   id: string
 ) => {
   const { db: database, projectPath: folderPath } = ensureDb();
@@ -1510,6 +1718,116 @@ export const listRunScenarioCaseEvidence = (runScenarioCaseId: string) => {
     .all(runScenarioCaseId) as RunCaseEvidenceRow[];
 };
 
+export type CaseViewImageRow = {
+  id: string;
+  case_id: string;
+  file_name: string;
+  mime_type?: string;
+  size?: number;
+  created_at: string;
+};
+
+export const listCaseViewImages = (caseId: string) => {
+  const { db: database } = ensureDb();
+  return database
+    .prepare("SELECT * FROM case_view_images WHERE case_id = ? ORDER BY sort_order ASC, created_at ASC")
+    .all(caseId) as CaseViewImageRow[];
+};
+
+export const addCaseViewImage = (payload: EvidenceInput & { caseId: string }) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const id = randomUUID();
+  const sortOrder = getNextEvidenceSortOrder(database, "case_view_images", "case_id", payload.caseId);
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (!fs.existsSync(attachmentsPath)) {
+    fs.mkdirSync(attachmentsPath, { recursive: true });
+  }
+  const safeName = payload.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const storedName = `${id}_${safeName}`;
+  const storedPath = path.join(ATTACHMENTS_DIR, storedName);
+  fs.copyFileSync(payload.sourcePath, path.join(folderPath, storedPath));
+
+  database
+    .prepare(
+      "INSERT INTO case_view_images (id, case_id, file_name, stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .run(id, payload.caseId, payload.fileName, storedPath, payload.mimeType, payload.size, sortOrder, now());
+
+  return id;
+};
+
+export const addCaseViewImageBuffer = (payload: {
+  caseId: string;
+  fileName: string;
+  buffer: Buffer;
+  mimeType: string;
+}) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const id = randomUUID();
+  const sortOrder = getNextEvidenceSortOrder(database, "case_view_images", "case_id", payload.caseId);
+  const attachmentsPath = path.join(folderPath, ATTACHMENTS_DIR);
+  if (!fs.existsSync(attachmentsPath)) {
+    fs.mkdirSync(attachmentsPath, { recursive: true });
+  }
+  const safeName = payload.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const storedName = `${id}_${safeName}`;
+  const storedPath = path.join(ATTACHMENTS_DIR, storedName);
+  fs.writeFileSync(path.join(folderPath, storedPath), payload.buffer);
+
+  database
+    .prepare(
+      "INSERT INTO case_view_images (id, case_id, file_name, stored_path, mime_type, size, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .run(id, payload.caseId, payload.fileName, storedPath, payload.mimeType, payload.buffer.length, sortOrder, now());
+
+  return id;
+};
+
+export const removeCaseViewImage = (id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare("SELECT stored_path, original_stored_path FROM case_view_images WHERE id = ?")
+    .get(id) as { stored_path: string; original_stored_path?: string | null } | undefined;
+  if (row?.stored_path) {
+    const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+  if (row?.original_stored_path) {
+    const originalPath = resolveAttachmentPath(folderPath, row.original_stored_path);
+    if (originalPath && fs.existsSync(originalPath)) {
+      fs.unlinkSync(originalPath);
+    }
+  }
+  database.prepare("DELETE FROM case_view_images WHERE id = ?").run(id);
+  normalizeEvidenceSortOrder(database, "case_view_images", "case_id");
+};
+
+export const previewCaseViewImage = (id: string) => {
+  const { db: database, projectPath: folderPath } = ensureDb();
+  const row = database
+    .prepare("SELECT stored_path, mime_type FROM case_view_images WHERE id = ?")
+    .get(id) as { stored_path: string; mime_type?: string } | undefined;
+  if (!row?.stored_path) {
+    return null;
+  }
+  const mimeType = row.mime_type || inferMimeTypeFromName(row.stored_path) || "application/octet-stream";
+  if (!mimeType.startsWith("image/")) {
+    return { mimeType, base64: "" };
+  }
+  const filePath = resolveAttachmentPath(folderPath, row.stored_path);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return null;
+  }
+  const stats = fs.statSync(filePath);
+  if (stats.size > MAX_PREVIEW_BYTES) {
+    return { mimeType, base64: "", tooLarge: true, size: stats.size };
+  }
+  const buffer = fs.readFileSync(filePath);
+  return { mimeType, base64: buffer.toString("base64") };
+};
+
 export const addRunScenarioCaseEvidence = (payload: EvidenceInput & { runScenarioCaseId: string }) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const id = randomUUID();
@@ -1626,7 +1944,7 @@ export const previewRunScenarioCaseEvidence = (id: string) => {
 };
 
 const updateEvidenceBinary = (
-  table: "scenario_evidence" | "run_case_evidence",
+  table: EvidenceTable,
   id: string,
   payload: { buffer: Buffer; mimeType: string }
 ) => {
@@ -1660,7 +1978,12 @@ export const updateRunScenarioCaseEvidenceImage = (
   payload: { buffer: Buffer; mimeType: string }
 ) => updateEvidenceBinary("run_case_evidence", id, payload);
 
-const restoreOriginalEvidenceBinary = (table: "scenario_evidence" | "run_case_evidence", id: string) => {
+export const updateCaseViewImage = (
+  id: string,
+  payload: { buffer: Buffer; mimeType: string }
+) => updateEvidenceBinary("case_view_images", id, payload);
+
+const restoreOriginalEvidenceBinary = (table: EvidenceTable, id: string) => {
   const { db: database, projectPath: folderPath } = ensureDb();
   const row = database
     .prepare(`SELECT stored_path, original_stored_path, mime_type FROM ${table} WHERE id = ?`)
@@ -1688,12 +2011,19 @@ export const restoreScenarioEvidenceOriginal = (id: string) =>
 export const restoreRunScenarioCaseEvidenceOriginal = (id: string) =>
   restoreOriginalEvidenceBinary("run_case_evidence", id);
 
+export const restoreCaseViewImageOriginal = (id: string) =>
+  restoreOriginalEvidenceBinary("case_view_images", id);
+
 export const reorderScenarioEvidence = (runScenarioId: string, orderedIds: string[]) => {
   reorderEvidenceRows("scenario_evidence", "run_scenario_id", runScenarioId, orderedIds);
 };
 
 export const reorderRunScenarioCaseEvidence = (runScenarioCaseId: string, orderedIds: string[]) => {
   reorderEvidenceRows("run_case_evidence", "run_scenario_case_id", runScenarioCaseId, orderedIds);
+};
+
+export const reorderCaseViewImages = (caseId: string, orderedIds: string[]) => {
+  reorderEvidenceRows("case_view_images", "case_id", caseId, orderedIds);
 };
 
 export type StoredEvidenceAsset = {
