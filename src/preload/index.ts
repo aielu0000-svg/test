@@ -12,6 +12,14 @@ const api = {
   dashboard: {
     stats: () => ipcRenderer.invoke("dashboard:stats")
   },
+  procedures: {
+    list: () => ipcRenderer.invoke("procedures:list"),
+    get: (id: string) => ipcRenderer.invoke("procedures:get", id),
+    import: () => ipcRenderer.invoke("procedures:import"),
+    reload: (documentId: string) => ipcRenderer.invoke("procedures:reload", documentId),
+    updateSchedule: (payload: unknown) => ipcRenderer.invoke("procedures:updateSchedule", payload),
+    updateExecution: (payload: unknown) => ipcRenderer.invoke("procedures:updateExecution", payload)
+  },
   testCases: {
     list: () => ipcRenderer.invoke("testCases:list"),
     get: (id: string) => ipcRenderer.invoke("testCases:get", id),

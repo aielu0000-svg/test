@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./lib/utils";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 
@@ -237,7 +237,65 @@ type RunDraft = {
   notes: string;
 };
 
-type SectionKey = "dashboard" | "cases" | "scenarios" | "data" | "runs" | "export" | "settings";
+type ProcedureDocument = {
+  id: string;
+  title: string;
+  source_path: string;
+  source_name: string;
+  source_hash: string;
+  last_imported_at: string;
+  created_at: string;
+  updated_at: string;
+  step_count?: number;
+};
+
+type ProcedureGroup = {
+  id: string;
+  document_id: string;
+  level: number;
+  title: string;
+  path_key: string;
+  position: number;
+};
+
+type ProcedureStep = {
+  id: string;
+  document_id: string;
+  group_level_1_title?: string | null;
+  group_level_2_title?: string | null;
+  heading: string;
+  path_key: string;
+  step_no: number;
+  position: number;
+  status: "not_started" | "in_progress" | "done" | string;
+  planned_start_at?: string | null;
+  planned_end_at?: string | null;
+  planned_duration_minutes?: number | null;
+  plan_anchor_type?: string | null;
+  plan_anchor_at?: string | null;
+  actual_start_at?: string | null;
+  actual_end_at?: string | null;
+  actual_duration_minutes?: number | null;
+};
+
+type ProcedureStepBlock = {
+  id: string;
+  step_id: string;
+  block_type: "paragraph" | "code" | "heading" | "list" | "hr" | string;
+  block_order: number;
+  heading_level?: number | null;
+  language?: string | null;
+  content: string;
+};
+
+type ProcedureDocumentDetail = {
+  document: ProcedureDocument;
+  groups: ProcedureGroup[];
+  steps: ProcedureStep[];
+  blocks: ProcedureStepBlock[];
+};
+
+type SectionKey = "dashboard" | "cases" | "scenarios" | "procedures" | "data" | "runs" | "export" | "settings";
 type DashboardStats = {
   totalTestCases: number;
   totalScenarios: number;
@@ -377,6 +435,7 @@ const navGroups: Array<{
   {
     title: "実行",
     items: [
+      { key: "procedures", label: "手順書" },
       { key: "runs", label: "テスト実行" },
       { key: "data", label: "データセット" }
     ]
@@ -403,6 +462,10 @@ const sectionMeta: Record<SectionKey, { title: string; subtitle: string }> = {
   scenarios: {
     title: "シナリオ",
     subtitle: "シナリオを組み立てて、実行単位にまとめます。"
+  },
+  procedures: {
+    title: "手順書",
+    subtitle: "Markdown 手順書を取り込み、予定と実施を同じ画面で管理します。"
   },
   runs: {
     title: "テスト実行",
@@ -668,6 +731,16 @@ const NavIcon = ({ name, className }: { name: SectionKey; className?: string }) 
           <path d="M7 17h10" />
           <path d="M5 5l-2 2 2 2" />
           <path d="M19 15l2 2-2 2" />
+        </svg>
+      );
+    case "procedures":
+      return (
+        <svg {...shared}>
+          <path d="M6 3.5h8l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 20V5a1.5 1.5 0 0 1 1.5-1.5z" />
+          <path d="M14 3.5V8h4" />
+          <path d="M8 11h8" />
+          <path d="M8 15h8" />
+          <path d="M8 19h5" />
         </svg>
       );
     case "runs":
@@ -1287,6 +1360,7 @@ export default function App() {
   const [dashboardStatsError, setDashboardStatsError] = useState<string | null>(null);
   const [caseMode, setCaseMode] = useState<"list" | "detail">("list");
   const [scenarioMode, setScenarioMode] = useState<"list" | "detail">("list");
+  const [procedureMode, setProcedureMode] = useState<"planned" | "actual">("planned");
   const [runMode, setRunMode] = useState<"list" | "detail" | "execute">("list");
 
   const [testCases, setTestCases] = useState<TestCase[]>([]);
@@ -1335,6 +1409,13 @@ export default function App() {
   const [selectedDataSetId, setSelectedDataSetId] = useState<string | null>(null);
   const [dataDraft, setDataDraft] = useState<DataDraft>(emptyDataSet());
   const [dataError, setDataError] = useState<string | null>(null);
+
+  const [procedureDocuments, setProcedureDocuments] = useState<ProcedureDocument[]>([]);
+  const [selectedProcedureDocumentId, setSelectedProcedureDocumentId] = useState<string | null>(null);
+  const [procedureDetail, setProcedureDetail] = useState<ProcedureDocumentDetail | null>(null);
+  const [procedureModalStepId, setProcedureModalStepId] = useState<string | null>(null);
+  const [procedureError, setProcedureError] = useState<string | null>(null);
+  const [procedureLoading, setProcedureLoading] = useState(false);
 
   const [runs, setRuns] = useState<TestRun[]>([]);
   const runsStamp = useMemo(() => runs[0]?.updated_at ?? "", [runs]);
@@ -1708,6 +1789,13 @@ export default function App() {
   }, [project]);
 
   useEffect(() => {
+    if (!project) {
+      return;
+    }
+    void loadProcedureDetail(selectedProcedureDocumentId);
+  }, [project, selectedProcedureDocumentId]);
+
+  useEffect(() => {
     if (!project || section !== "dashboard") {
       return;
     }
@@ -1743,6 +1831,7 @@ export default function App() {
       loadCases(),
       loadCaseFolders(),
       loadScenarios(),
+      loadProcedureDocuments(),
       loadDataSets(),
       loadRuns()
     ]);
@@ -1779,9 +1868,86 @@ export default function App() {
     setDataSets(list);
   };
 
+  const loadProcedureDocuments = async (options?: { nextSelectedId?: string | null }) => {
+    const list = (await window.api.procedures.list()) as ProcedureDocument[];
+    setProcedureDocuments(list);
+    const nextSelectedId = options?.nextSelectedId ?? selectedProcedureDocumentId;
+    if (nextSelectedId && list.some((item) => item.id === nextSelectedId)) {
+      setSelectedProcedureDocumentId(nextSelectedId);
+      return;
+    }
+    setSelectedProcedureDocumentId(list[0]?.id ?? null);
+  };
+
   const loadRuns = async () => {
     const list = (await window.api.runs.list()) as TestRun[];
     setRuns(list);
+  };
+
+  const loadProcedureDetail = async (documentId: string | null) => {
+    if (!documentId) {
+      setProcedureDetail(null);
+      return;
+    }
+    const detail = (await window.api.procedures.get(documentId)) as ProcedureDocumentDetail | null;
+    setProcedureDetail(detail);
+  };
+
+  const handleImportProcedure = async () => {
+    setProcedureError(null);
+    setProcedureLoading(true);
+    try {
+      const detail = (await window.api.procedures.import()) as ProcedureDocumentDetail | null;
+      if (!detail) {
+        return;
+      }
+      await loadProcedureDocuments({ nextSelectedId: detail.document.id });
+      setProcedureDetail(detail);
+      setSection("procedures");
+    } catch (err) {
+      setProcedureError(err instanceof Error ? err.message : "Markdown 手順書の取込に失敗しました。");
+    } finally {
+      setProcedureLoading(false);
+    }
+  };
+
+  const handleReloadProcedure = async () => {
+    if (!selectedProcedureDocumentId) {
+      return;
+    }
+    setProcedureError(null);
+    setProcedureLoading(true);
+    try {
+      const detail = (await window.api.procedures.reload(selectedProcedureDocumentId)) as ProcedureDocumentDetail;
+      await loadProcedureDocuments({ nextSelectedId: detail.document.id });
+      setProcedureDetail(detail);
+    } catch (err) {
+      setProcedureError(err instanceof Error ? err.message : "Markdown 手順書の再読込に失敗しました。");
+    } finally {
+      setProcedureLoading(false);
+    }
+  };
+
+  const handleProcedureScheduleChange = async (
+    stepId: string,
+    next: {
+      plannedStartAt?: string | null;
+      plannedEndAt?: string | null;
+      plannedDurationMinutes?: number | null;
+      planAnchorType?: string | null;
+      planAnchorAt?: string | null;
+    }
+  ) => {
+    await window.api.procedures.updateSchedule({ stepId, ...next });
+    await loadProcedureDetail(selectedProcedureDocumentId);
+  };
+
+  const handleProcedureExecutionChange = async (
+    stepId: string,
+    next: { actualStartAt?: string | null; actualEndAt?: string | null }
+  ) => {
+    await window.api.procedures.updateExecution({ stepId, ...next });
+    await loadProcedureDetail(selectedProcedureDocumentId);
   };
 
   const loadRunCaseEvidenceForIds = async (
@@ -4189,6 +4355,9 @@ export default function App() {
     if (next === "scenarios") {
       setScenarioMode("list");
     }
+    if (next === "procedures") {
+      setProcedureModalStepId(null);
+    }
     if (next === "runs") {
       setRunMode("list");
       setSelectedRunScenarioId(null);
@@ -4243,6 +4412,95 @@ export default function App() {
       return theme === "light" ? "text-success-foreground-light" : "text-success-foreground-dark";
     }
     return mutedForegroundClass;
+  };
+
+  const formatProcedureDate = (value?: string | null) => {
+    if (!value) {
+      return "—";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) {
+      return value;
+    }
+    return date.toLocaleString("ja-JP", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  };
+
+  const formatProcedureDuration = (minutes?: number | null) => {
+    if (minutes == null || Number.isNaN(minutes)) {
+      return "";
+    }
+    const safe = Math.max(0, Math.round(minutes));
+    const hours = Math.floor(safe / 60);
+    const mins = safe % 60;
+    return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+  };
+
+  const parseProcedureDuration = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const match = trimmed.match(/^(\d{1,3}):(\d{2})$/);
+    if (!match) {
+      return null;
+    }
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || minutes >= 60) {
+      return null;
+    }
+    return hours * 60 + minutes;
+  };
+
+  const procedureSummary = useMemo(() => {
+    const steps = procedureDetail?.steps ?? [];
+    const totalPlanned = steps.reduce((sum, step) => sum + Number(step.planned_duration_minutes ?? 0), 0);
+    const doneCount = steps.filter((step) => step.status === "done").length;
+    return { totalPlanned, doneCount, totalCount: steps.length };
+  }, [procedureDetail]);
+
+  const selectedProcedureStep = useMemo(
+    () => procedureDetail?.steps.find((step) => step.id === procedureModalStepId) ?? null,
+    [procedureDetail, procedureModalStepId]
+  );
+
+  const selectedProcedureBlocks = useMemo(
+    () =>
+      procedureDetail?.blocks
+        .filter((block) => block.step_id === procedureModalStepId)
+        .sort((a, b) => a.block_order - b.block_order) ?? [],
+    [procedureDetail, procedureModalStepId]
+  );
+
+  const getProcedureStatusLabel = (status: string) => {
+    if (status === "done") {
+      return "完了";
+    }
+    if (status === "in_progress") {
+      return "実施中";
+    }
+    return "未実施";
+  };
+
+  const getProcedureStatusClass = (status: string) => {
+    if (status === "done") {
+      return theme === "light"
+        ? "border-rose-200 bg-rose-50 text-rose-700"
+        : "border-rose-900/60 bg-rose-950/40 text-rose-200";
+    }
+    if (status === "in_progress") {
+      return theme === "light"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-amber-900/60 bg-amber-950/40 text-amber-200";
+    }
+    return theme === "light"
+      ? "border-slate-200 bg-slate-100 text-slate-600"
+      : "border-slate-800 bg-slate-900/80 text-slate-300";
   };
 
   return (
@@ -4669,6 +4927,437 @@ export default function App() {
 	                </section>
 	              </div>
 	            )}
+
+          {section === "procedures" && (
+            <div className="grid gap-6">
+              {procedureError && (
+                <div
+                  className={cn(
+                    "rounded-none border px-4 py-3 text-sm",
+                    theme === "light"
+                      ? "border-error-light bg-error-light text-error-foreground-light"
+                      : "border-error-dark bg-error-dark text-error-foreground-dark"
+                  )}
+                >
+                  {procedureError}
+                </div>
+              )}
+
+              <div className={cn(panelClass, "overflow-hidden p-0")}>
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b px-5 py-5">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-semibold">Markdown 手順書</h2>
+                    <p className={cn("mt-1 text-sm", mutedForegroundClass)}>
+                      取込済みの手順書を一覧し、予定と実施を切り替えて記録します。
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div
+                      className={cn(
+                        "inline-flex rounded-pill border p-1",
+                        theme === "light" ? "border-border-light bg-background-light" : "border-border-dark bg-background-dark"
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded-pill px-4 py-2 text-sm font-semibold",
+                          procedureMode === "planned"
+                            ? "bg-primary text-primary-foreground"
+                            : mutedForegroundClass
+                        )}
+                        onClick={() => setProcedureMode("planned")}
+                      >
+                        予定日時
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded-pill px-4 py-2 text-sm font-semibold",
+                          procedureMode === "actual"
+                            ? "bg-primary text-primary-foreground"
+                            : mutedForegroundClass
+                        )}
+                        onClick={() => setProcedureMode("actual")}
+                      >
+                        実施日時
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className={outlineButtonClass}
+                      disabled={procedureLoading || !selectedProcedureDocumentId}
+                      onClick={() => void handleReloadProcedure()}
+                    >
+                      再読み込み
+                    </button>
+                    <button
+                      type="button"
+                      className={primaryButtonClass}
+                      disabled={procedureLoading}
+                      onClick={() => void handleImportProcedure()}
+                    >
+                      Markdown 取込
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid gap-0 xl:grid-cols-[300px_minmax(0,1fr)]">
+                  <aside
+                    className={cn(
+                      "border-r",
+                      theme === "light" ? "border-border-light bg-muted-light/40" : "border-border-dark bg-muted-dark/30"
+                    )}
+                  >
+                    <div className="border-b px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Documents</p>
+                    </div>
+                    <div className="grid gap-2 p-3">
+                      {procedureDocuments.length === 0 ? (
+                        <div className={cn("rounded-none border px-4 py-4 text-sm", borderClass)}>
+                          まだ手順書がありません。`Markdown 取込` から追加してください。
+                        </div>
+                      ) : (
+                        procedureDocuments.map((item) => {
+                          const active = item.id === selectedProcedureDocumentId;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={cn(
+                                "w-full rounded-none border px-4 py-4 text-left transition",
+                                active
+                                  ? theme === "light"
+                                    ? "border-primary bg-rose-50 text-foreground-light"
+                                    : "border-primary bg-rose-950/20 text-foreground-dark"
+                                  : theme === "light"
+                                    ? "border-border-light bg-card-light hover:bg-muted-light"
+                                    : "border-border-dark bg-card-dark hover:bg-muted-dark"
+                              )}
+                              onClick={() => setSelectedProcedureDocumentId(item.id)}
+                            >
+                              <p className="truncate text-sm font-semibold">{item.title}</p>
+                              <p className={cn("mt-1 truncate text-xs", mutedForegroundClass)}>{item.source_name}</p>
+                              <div className="mt-3 flex items-center justify-between text-xs">
+                                <span className={mutedForegroundClass}>{item.step_count ?? 0} steps</span>
+                                <span className={mutedForegroundClass}>{formatDashboardDate(item.updated_at)}</span>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </aside>
+
+                  <section className="min-w-0 p-5">
+                    {!procedureDetail ? (
+                      <div className={cn("rounded-none border px-5 py-6 text-sm", borderClass)}>
+                        表示する手順書を選択してください。
+                      </div>
+                    ) : (
+                      <div className="grid gap-5">
+                        <div className="grid gap-4 lg:grid-cols-4">
+                          <div className={cn("rounded-none border p-4", borderClass)}>
+                            <p className={cn("text-xs uppercase", mutedForegroundClass)}>表示モード</p>
+                            <p className="mt-2 text-lg font-semibold">
+                              {procedureMode === "planned" ? "予定日時" : "実施日時"}
+                            </p>
+                          </div>
+                          <div className={cn("rounded-none border p-4", borderClass)}>
+                            <p className={cn("text-xs uppercase", mutedForegroundClass)}>総予定時間</p>
+                            <p className="mt-2 text-lg font-semibold">
+                              {formatProcedureDuration(procedureSummary.totalPlanned) || "—"}
+                            </p>
+                          </div>
+                          <div className={cn("rounded-none border p-4", borderClass)}>
+                            <p className={cn("text-xs uppercase", mutedForegroundClass)}>完了</p>
+                            <p className="mt-2 text-lg font-semibold">
+                              {procedureSummary.doneCount} / {procedureSummary.totalCount}
+                            </p>
+                          </div>
+                          <div className={cn("rounded-none border p-4", borderClass)}>
+                            <p className={cn("text-xs uppercase", mutedForegroundClass)}>Markdown</p>
+                            <p className="mt-2 truncate text-lg font-semibold">{procedureDetail.document.source_name}</p>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full border text-sm">
+                            <thead
+                              className={cn(
+                                theme === "light" ? "bg-slate-100 text-slate-600" : "bg-slate-950/80 text-slate-300"
+                              )}
+                            >
+                              <tr>
+                                <th className="border px-3 py-3 text-left font-semibold">No</th>
+                                <th className="border px-3 py-3 text-left font-semibold">手順</th>
+                                <th className="border px-3 py-3 text-left font-semibold">
+                                  {procedureMode === "planned" ? "予定開始" : "実施開始"}
+                                </th>
+                                <th className="border px-3 py-3 text-left font-semibold">
+                                  {procedureMode === "planned" ? "予定終了" : "実施終了"}
+                                </th>
+                                <th className="border px-3 py-3 text-left font-semibold">
+                                  {procedureMode === "planned" ? "予定所要" : "実績所要"}
+                                </th>
+                                <th className="border px-3 py-3 text-left font-semibold">状態</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {procedureDetail.steps.map((step, index) => {
+                                const currentGroup = step.group_level_2_title || step.group_level_1_title || "";
+                                const previousGroup =
+                                  index > 0
+                                    ? procedureDetail.steps[index - 1].group_level_2_title ||
+                                      procedureDetail.steps[index - 1].group_level_1_title ||
+                                      ""
+                                    : "";
+                                return (
+                                  <Fragment key={step.id}>
+                                    {currentGroup && currentGroup !== previousGroup && (
+                                      <tr
+                                        className={cn(
+                                          theme === "light" ? "bg-slate-50 text-slate-500" : "bg-slate-950/40 text-slate-400"
+                                        )}
+                                      >
+                                        <td className="border px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em]" colSpan={6}>
+                                          {currentGroup}
+                                        </td>
+                                      </tr>
+                                    )}
+                                    <tr className={cn(theme === "light" ? "hover:bg-slate-50" : "hover:bg-slate-950/30")}>
+                                      <td className="border px-3 py-3 align-top text-xs font-semibold text-primary">
+                                        {step.step_no}
+                                      </td>
+                                      <td className="border px-3 py-3 align-top">
+                                        <button
+                                          type="button"
+                                          className="text-left font-semibold hover:underline"
+                                          onClick={() => setProcedureModalStepId(step.id)}
+                                        >
+                                          {step.heading}
+                                        </button>
+                                      </td>
+                                      <td className="border px-3 py-3 align-top">
+                                        <input
+                                          type="datetime-local"
+                                          className={inputClass}
+                                          defaultValue={toLocalInput(
+                                            procedureMode === "planned" ? step.planned_start_at ?? "" : step.actual_start_at ?? ""
+                                          )}
+                                          onBlur={(event) => {
+                                            const iso = toIsoString(event.target.value);
+                                            if (procedureMode === "planned") {
+                                              void handleProcedureScheduleChange(step.id, {
+                                                plannedStartAt: iso || null,
+                                                plannedEndAt: step.planned_end_at ?? null,
+                                                plannedDurationMinutes: step.planned_duration_minutes ?? null,
+                                                planAnchorType: "manual",
+                                                planAnchorAt: iso || null
+                                              });
+                                              return;
+                                            }
+                                            void handleProcedureExecutionChange(step.id, {
+                                              actualStartAt: iso || null,
+                                              actualEndAt: step.actual_end_at ?? null
+                                            });
+                                          }}
+                                        />
+                                      </td>
+                                      <td className="border px-3 py-3 align-top">
+                                        <input
+                                          type="datetime-local"
+                                          className={inputClass}
+                                          defaultValue={toLocalInput(
+                                            procedureMode === "planned" ? step.planned_end_at ?? "" : step.actual_end_at ?? ""
+                                          )}
+                                          onBlur={(event) => {
+                                            const iso = toIsoString(event.target.value);
+                                            if (procedureMode === "planned") {
+                                              void handleProcedureScheduleChange(step.id, {
+                                                plannedStartAt: step.planned_start_at ?? null,
+                                                plannedEndAt: iso || null,
+                                                plannedDurationMinutes: step.planned_duration_minutes ?? null,
+                                                planAnchorType: step.plan_anchor_type ?? "auto",
+                                                planAnchorAt: step.plan_anchor_at ?? null
+                                              });
+                                              return;
+                                            }
+                                            void handleProcedureExecutionChange(step.id, {
+                                              actualStartAt: step.actual_start_at ?? null,
+                                              actualEndAt: iso || null
+                                            });
+                                          }}
+                                        />
+                                      </td>
+                                      <td className="border px-3 py-3 align-top">
+                                        {procedureMode === "planned" ? (
+                                          <input
+                                            type="text"
+                                            className={inputClass}
+                                            defaultValue={formatProcedureDuration(step.planned_duration_minutes)}
+                                            placeholder="00:10"
+                                            onBlur={(event) => {
+                                              void handleProcedureScheduleChange(step.id, {
+                                                plannedStartAt: step.planned_start_at ?? null,
+                                                plannedEndAt: step.planned_end_at ?? null,
+                                                plannedDurationMinutes: parseProcedureDuration(event.target.value),
+                                                planAnchorType: step.plan_anchor_type ?? "auto",
+                                                planAnchorAt: step.plan_anchor_at ?? null
+                                              });
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="flex min-h-10 items-center font-semibold text-primary">
+                                            {formatProcedureDuration(step.actual_duration_minutes) || "—"}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="border px-3 py-3 align-top">
+                                        <span
+                                          className={cn(
+                                            "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                                            getProcedureStatusClass(step.status)
+                                          )}
+                                        >
+                                          {getProcedureStatusLabel(step.status)}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  </Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </div>
+
+              {selectedProcedureStep && (
+                <div
+                  className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 px-6 py-10"
+                  onClick={() => setProcedureModalStepId(null)}
+                >
+                  <div
+                    className={cn(
+                      "grid max-h-[88vh] w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border shadow-2xl",
+                      theme === "light"
+                        ? "border-border-light bg-card-light text-card-foreground-light"
+                        : "border-border-dark bg-card-dark text-card-foreground-dark"
+                    )}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className={cn("flex items-start justify-between gap-4 border-b px-6 py-5", borderClass)}>
+                      <div className="min-w-0">
+                        <h3 className="text-2xl font-semibold">{selectedProcedureStep.heading}</h3>
+                        <p className={cn("mt-1 text-sm", mutedForegroundClass)}>
+                          {[selectedProcedureStep.group_level_1_title, selectedProcedureStep.group_level_2_title]
+                            .filter(Boolean)
+                            .join(" / ") || "単独手順"}
+                        </p>
+                      </div>
+                      <button type="button" className={outlineButtonClass} onClick={() => setProcedureModalStepId(null)}>
+                        閉じる
+                      </button>
+                    </div>
+
+                    <div className="min-h-0 overflow-y-auto px-6 py-6">
+                      <div className="mx-auto max-w-3xl space-y-5">
+                        {selectedProcedureBlocks.map((block) => {
+                          if (block.block_type === "heading") {
+                            const HeadingTag = (`h${Math.min(6, Math.max(4, Number(block.heading_level ?? 4)))}` as keyof JSX.IntrinsicElements);
+                            return <HeadingTag key={block.id} className="border-t pt-5 text-xl font-semibold">{block.content}</HeadingTag>;
+                          }
+                          if (block.block_type === "code") {
+                            return (
+                              <div
+                                key={block.id}
+                                className={cn(
+                                  "overflow-hidden border",
+                                  theme === "light" ? "border-slate-300 bg-slate-950 text-slate-50" : "border-slate-700 bg-[#0f1214] text-slate-100"
+                                )}
+                              >
+                                <div className="flex items-center justify-between border-b border-inherit px-4 py-2 text-xs uppercase tracking-[0.18em]">
+                                  <span>{block.language || "text"}</span>
+                                  <button
+                                    type="button"
+                                    className="rounded-full border border-current px-3 py-1 text-[11px] font-semibold"
+                                    onClick={() => void navigator.clipboard.writeText(block.content)}
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                                <pre className="overflow-x-auto px-4 py-4 text-sm leading-7">
+                                  <code>{block.content}</code>
+                                </pre>
+                              </div>
+                            );
+                          }
+                          if (block.block_type === "list") {
+                            const lines = block.content.split("\n").filter(Boolean);
+                            const ordered = lines.every((line) => /^\d+\.\s+/.test(line));
+                            const Tag = ordered ? "ol" : "ul";
+                            return (
+                              <Tag key={block.id} className="space-y-2 pl-6 text-sm leading-7">
+                                {lines.map((line, lineIndex) => (
+                                  <li key={`${block.id}-${lineIndex}`}>
+                                    {line.replace(/^([-*]|\d+\.)\s+/, "")}
+                                  </li>
+                                ))}
+                              </Tag>
+                            );
+                          }
+                          if (block.block_type === "hr") {
+                            return <hr key={block.id} className={borderClass} />;
+                          }
+                          return (
+                            <p key={block.id} className="text-sm leading-7">
+                              {block.content}
+                            </p>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className={cn("flex flex-wrap items-center justify-between gap-3 border-t px-6 py-5", borderClass)}>
+                      <p className={cn("text-sm", mutedForegroundClass)}>
+                        一覧の入力はこのポップアップを閉じても保持されます。
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          className={outlineButtonClass}
+                          onClick={() =>
+                            void handleProcedureExecutionChange(selectedProcedureStep.id, {
+                              actualStartAt: toIsoString(nowLocalInput()),
+                              actualEndAt: selectedProcedureStep.actual_end_at ?? null
+                            })
+                          }
+                        >
+                          今開始
+                        </button>
+                        <button
+                          type="button"
+                          className={primaryButtonClass}
+                          onClick={() =>
+                            void handleProcedureExecutionChange(selectedProcedureStep.id, {
+                              actualStartAt: selectedProcedureStep.actual_start_at ?? toIsoString(nowLocalInput()),
+                              actualEndAt: toIsoString(nowLocalInput())
+                            })
+                          }
+                        >
+                          今終了
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {section === "cases" && (
 	              <div className="grid gap-6">

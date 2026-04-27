@@ -15,11 +15,13 @@ import {
   deleteCaseFolder,
   duplicateCaseFolderTree,
   deleteDataSet,
+  getProcedureDocument,
   deleteRun,
   deleteScenario,
   deleteTestCase,
   exportData,
   importData,
+  importProcedureDocument,
   createTemplateDataSets,
   getDataSet,
   getDashboardStats,
@@ -30,11 +32,13 @@ import {
   getScenarioEvidencePath,
   getTestCase,
   listCaseViewImages,
+  listProcedureDocuments,
   listRunScenarioCaseEvidence,
   listRunScenarioCases,
   previewCaseViewImage,
   previewScenarioEvidence,
   previewRunScenarioCaseEvidence,
+  reloadProcedureDocument,
   reorderCaseViewImages,
   reorderRunScenarioCaseEvidence,
   reorderScenarioEvidence,
@@ -64,6 +68,8 @@ import {
   saveRun,
   saveScenario,
   saveTestCase,
+  updateProcedureExecution,
+  updateProcedureSchedule,
   updateProjectName,
   updateRunScenario,
   updateRunScenarioCase
@@ -231,6 +237,23 @@ ipcMain.handle("project:backup", async () => {
 ipcMain.handle("project:reset", () => resetProject());
 
 ipcMain.handle("dashboard:stats", () => getDashboardStats());
+
+ipcMain.handle("procedures:list", () => listProcedureDocuments());
+ipcMain.handle("procedures:get", (_event, id: string) => getProcedureDocument(id));
+ipcMain.handle("procedures:import", async () => {
+  const result = await showOpenDialogForMainWindow({
+    title: "取り込む Markdown 手順書を選択",
+    properties: ["openFile"],
+    filters: [{ name: "Markdown", extensions: ["md", "markdown"] }]
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return importProcedureDocument(result.filePaths[0]);
+});
+ipcMain.handle("procedures:reload", (_event, documentId: string) => reloadProcedureDocument(documentId));
+ipcMain.handle("procedures:updateSchedule", (_event, payload) => updateProcedureSchedule(payload));
+ipcMain.handle("procedures:updateExecution", (_event, payload) => updateProcedureExecution(payload));
 
 ipcMain.handle("testCases:list", () => listTestCases());
 ipcMain.handle("testCases:get", (_event, id: string) => getTestCase(id));

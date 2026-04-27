@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { parseProcedureMarkdown } from "./procedureMarkdown";
 
 export type ProjectInfo = {
   name: string;
@@ -26,6 +27,68 @@ type CaseFolder = {
   id: string;
   name: string;
   parent_id?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProcedureDocumentRow = {
+  id: string;
+  title: string;
+  source_path: string;
+  source_name: string;
+  source_hash: string;
+  last_imported_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProcedureGroupRow = {
+  id: string;
+  document_id: string;
+  level: number;
+  title: string;
+  path_key: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProcedureStepRow = {
+  id: string;
+  document_id: string;
+  group_level_1_id?: string | null;
+  group_level_2_id?: string | null;
+  stable_key: string;
+  path_key: string;
+  heading: string;
+  step_no: number;
+  position: number;
+  body_text: string;
+  content_hash: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  group_level_1_title?: string | null;
+  group_level_2_title?: string | null;
+  planned_start_at?: string | null;
+  planned_end_at?: string | null;
+  planned_duration_minutes?: number | null;
+  plan_anchor_type?: string | null;
+  plan_anchor_at?: string | null;
+  actual_start_at?: string | null;
+  actual_end_at?: string | null;
+  actual_duration_minutes?: number | null;
+};
+
+export type ProcedureStepBlockRow = {
+  id: string;
+  step_id: string;
+  block_type: string;
+  block_order: number;
+  heading_level?: number | null;
+  language?: string | null;
+  content: string;
+  meta_json?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -321,6 +384,81 @@ const initSchema = (database: Database.Database) => {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS procedure_documents (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      source_path TEXT NOT NULL UNIQUE,
+      source_name TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      last_imported_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS procedure_groups (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES procedure_documents(id) ON DELETE CASCADE,
+      level INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      path_key TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS procedure_steps (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES procedure_documents(id) ON DELETE CASCADE,
+      group_level_1_id TEXT REFERENCES procedure_groups(id) ON DELETE SET NULL,
+      group_level_2_id TEXT REFERENCES procedure_groups(id) ON DELETE SET NULL,
+      stable_key TEXT NOT NULL,
+      path_key TEXT NOT NULL,
+      heading TEXT NOT NULL,
+      step_no INTEGER NOT NULL,
+      position INTEGER NOT NULL,
+      body_text TEXT NOT NULL DEFAULT '',
+      content_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'not_started',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS procedure_step_blocks (
+      id TEXT PRIMARY KEY,
+      step_id TEXT NOT NULL REFERENCES procedure_steps(id) ON DELETE CASCADE,
+      block_type TEXT NOT NULL,
+      block_order INTEGER NOT NULL,
+      heading_level INTEGER,
+      language TEXT,
+      content TEXT NOT NULL,
+      meta_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS procedure_schedule (
+      step_id TEXT PRIMARY KEY REFERENCES procedure_steps(id) ON DELETE CASCADE,
+      planned_start_at TEXT,
+      planned_end_at TEXT,
+      planned_duration_minutes INTEGER,
+      plan_anchor_type TEXT NOT NULL DEFAULT 'auto',
+      plan_anchor_at TEXT,
+      plan_anchor_note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS procedure_execution (
+      step_id TEXT PRIMARY KEY REFERENCES procedure_steps(id) ON DELETE CASCADE,
+      actual_start_at TEXT,
+      actual_end_at TEXT,
+      actual_duration_minutes INTEGER,
+      started_by TEXT,
+      finished_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_test_steps_case ON test_steps(case_id, position);
     CREATE INDEX IF NOT EXISTS idx_scenario_cases ON scenario_cases(scenario_id, position);
     CREATE INDEX IF NOT EXISTS idx_data_items ON data_items(data_set_id, sort_order);
@@ -335,6 +473,11 @@ const initSchema = (database: Database.Database) => {
     CREATE INDEX IF NOT EXISTS idx_run_scenario_cases ON run_scenario_cases(run_scenario_id);
     CREATE INDEX IF NOT EXISTS idx_run_case_evidence ON run_case_evidence(run_scenario_case_id);
     CREATE INDEX IF NOT EXISTS idx_case_view_images ON case_view_images(case_id);
+    CREATE INDEX IF NOT EXISTS idx_procedure_documents_source_path ON procedure_documents(source_path);
+    CREATE INDEX IF NOT EXISTS idx_procedure_groups_document ON procedure_groups(document_id, position);
+    CREATE INDEX IF NOT EXISTS idx_procedure_steps_document ON procedure_steps(document_id, position);
+    CREATE INDEX IF NOT EXISTS idx_procedure_steps_stable_key ON procedure_steps(document_id, stable_key);
+    CREATE INDEX IF NOT EXISTS idx_procedure_step_blocks_step ON procedure_step_blocks(step_id, block_order);
   `);
 
   ensureColumn(database, "test_cases", "folder_id", "TEXT");
@@ -453,6 +596,520 @@ export const resetProject = () => {
   }
 
   return createProject(folderPath, info.name);
+};
+
+const minutesBetween = (startAt?: string | null, endAt?: string | null) => {
+  if (!startAt || !endAt) {
+    return null;
+  }
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) {
+    return null;
+  }
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000));
+};
+
+const addMinutes = (startAt: string, minutes: number) => {
+  const start = new Date(startAt);
+  if (Number.isNaN(start.valueOf())) {
+    return null;
+  }
+  return new Date(start.getTime() + minutes * 60_000).toISOString();
+};
+
+const getProcedureStatus = (actualStartAt?: string | null, actualEndAt?: string | null) => {
+  if (actualEndAt) {
+    return "done";
+  }
+  if (actualStartAt) {
+    return "in_progress";
+  }
+  return "not_started";
+};
+
+const getProcedureDocumentRow = (database: Database.Database, id: string) =>
+  database.prepare("SELECT * FROM procedure_documents WHERE id = ?").get(id) as
+    | ProcedureDocumentRow
+    | undefined;
+
+const recalculateProcedureSchedule = (database: Database.Database, documentId: string, timestamp: string) => {
+  const rows = database
+    .prepare(
+      `SELECT
+        procedure_steps.id,
+        procedure_schedule.planned_start_at,
+        procedure_schedule.planned_end_at,
+        procedure_schedule.planned_duration_minutes,
+        procedure_schedule.plan_anchor_type,
+        procedure_schedule.plan_anchor_at
+      FROM procedure_steps
+      LEFT JOIN procedure_schedule ON procedure_schedule.step_id = procedure_steps.id
+      WHERE procedure_steps.document_id = ?
+      ORDER BY procedure_steps.position ASC`
+    )
+    .all(documentId) as Array<{
+    id: string;
+    planned_start_at?: string | null;
+    planned_end_at?: string | null;
+    planned_duration_minutes?: number | null;
+    plan_anchor_type?: string | null;
+    plan_anchor_at?: string | null;
+  }>;
+  const upsert = database.prepare(
+    `INSERT INTO procedure_schedule
+      (step_id, planned_start_at, planned_end_at, planned_duration_minutes, plan_anchor_type, plan_anchor_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(step_id) DO UPDATE SET
+       planned_start_at = excluded.planned_start_at,
+       planned_end_at = excluded.planned_end_at,
+       planned_duration_minutes = excluded.planned_duration_minutes,
+       plan_anchor_type = excluded.plan_anchor_type,
+       plan_anchor_at = excluded.plan_anchor_at,
+       updated_at = excluded.updated_at`
+  );
+
+  let cursor: string | null = null;
+  rows.forEach((row) => {
+    const duration = row.planned_duration_minutes ?? null;
+    const hasManualAnchor = row.plan_anchor_type === "manual" && !!row.plan_anchor_at;
+    const startAt = hasManualAnchor
+      ? row.plan_anchor_at ?? null
+      : cursor ?? row.planned_start_at ?? null;
+    const endAt =
+      startAt && duration != null
+        ? addMinutes(startAt, duration)
+        : row.planned_end_at ?? null;
+    upsert.run(
+      row.id,
+      startAt,
+      endAt,
+      duration,
+      row.plan_anchor_type ?? "auto",
+      row.plan_anchor_at ?? null,
+      timestamp,
+      timestamp
+    );
+    cursor = endAt ?? startAt ?? cursor;
+  });
+};
+
+const matchProcedureStepId = (
+  existingSteps: ProcedureStepRow[],
+  stableKey: string,
+  pathKey: string,
+  heading: string
+) => {
+  const byStableKey = existingSteps.find((step) => step.stable_key === stableKey);
+  if (byStableKey) {
+    return byStableKey.id;
+  }
+  const byPathAndHeading = existingSteps.find(
+    (step) => step.path_key === pathKey && step.heading === heading
+  );
+  if (byPathAndHeading) {
+    return byPathAndHeading.id;
+  }
+  return null;
+};
+
+export const listProcedureDocuments = () => {
+  const { db: database } = ensureDb();
+  return database
+    .prepare(
+      `SELECT
+        procedure_documents.*,
+        COUNT(procedure_steps.id) AS step_count
+      FROM procedure_documents
+      LEFT JOIN procedure_steps ON procedure_steps.document_id = procedure_documents.id
+      GROUP BY procedure_documents.id
+      ORDER BY procedure_documents.updated_at DESC, procedure_documents.created_at DESC`
+    )
+    .all();
+};
+
+export const importProcedureDocument = (sourcePath: string) => {
+  const { db: database } = ensureDb();
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error("Markdown ファイルが見つかりません。");
+  }
+  const content = fs.readFileSync(sourcePath, "utf-8");
+  const parsed = parseProcedureMarkdown(sourcePath, content);
+  const timestamp = now();
+  const existingDocument = database
+    .prepare("SELECT * FROM procedure_documents WHERE source_path = ?")
+    .get(sourcePath) as ProcedureDocumentRow | undefined;
+  const documentId = existingDocument?.id ?? randomUUID();
+  const existingSteps = existingDocument
+    ? (database
+        .prepare("SELECT * FROM procedure_steps WHERE document_id = ? ORDER BY position ASC")
+        .all(documentId) as ProcedureStepRow[])
+    : [];
+
+  const deleteGroups = database.prepare("DELETE FROM procedure_groups WHERE document_id = ?");
+  const deleteBlocksByDocument = database.prepare(
+    `DELETE FROM procedure_step_blocks
+     WHERE step_id IN (SELECT id FROM procedure_steps WHERE document_id = ?)`
+  );
+  const deleteRemovedSteps = (stepIds: string[]) => {
+    if (!stepIds.length) {
+      return;
+    }
+    database
+      .prepare(`DELETE FROM procedure_steps WHERE id IN (${stepIds.map(() => "?").join(",")})`)
+      .run(...stepIds);
+  };
+  const insertDocument = database.prepare(
+    `INSERT INTO procedure_documents
+      (id, title, source_path, source_name, source_hash, last_imported_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const updateDocument = database.prepare(
+    `UPDATE procedure_documents
+     SET title = ?, source_name = ?, source_hash = ?, last_imported_at = ?, updated_at = ?
+     WHERE id = ?`
+  );
+  const insertGroup = database.prepare(
+    `INSERT INTO procedure_groups
+      (id, document_id, level, title, path_key, position, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const insertStep = database.prepare(
+    `INSERT INTO procedure_steps
+      (id, document_id, group_level_1_id, group_level_2_id, stable_key, path_key, heading, step_no, position, body_text, content_hash, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const updateStep = database.prepare(
+    `UPDATE procedure_steps
+     SET group_level_1_id = ?, group_level_2_id = ?, stable_key = ?, path_key = ?, heading = ?, step_no = ?, position = ?, body_text = ?, content_hash = ?, updated_at = ?
+     WHERE id = ?`
+  );
+  const insertBlock = database.prepare(
+    `INSERT INTO procedure_step_blocks
+      (id, step_id, block_type, block_order, heading_level, language, content, meta_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const transaction = database.transaction(() => {
+    if (existingDocument) {
+      updateDocument.run(
+        parsed.title,
+        parsed.sourceName,
+        parsed.sourceHash,
+        timestamp,
+        timestamp,
+        documentId
+      );
+    } else {
+      insertDocument.run(
+        documentId,
+        parsed.title,
+        sourcePath,
+        parsed.sourceName,
+        parsed.sourceHash,
+        timestamp,
+        timestamp,
+        timestamp
+      );
+    }
+
+    deleteBlocksByDocument.run(documentId);
+    deleteGroups.run(documentId);
+
+    const groupIdByPathKey = new Map<string, string>();
+    parsed.groups.forEach((group) => {
+      const groupId = randomUUID();
+      groupIdByPathKey.set(group.pathKey, groupId);
+      insertGroup.run(
+        groupId,
+        documentId,
+        group.level,
+        group.title,
+        group.pathKey,
+        group.position,
+        timestamp,
+        timestamp
+      );
+    });
+
+    const keepStepIds = new Set<string>();
+    parsed.steps.forEach((step) => {
+      const existingStepId = matchProcedureStepId(
+        existingSteps,
+        step.stableKey,
+        step.pathKey,
+        step.heading
+      );
+      const stepId = existingStepId ?? randomUUID();
+      const previous = existingStepId
+        ? existingSteps.find((entry) => entry.id === existingStepId)
+        : undefined;
+      const groupLevel1Id = step.groupLevel1PathKey
+        ? groupIdByPathKey.get(step.groupLevel1PathKey) ?? null
+        : null;
+      const groupLevel2Id = step.groupLevel2PathKey
+        ? groupIdByPathKey.get(step.groupLevel2PathKey) ?? null
+        : null;
+
+      if (existingStepId) {
+        updateStep.run(
+          groupLevel1Id,
+          groupLevel2Id,
+          step.stableKey,
+          step.pathKey,
+          step.heading,
+          step.stepNo,
+          step.position,
+          step.bodyText,
+          step.contentHash,
+          timestamp,
+          stepId
+        );
+      } else {
+        insertStep.run(
+          stepId,
+          documentId,
+          groupLevel1Id,
+          groupLevel2Id,
+          step.stableKey,
+          step.pathKey,
+          step.heading,
+          step.stepNo,
+          step.position,
+          step.bodyText,
+          step.contentHash,
+          previous?.status ?? "not_started",
+          timestamp,
+          timestamp
+        );
+      }
+
+      step.blocks.forEach((block) => {
+        insertBlock.run(
+          randomUUID(),
+          stepId,
+          block.blockType,
+          block.blockOrder,
+          block.headingLevel,
+          block.language,
+          block.content,
+          block.metaJson,
+          timestamp,
+          timestamp
+        );
+      });
+      keepStepIds.add(stepId);
+    });
+
+    const removedStepIds = existingSteps
+      .filter((step) => !keepStepIds.has(step.id))
+      .map((step) => step.id);
+    deleteRemovedSteps(removedStepIds);
+  });
+
+  transaction();
+  return getProcedureDocument(documentId);
+};
+
+export const reloadProcedureDocument = (documentId: string) => {
+  const { db: database } = ensureDb();
+  const row = getProcedureDocumentRow(database, documentId);
+  if (!row) {
+    throw new Error("手順書が見つかりません。");
+  }
+  return importProcedureDocument(row.source_path);
+};
+
+export const getProcedureDocument = (documentId: string) => {
+  const { db: database } = ensureDb();
+  const document = getProcedureDocumentRow(database, documentId);
+  if (!document) {
+    return null;
+  }
+  const groups = database
+    .prepare("SELECT * FROM procedure_groups WHERE document_id = ? ORDER BY position ASC")
+    .all(documentId) as ProcedureGroupRow[];
+  const steps = database
+    .prepare(
+      `SELECT
+        procedure_steps.*,
+        group1.title AS group_level_1_title,
+        group2.title AS group_level_2_title,
+        procedure_schedule.planned_start_at,
+        procedure_schedule.planned_end_at,
+        procedure_schedule.planned_duration_minutes,
+        procedure_schedule.plan_anchor_type,
+        procedure_schedule.plan_anchor_at,
+        procedure_execution.actual_start_at,
+        procedure_execution.actual_end_at,
+        procedure_execution.actual_duration_minutes
+      FROM procedure_steps
+      LEFT JOIN procedure_groups AS group1 ON group1.id = procedure_steps.group_level_1_id
+      LEFT JOIN procedure_groups AS group2 ON group2.id = procedure_steps.group_level_2_id
+      LEFT JOIN procedure_schedule ON procedure_schedule.step_id = procedure_steps.id
+      LEFT JOIN procedure_execution ON procedure_execution.step_id = procedure_steps.id
+      WHERE procedure_steps.document_id = ?
+      ORDER BY procedure_steps.position ASC`
+    )
+    .all(documentId) as ProcedureStepRow[];
+  const blocks = database
+    .prepare(
+      `SELECT
+        procedure_step_blocks.*
+      FROM procedure_step_blocks
+      JOIN procedure_steps ON procedure_steps.id = procedure_step_blocks.step_id
+      WHERE procedure_steps.document_id = ?
+      ORDER BY procedure_steps.position ASC, procedure_step_blocks.block_order ASC`
+    )
+    .all(documentId) as ProcedureStepBlockRow[];
+  return { document, groups, steps, blocks };
+};
+
+export const updateProcedureSchedule = (payload: {
+  stepId: string;
+  plannedStartAt?: string | null;
+  plannedEndAt?: string | null;
+  plannedDurationMinutes?: number | null;
+  planAnchorType?: string | null;
+  planAnchorAt?: string | null;
+}) => {
+  const { db: database } = ensureDb();
+  const timestamp = now();
+  const step = database
+    .prepare("SELECT id, document_id FROM procedure_steps WHERE id = ?")
+    .get(payload.stepId) as { id: string; document_id: string } | undefined;
+  if (!step) {
+    throw new Error("対象の手順が見つかりません。");
+  }
+  const existing = database
+    .prepare(
+      `SELECT
+        step_id,
+        planned_start_at,
+        planned_end_at,
+        planned_duration_minutes,
+        plan_anchor_type,
+        plan_anchor_at,
+        created_at
+      FROM procedure_schedule
+      WHERE step_id = ?`
+    )
+    .get(payload.stepId) as
+    | {
+        step_id: string;
+        planned_start_at?: string | null;
+        planned_end_at?: string | null;
+        planned_duration_minutes?: number | null;
+        plan_anchor_type?: string | null;
+        plan_anchor_at?: string | null;
+        created_at?: string | null;
+      }
+    | undefined;
+
+  const hasStart = Object.prototype.hasOwnProperty.call(payload, "plannedStartAt");
+  const hasEnd = Object.prototype.hasOwnProperty.call(payload, "plannedEndAt");
+  const hasDuration = Object.prototype.hasOwnProperty.call(payload, "plannedDurationMinutes");
+  const nextStartAt = hasStart ? payload.plannedStartAt ?? null : existing?.planned_start_at ?? null;
+  const nextEndAt = hasEnd ? payload.plannedEndAt ?? null : existing?.planned_end_at ?? null;
+  let nextDuration =
+    hasDuration ? payload.plannedDurationMinutes ?? null : existing?.planned_duration_minutes ?? null;
+
+  if (!hasDuration && (hasStart || hasEnd)) {
+    nextDuration = minutesBetween(nextStartAt, nextEndAt);
+  }
+  if (hasDuration && nextDuration != null && nextStartAt) {
+    const calculatedEnd = addMinutes(nextStartAt, nextDuration);
+    if (calculatedEnd) {
+      payload.plannedEndAt = calculatedEnd;
+    }
+  }
+
+  let nextAnchorType = payload.planAnchorType ?? existing?.plan_anchor_type ?? "auto";
+  let nextAnchorAt = payload.planAnchorAt ?? existing?.plan_anchor_at ?? null;
+  if (hasStart) {
+    nextAnchorType = nextStartAt ? "manual" : "auto";
+    nextAnchorAt = nextStartAt;
+  } else if (hasEnd && nextStartAt) {
+    nextAnchorType = "manual";
+    nextAnchorAt = nextStartAt;
+  }
+
+  database
+    .prepare(
+      `INSERT INTO procedure_schedule
+        (step_id, planned_start_at, planned_end_at, planned_duration_minutes, plan_anchor_type, plan_anchor_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(step_id) DO UPDATE SET
+         planned_start_at = excluded.planned_start_at,
+         planned_end_at = excluded.planned_end_at,
+         planned_duration_minutes = excluded.planned_duration_minutes,
+         plan_anchor_type = excluded.plan_anchor_type,
+         plan_anchor_at = excluded.plan_anchor_at,
+         updated_at = excluded.updated_at`
+    )
+    .run(
+      payload.stepId,
+      nextStartAt,
+      nextDuration != null && nextStartAt ? addMinutes(nextStartAt, nextDuration) : nextEndAt,
+      nextDuration,
+      nextAnchorType,
+      nextAnchorAt,
+      existing?.created_at ?? timestamp,
+      timestamp
+    );
+  recalculateProcedureSchedule(database, step.document_id, timestamp);
+  return payload.stepId;
+};
+
+export const updateProcedureExecution = (payload: {
+  stepId: string;
+  actualStartAt?: string | null;
+  actualEndAt?: string | null;
+}) => {
+  const { db: database } = ensureDb();
+  const timestamp = now();
+  const actualDurationMinutes = minutesBetween(payload.actualStartAt ?? null, payload.actualEndAt ?? null);
+  const status = getProcedureStatus(payload.actualStartAt ?? null, payload.actualEndAt ?? null);
+  const existing = database
+    .prepare("SELECT step_id FROM procedure_execution WHERE step_id = ?")
+    .get(payload.stepId) as { step_id: string } | undefined;
+  const transaction = database.transaction(() => {
+    if (existing) {
+      database
+        .prepare(
+          `UPDATE procedure_execution
+           SET actual_start_at = ?, actual_end_at = ?, actual_duration_minutes = ?, updated_at = ?
+           WHERE step_id = ?`
+        )
+        .run(
+          payload.actualStartAt ?? null,
+          payload.actualEndAt ?? null,
+          actualDurationMinutes,
+          timestamp,
+          payload.stepId
+        );
+    } else {
+      database
+        .prepare(
+          `INSERT INTO procedure_execution
+            (step_id, actual_start_at, actual_end_at, actual_duration_minutes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          payload.stepId,
+          payload.actualStartAt ?? null,
+          payload.actualEndAt ?? null,
+          actualDurationMinutes,
+          timestamp,
+          timestamp
+        );
+    }
+    database
+      .prepare("UPDATE procedure_steps SET status = ?, updated_at = ? WHERE id = ?")
+      .run(status, timestamp, payload.stepId);
+  });
+  transaction();
+  return payload.stepId;
 };
 
 export const listTestCases = () => {
