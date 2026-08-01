@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - openshift.yaml
+  - openshift-operations.yaml
+  - openshift-retention.yaml
+configMapGenerator:
+  - name: the-test-retention
+    files:
+      - purge.sh=ops/purge-v2.sh
+      - purge.sql=ops/purge-v2.sql
+patches:
+  - target:
+      group: batch
+      version: v1
+      kind: CronJob
+      name: the-test-daily-purge
+    patch: |-
+      - op: add
+        path: /spec/suspend
+        value: true

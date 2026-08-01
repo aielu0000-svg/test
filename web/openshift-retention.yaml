@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: the-test-retention-purge
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: purge
+              image: mariadb:11.4
+              command: ["/bin/sh", "/operations/purge.sh"]
+              envFrom:
+                - configMapRef: { name: the-test-config }
+                - secretRef: { name: the-test-db }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: retention, mountPath: /operations }
+                - { name: evidence, mountPath: /var/lib/the-test/evidence }
+          volumes:
+            - { name: retention, configMap: { name: the-test-retention, defaultMode: 365 } }
+            - { name: evidence, persistentVolumeClaim: { claimName: the-test-evidence } }

@@ -1,0 +1,483 @@
+﻿import { randomUUID } from "node:crypto";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { PoolConnection } from "mariadb";
+import type { AppConfig } from "../config.js";
+import type { Database } from "../db.js";
+import { writeAudit } from "../audit.js";
+import { badRequest, conflict, notFound } from "../errors.js";
+import { calculatePassRate, completionBlocker, isRunMutable, requiresActualResult, withoutScenarioCases } from "../runDomain.js";
+import {
+  authenticatedProject, objectBody, pagination, projectIdFrom, routeParam,
+  stringArray, stringValue, versionValue,
+} from "./routeUtils.js";
+
+type RunStatus = "draft" | "in_progress" | "completed";
+type ResultStatus = "not_run" | "in_progress" | "pass" | "fail" | "blocked" | "skip";
+
+interface RunRow {
+  id: string;
+  project_id: string;
+  name: string;
+  environment_name: string | null;
+  build_name: string | null;
+  assignee_id: string | null;
+  memo: string | null;
+  draft_scenario_ids_json: string | null;
+  draft_case_ids_json: string | null;
+  draft_data_set_ids_json: string | null;
+  status: RunStatus;
+  planned_start_at: Date | string | null;
+  planned_end_at: Date | string | null;
+  started_at: Date | string | null;
+  completed_at: Date | string | null;
+  post_completion_updated_at: Date | string | null;
+  post_completion_updated_by: string | null;
+  current_revision: number;
+  version: number;
+  created_at: Date | string;
+  updated_at: Date | string;
+  deleted_at: Date | string | null;
+  delete_reason: string | null;
+}
+
+function runStatus(value: unknown): RunStatus {
+  if (value === "draft" || value === "in_progress" || value === "completed") return value;
+  throw badRequest("statusはdraft、in_progress、completedのいずれかです。");
+}
+
+function resultStatus(value: unknown): ResultStatus {
+  if (value === "not_run" || value === "in_progress" || value === "pass" || value === "fail" || value === "blocked" || value === "skip") return value;
+  throw badRequest("結果ステータスが不正です。");
+}
+
+function optionalDate(value: unknown, field: string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (!(typeof value === "string" || value instanceof Date) || Number.isNaN(new Date(value).getTime())) throw badRequest(`${field}は日時形式で指定してください。`);
+  return new Date(value).toISOString().slice(0, 23).replace("T", " ");
+}
+
+function storedIds(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadRun(db: Database, id: string, projectId: string, includeDeleted = false): Promise<RunRow> {
+  const rows = await db.query<RunRow>(
+    `SELECT * FROM test_runs WHERE id = ? AND project_id = ? ${includeDeleted ? "" : "AND deleted_at IS NULL"} LIMIT 1`,
+    [id, projectId],
+  );
+  if (!rows[0]) throw notFound();
+  return rows[0];
+}
+
+async function copyCase(
+  connection: PoolConnection,
+  projectId: string,
+  runId: string,
+  scenarioSnapshotId: string | null,
+  caseId: string,
+  revisionNo: number,
+  position: number,
+): Promise<string> {
+  const rows = await connection.query<Array<Record<string, unknown>>>(
+    "SELECT id, title, objective, preconditions, view_location, view_images_json, priority, updated_at FROM test_cases WHERE id = ? AND project_id = ? AND deleted_at IS NULL LIMIT 1",
+    [caseId, projectId],
+  );
+  const source = rows[0];
+  if (!source) throw badRequest(`テストケース ${caseId} が見つかりません。`);
+  const snapshotId = randomUUID();
+  await connection.query(
+    `INSERT INTO run_case_snapshots
+       (id, test_run_id, run_scenario_snapshot_id, revision_no, source_test_case_id, source_updated_at,
+        title, objective, preconditions, view_location, view_images_json, priority, position)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [snapshotId, runId, scenarioSnapshotId, revisionNo, source.id, source.updated_at, source.title,
+      source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, position],
+  );
+  const steps = await connection.query<Array<Record<string, unknown>>>(
+    "SELECT id, step_no, action_text, expected_result FROM test_steps WHERE test_case_id = ? AND deleted_at IS NULL ORDER BY step_no",
+    [caseId],
+  );
+  for (const step of steps) {
+    await connection.query(
+      "INSERT INTO run_step_snapshots (id, run_case_snapshot_id, source_test_step_id, step_no, action_text, expected_result) VALUES (?, ?, ?, ?, ?, ?)",
+      [randomUUID(), snapshotId, step.id, step.step_no, step.action_text, step.expected_result],
+    );
+  }
+  return snapshotId;
+}
+
+async function copyScenario(
+  connection: PoolConnection,
+  projectId: string,
+  runId: string,
+  scenarioId: string,
+  revisionNo: number,
+  position: number,
+): Promise<string> {
+  const rows = await connection.query<Array<Record<string, unknown>>>(
+    "SELECT id, title, objective, preconditions, updated_at FROM scenarios WHERE id = ? AND project_id = ? AND deleted_at IS NULL LIMIT 1",
+    [scenarioId, projectId],
+  );
+  const source = rows[0];
+  if (!source) throw badRequest(`シナリオ ${scenarioId} が見つかりません。`);
+  const snapshotId = randomUUID();
+  await connection.query(
+    `INSERT INTO run_scenario_snapshots
+       (id, test_run_id, revision_no, source_scenario_id, source_updated_at, title, objective, preconditions, position)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [snapshotId, runId, revisionNo, source.id, source.updated_at, source.title, source.objective, source.preconditions, position],
+  );
+  const caseRows = await connection.query<Array<{ test_case_id: string }>>(
+    "SELECT test_case_id FROM scenario_cases WHERE scenario_id = ? ORDER BY sort_order",
+    [scenarioId],
+  );
+  for (const [casePosition, item] of caseRows.entries()) {
+    await copyCase(connection, projectId, runId, snapshotId, item.test_case_id, revisionNo, casePosition);
+  }
+  return snapshotId;
+}
+
+async function copyLinkedDataSets(connection: PoolConnection, projectId: string, runId: string, revisionNo: number, sourceIds: string[]): Promise<void> {
+  for (const sourceId of sourceIds) {
+    const rows = await connection.query<Array<Record<string, unknown>>>(
+      "SELECT id, name, scope, description, updated_at FROM data_sets WHERE id = ? AND project_id = ? AND deleted_at IS NULL LIMIT 1", [sourceId, projectId],
+    );
+    const source = rows[0];
+    if (!source) throw badRequest(`データセット ${sourceId} が見つかりません。`);
+    const snapshotId = randomUUID();
+    await connection.query(
+      "INSERT INTO run_data_set_snapshots (id, test_run_id, revision_no, source_data_set_id, source_updated_at, name, scope, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [snapshotId, runId, revisionNo, source.id, source.updated_at, source.name, source.scope, source.description],
+    );
+    const items = await connection.query<Array<Record<string, unknown>>>(
+      "SELECT sort_order AS item_no, label, item_value AS value_text, memo FROM data_items WHERE data_set_id = ? ORDER BY sort_order", [sourceId],
+    );
+    for (const item of items) {
+      await connection.query(
+        "INSERT INTO run_data_item_snapshots (id, run_data_set_snapshot_id, item_no, label, value_text, memo) VALUES (?, ?, ?, ?, ?, ?)",
+        [randomUUID(), snapshotId, item.item_no, item.label, item.value_text, item.memo],
+      );
+    }
+  }
+}
+
+async function makeSnapshot(
+  connection: PoolConnection,
+  projectId: string,
+  runId: string,
+  revisionNo: number,
+  scenarioIds: string[],
+  caseIds: string[],
+  dataSetIds: string[],
+): Promise<void> {
+  for (const [position, scenarioId] of scenarioIds.entries()) await copyScenario(connection, projectId, runId, scenarioId, revisionNo, position);
+  const scenarioCaseRows = scenarioIds.length
+    ? await connection.query<Array<{ test_case_id: string }>>(
+      "SELECT DISTINCT sc.test_case_id FROM scenario_cases sc JOIN scenarios s ON s.id = sc.scenario_id WHERE sc.scenario_id IN (?) AND s.project_id = ? AND s.deleted_at IS NULL",
+      [scenarioIds, projectId],
+    ) : [];
+  const standaloneCaseIds = withoutScenarioCases(caseIds, scenarioCaseRows.map((row) => String(row.test_case_id)));
+  for (const [position, caseId] of standaloneCaseIds.entries()) await copyCase(connection, projectId, runId, null, caseId, revisionNo, position);
+  await copyLinkedDataSets(connection, projectId, runId, revisionNo, dataSetIds);
+}
+
+async function validateAssignee(db: Database, projectId: string, assigneeId: string | null): Promise<void> {
+  if (!assigneeId) return;
+  const rows = await db.query<{ id: string }>(
+    `SELECT u.id FROM users u
+      WHERE u.id = ? AND u.enabled = 1
+        AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = ? AND pa.user_id = u.id))
+      LIMIT 1`,
+    [assigneeId, projectId],
+  );
+  if (!rows[0]) throw badRequest("担当者は有効な管理者またはプロジェクト割当ユーザーから選択してください。");
+}
+async function ensureSnapshotProject(db: Database, table: "run_case_snapshots" | "run_scenario_snapshots", id: string, projectId: string): Promise<RunStatus> {
+  const rows = await db.query<{ id: string; status: RunStatus }>(
+    `SELECT s.id, r.status FROM ${table} s JOIN test_runs r ON r.id = s.test_run_id WHERE s.id = ? AND r.project_id = ? AND r.deleted_at IS NULL LIMIT 1`,
+    [id, projectId],
+  );
+  if (!rows[0]) throw notFound();
+  return rows[0].status;
+}
+
+export async function registerRunRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
+  app.get("/api/project-assignees", async (request) => {
+    const projectId = projectIdFrom(request);
+    await authenticatedProject(request, db, config, projectId, false);
+    const assignees = await db.query<Record<string, unknown>>(
+      `SELECT u.id, u.username, u.display_name, u.role
+         FROM users u
+        WHERE u.enabled = 1
+          AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.project_id = ? AND pa.user_id = u.id))
+        ORDER BY u.display_name, u.username`,
+      [projectId],
+    );
+    return { assignees: assignees.map((item) => ({ id: item.id, username: item.username, displayName: item.display_name, role: item.role })) };
+  });
+
+  app.get("/api/test-runs", async (request) => {
+    const projectId = projectIdFrom(request);
+    await authenticatedProject(request, db, config, projectId, false);
+    const { limit, offset } = pagination(request);
+    const includeDeleted = (request.query as Record<string, unknown>).includeDeleted === "true";
+    const rows = await db.query<RunRow>(
+      `SELECT * FROM test_runs WHERE project_id = ? AND ${includeDeleted ? "deleted_at IS NOT NULL" : "deleted_at IS NULL"} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+      [projectId, limit, offset],
+    );
+    return { runs: rows.map((row) => ({ id: row.id, name: row.name, environmentName: row.environment_name, buildName: row.build_name, assigneeId: row.assignee_id, memo: row.memo, status: row.status, version: Number(row.version), currentRevision: Number(row.current_revision), startedAt: row.started_at, completedAt: row.completed_at, postCompletionUpdatedAt: row.post_completion_updated_at, postCompletionUpdatedBy: row.post_completion_updated_by, updatedAt: row.updated_at, deletedAt: row.deleted_at, deleteReason: row.delete_reason })) };
+  });
+
+  app.get("/api/test-runs/:id", async (request) => {
+    const projectId = projectIdFrom(request);
+    await authenticatedProject(request, db, config, projectId, false);
+    const run = await loadRun(db, routeParam(request), projectId, (request.query as Record<string, unknown>).includeDeleted === "true");
+    const [scenarios, cases, dataSets, revisions, counts, steps] = await Promise.all([
+      db.query<Record<string, unknown>>("SELECT * FROM run_scenario_snapshots WHERE test_run_id = ? ORDER BY position, created_at", [run.id]),
+      db.query<Record<string, unknown>>("SELECT * FROM run_case_snapshots WHERE test_run_id = ? ORDER BY run_scenario_snapshot_id, position, created_at", [run.id]),
+      db.query<Record<string, unknown>>("SELECT id, revision_no, source_data_set_id, name, scope, description, apply_reason FROM run_data_set_snapshots WHERE test_run_id = ? ORDER BY revision_no, name", [run.id]),
+      db.query<Record<string, unknown>>("SELECT revision_no, change_reason, created_by, created_at FROM run_revisions WHERE test_run_id = ? ORDER BY revision_no", [run.id]),
+      db.query<{ status: ResultStatus; count: number }>(`SELECT c.status, COUNT(*) AS count FROM run_case_snapshots c
+        LEFT JOIN run_scenario_snapshots s ON s.id = c.run_scenario_snapshot_id
+        WHERE c.test_run_id = ? AND c.excluded_at IS NULL AND (s.id IS NULL OR s.excluded_at IS NULL)
+        GROUP BY c.status`, [run.id]),
+      db.query<Record<string, unknown>>("SELECT run_case_snapshot_id, step_no, action_text, expected_result FROM run_step_snapshots WHERE run_case_snapshot_id IN (SELECT id FROM run_case_snapshots WHERE test_run_id = ?) ORDER BY run_case_snapshot_id, step_no", [run.id]),
+    ]);
+    const totals = Object.fromEntries(counts.map((item) => [item.status, Number(item.count)])) as Record<ResultStatus, number>;
+
+    return {
+      run: {
+        id: run.id, name: run.name, environmentName: run.environment_name, buildName: run.build_name,
+        assigneeId: run.assignee_id, memo: run.memo, status: run.status, version: Number(run.version),
+        currentRevision: Number(run.current_revision), plannedStartAt: run.planned_start_at, plannedEndAt: run.planned_end_at,
+        startedAt: run.started_at, completedAt: run.completed_at, postCompletionUpdatedAt: run.post_completion_updated_at,
+        postCompletionUpdatedBy: run.post_completion_updated_by, scenarioIds: storedIds(run.draft_scenario_ids_json),
+        caseIds: storedIds(run.draft_case_ids_json), dataSetIds: storedIds(run.draft_data_set_ids_json),
+      },
+      scenarios, cases: cases.map((item) => ({ ...item, steps: steps.filter((step) => step.run_case_snapshot_id === item.id).map((step) => ({ stepNo: Number(step.step_no), action: step.action_text, expected: step.expected_result })) })), dataSets, revisions,
+      stats: { total: Object.values(totals).reduce((sum, value) => sum + value, 0), byStatus: totals, passRate: calculatePassRate(totals) },
+    };
+  });
+
+  app.post("/api/test-runs", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = randomUUID();
+    const name = stringValue(input.name, "name", 500, true);
+    const environmentName = stringValue(input.environmentName, "environmentName", 300) || null;
+    const buildName = stringValue(input.buildName, "buildName", 300) || null;
+    const assigneeId = stringValue(input.assigneeId, "assigneeId", 100) || null;
+    const memo = stringValue(input.memo, "memo", 100_000) || null;
+    const scenarioIds = stringArray(input.scenarioIds, "scenarioIds", 100);
+    const caseIds = stringArray(input.caseIds, "caseIds", 100);
+    const dataSetIds = stringArray(input.dataSetIds, "dataSetIds", 100);
+    await validateAssignee(db, projectId, assigneeId);
+    await db.execute(
+      "INSERT INTO test_runs (id, project_id, name, environment_name, build_name, assignee_id, memo, draft_scenario_ids_json, draft_case_ids_json, draft_data_set_ids_json, planned_start_at, planned_end_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, projectId, name, environmentName, buildName, assigneeId, memo, JSON.stringify(scenarioIds), JSON.stringify(caseIds), JSON.stringify(dataSetIds), optionalDate(input.plannedStartAt, "plannedStartAt"), optionalDate(input.plannedEndAt, "plannedEndAt"), actor.id],
+    );
+    await writeAudit(db, request, actor, { action: "run_created", entityType: "test_run", entityId: id, projectId, after: { name } });
+    return { id };
+  });
+
+  app.patch("/api/test-runs/:id", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = routeParam(request);
+    const before = await loadRun(db, id, projectId);
+    if (!isRunMutable(before.status)) throw badRequest("完了した実行は変更できません。");
+    const version = versionValue(input.version);
+    const nextStatus = runStatus(input.status ?? before.status);
+    const name = stringValue(input.name ?? before.name, "name", 500, true);
+    const environmentName = stringValue(input.environmentName ?? before.environment_name, "environmentName", 300) || null;
+    const buildName = stringValue(input.buildName ?? before.build_name, "buildName", 300) || null;
+    const assigneeId = stringValue(input.assigneeId ?? before.assignee_id, "assigneeId", 100) || null;
+    const memo = stringValue(input.memo ?? before.memo, "memo", 100_000) || null;
+    await validateAssignee(db, projectId, assigneeId);
+    const starting = before.status === "draft" && nextStatus === "in_progress";
+    const completing = nextStatus === "completed";
+    const scenarioIds = input.scenarioIds === undefined ? storedIds(before.draft_scenario_ids_json) : stringArray(input.scenarioIds, "scenarioIds", 100);
+    const caseIds = input.caseIds === undefined ? storedIds(before.draft_case_ids_json) : stringArray(input.caseIds, "caseIds", 100);
+    const dataSetIds = input.dataSetIds === undefined ? storedIds(before.draft_data_set_ids_json) : stringArray(input.dataSetIds, "dataSetIds", 100);
+    if (starting && !scenarioIds.length && !caseIds.length) throw badRequest("実行を開始するにはテストまたは確認項目を1件以上選択してください。");
+    await db.withTransaction(async (connection) => {
+      if (starting) {
+        await connection.query("INSERT INTO run_revisions (id, test_run_id, revision_no, change_reason, created_by) VALUES (?, ?, 1, ?, ?)", [randomUUID(), id, "実行開始時スナップショット", actor.id]);
+        await makeSnapshot(connection, projectId, id, 1, scenarioIds, caseIds, dataSetIds);
+      }
+      if (completing) {
+        const completionRows = await connection.query<Array<{ total: number; incomplete: number; missing_actual: number }>>(
+          `SELECT COUNT(*) AS total,
+             COALESCE(SUM(c.status IN ('not_run','in_progress')), 0) AS incomplete,
+             COALESCE(SUM(c.status IN ('fail','blocked','skip') AND TRIM(COALESCE(c.actual_result, '')) = ''), 0) AS missing_actual
+             FROM run_case_snapshots c
+             LEFT JOIN run_scenario_snapshots s ON s.id = c.run_scenario_snapshot_id
+            WHERE c.test_run_id = ? AND c.excluded_at IS NULL AND (s.id IS NULL OR s.excluded_at IS NULL)`,
+          [id],
+        );
+        const completion = completionRows[0];
+        const blocker = completionBlocker(Number(completion?.total ?? 0), Number(completion?.incomplete ?? 0), Number(completion?.missing_actual ?? 0));
+        if (blocker) throw badRequest(blocker);
+      }
+      const result = await connection.query(
+        `UPDATE test_runs SET name = ?, environment_name = ?, build_name = ?, assignee_id = ?, memo = ?, draft_scenario_ids_json = ?, draft_case_ids_json = ?, draft_data_set_ids_json = ?, status = ?, planned_start_at = ?, planned_end_at = ?,
+          started_at = CASE WHEN ? THEN COALESCE(started_at, UTC_TIMESTAMP(6)) ELSE started_at END,
+          completed_at = CASE WHEN ? THEN UTC_TIMESTAMP(6) WHEN ? <> 'completed' THEN NULL ELSE completed_at END,
+          current_revision = CASE WHEN ? THEN 1 ELSE current_revision END,
+          version = version + 1, updated_at = UTC_TIMESTAMP(6)
+         WHERE id = ? AND project_id = ? AND version = ? AND status <> 'completed' AND deleted_at IS NULL`,
+        [name, environmentName, buildName, assigneeId, memo, JSON.stringify(scenarioIds), JSON.stringify(caseIds), JSON.stringify(dataSetIds), nextStatus, optionalDate(input.plannedStartAt ?? before.planned_start_at, "plannedStartAt"), optionalDate(input.plannedEndAt ?? before.planned_end_at, "plannedEndAt"), starting, completing, nextStatus, starting, id, projectId, version],
+      );
+      if (Number(result.affectedRows) !== 1) throw conflict();
+    });
+    await writeAudit(db, request, actor, { action: starting ? "run_started" : completing ? "run_completed" : "run_updated", entityType: "test_run", entityId: id, projectId, before, after: { name, status: nextStatus } });
+    return { run: await loadRun(db, id, projectId) };
+  });
+
+  app.post("/api/test-runs/:id/revisions", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = routeParam(request);
+    const run = await loadRun(db, id, projectId);
+    const version = versionValue(input.version);
+    if (run.status === "draft") throw badRequest("draftでは改訂ではなく実行開始時に対象を指定してください。");
+    const scenarioIds = stringArray(input.addScenarioIds, "addScenarioIds", 100);
+    if (!isRunMutable(run.status)) throw badRequest("完了した実行は改訂できません。");
+    const caseIds = stringArray(input.addCaseIds, "addCaseIds", 100);
+    const dataSetIds = stringArray(input.addDataSetIds, "addDataSetIds", 100);
+    const excludeScenarioIds = stringArray(input.excludeScenarioSnapshotIds, "excludeScenarioSnapshotIds", 100);
+    const excludeCaseIds = stringArray(input.excludeCaseSnapshotIds, "excludeCaseSnapshotIds", 100);
+    const reason = stringValue(input.reason, "reason", 1000, true);
+    const revisionNo = Number(run.current_revision) + 1;
+    await db.withTransaction(async (connection) => {
+      const runUpdate = await connection.query(
+        "UPDATE test_runs SET current_revision = ?, version = version + 1, updated_at = UTC_TIMESTAMP(6) WHERE id = ? AND project_id = ? AND version = ? AND current_revision = ? AND status <> 'completed' AND deleted_at IS NULL",
+        [revisionNo, id, projectId, version, run.current_revision],
+      );
+      if (Number(runUpdate.affectedRows) !== 1) throw conflict();
+      await connection.query("INSERT INTO run_revisions (id, test_run_id, revision_no, change_reason, created_by) VALUES (?, ?, ?, ?, ?)", [randomUUID(), id, revisionNo, reason, actor.id]);
+      await makeSnapshot(connection, projectId, id, revisionNo, scenarioIds, caseIds, dataSetIds);
+      if (excludeScenarioIds.length) await connection.query("UPDATE run_scenario_snapshots SET excluded_at = UTC_TIMESTAMP(6), exclusion_reason = ?, version = version + 1 WHERE test_run_id = ? AND id IN (?) AND excluded_at IS NULL", [reason, id, excludeScenarioIds]);
+      if (excludeScenarioIds.length) await connection.query("UPDATE run_case_snapshots SET excluded_at = UTC_TIMESTAMP(6), exclusion_reason = ?, version = version + 1 WHERE test_run_id = ? AND run_scenario_snapshot_id IN (?) AND excluded_at IS NULL", [reason, id, excludeScenarioIds]);
+      if (excludeCaseIds.length) await connection.query("UPDATE run_case_snapshots SET excluded_at = UTC_TIMESTAMP(6), exclusion_reason = ?, version = version + 1 WHERE test_run_id = ? AND id IN (?) AND excluded_at IS NULL", [reason, id, excludeCaseIds]);
+    });
+    await writeAudit(db, request, actor, { action: "run_revised", entityType: "test_run", entityId: id, projectId, after: { revisionNo, reason, scenarioIds, caseIds, excludeScenarioIds, excludeCaseIds } });
+    return { revisionNo };
+  });
+
+  app.patch("/api/run-cases/:id", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = routeParam(request);
+    const parentStatus = await ensureSnapshotProject(db, "run_case_snapshots", id, projectId);
+    const status = resultStatus(input.status);
+    const actualResult = stringValue(input.actualResult, "actualResult", 100_000);
+    if (requiresActualResult(status) && !actualResult) throw badRequest("fail、blocked、skipではactual_resultが必須です。");
+    const notes = stringValue(input.notes, "notes", 100_000);
+    const version = versionValue(input.version);
+    const executedAt = optionalDate(input.executedAt, "executedAt");
+    const assigneeId = stringValue(input.assigneeId, "assigneeId", 100) || null;
+    await validateAssignee(db, projectId, assigneeId);
+    await db.withTransaction(async (connection) => {
+      const result = await connection.query(
+        `UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.status = ?, c.actual_result = ?, c.notes = ?, c.assignee_id = ?, c.executed_at = COALESCE(?, CASE WHEN ? <> 'not_run' THEN UTC_TIMESTAMP(6) ELSE c.executed_at END), c.version = c.version + 1
+         WHERE c.id = ? AND c.version = ? AND c.excluded_at IS NULL AND r.project_id = ? AND r.deleted_at IS NULL`,
+        [status, actualResult || null, notes || null, assigneeId, executedAt, status, id, version, projectId],
+      );
+      if (Number(result.affectedRows) !== 1) throw conflict();
+      await connection.query(
+        `UPDATE run_scenario_snapshots s JOIN run_case_snapshots changed ON changed.run_scenario_snapshot_id = s.id
+         SET s.started_at = CASE WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.status <> 'not_run' AND c.excluded_at IS NULL) THEN COALESCE(s.started_at, UTC_TIMESTAMP(6)) ELSE s.started_at END,
+             s.status = CASE
+               WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status IN ('not_run','in_progress')) THEN 'in_progress'
+               WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status = 'fail') THEN 'fail'
+               WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status = 'blocked') THEN 'blocked'
+               WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status = 'pass') THEN 'pass'
+               ELSE 'skip' END,
+             s.completed_at = CASE WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status IN ('not_run','in_progress')) THEN NULL ELSE UTC_TIMESTAMP(6) END,
+             s.version = s.version + 1
+         WHERE changed.id = ?`, [id],
+      );
+      if (parentStatus === "completed") {
+        await connection.query(
+          "UPDATE test_runs r JOIN run_case_snapshots c ON c.test_run_id = r.id SET r.post_completion_updated_at = UTC_TIMESTAMP(6), r.post_completion_updated_by = ?, r.updated_at = UTC_TIMESTAMP(6), r.version = r.version + 1 WHERE c.id = ? AND r.status = 'completed'",
+          [actor.id, id],
+        );
+      }
+    });
+    await writeAudit(db, request, actor, { action: parentStatus === "completed" ? "run_case_result_updated_after_completion" : "run_case_result_updated", entityType: "run_case_snapshot", entityId: id, projectId, after: { status, actualResult, notes, executedAt, assigneeId } });
+    const updatedRows = await db.query<Record<string, unknown>>(
+      "SELECT id, title, status, actual_result, notes, assignee_id, executed_at, version, excluded_at FROM run_case_snapshots WHERE id = ? LIMIT 1",
+      [id],
+    );
+    const updated = updatedRows[0];
+    if (!updated) throw notFound();
+    return {
+      ok: true,
+      runCase: {
+        id: updated.id,
+        title: updated.title,
+        status: updated.status,
+        actual_result: updated.actual_result,
+        notes: updated.notes,
+        assignee_id: updated.assignee_id,
+        executed_at: updated.executed_at,
+        version: Number(updated.version),
+        excluded_at: updated.excluded_at,
+      },
+    };
+  });
+
+  app.patch("/api/run-scenarios/:id", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = routeParam(request);
+    const parentStatus = await ensureSnapshotProject(db, "run_scenario_snapshots", id, projectId);
+    if (!isRunMutable(parentStatus)) throw badRequest("完了した実行の結果は変更できません。");
+    const version = versionValue(input.version);
+    const assigneeId = stringValue(input.assigneeId, "assigneeId", 100) || null;
+    await validateAssignee(db, projectId, assigneeId);
+    const result = await db.execute(
+      `UPDATE run_scenario_snapshots s JOIN test_runs r ON r.id = s.test_run_id SET s.assignee_id = ?, s.version = s.version + 1
+       WHERE s.id = ? AND s.version = ? AND s.excluded_at IS NULL AND r.project_id = ? AND r.status <> 'completed' AND r.deleted_at IS NULL`,
+      [assigneeId, id, version, projectId],
+    );
+    if (Number(result.affectedRows) !== 1) throw conflict();
+    await writeAudit(db, request, actor, { action: "run_scenario_assignment_updated", entityType: "run_scenario_snapshot", entityId: id, projectId, after: { assigneeId } });
+    return { ok: true };
+  });
+
+  app.delete("/api/test-runs/:id", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const reason = stringValue(input.reason, "reason", 500, true);
+    const result = await db.execute("UPDATE test_runs SET deleted_at = UTC_TIMESTAMP(6), deleted_by = ?, delete_reason = ?, version = version + 1 WHERE id = ? AND project_id = ? AND deleted_at IS NULL", [actor.id, reason, routeParam(request), projectId]);
+    if (Number(result.affectedRows) !== 1) throw notFound();
+    await writeAudit(db, request, actor, { action: "run_deleted", entityType: "test_run", entityId: routeParam(request), projectId, after: { reason } });
+    return { ok: true };
+  });
+
+  app.post("/api/test-runs/:id/restore", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = routeParam(request);
+    const result = await db.execute("UPDATE test_runs SET deleted_at = NULL, deleted_by = NULL, delete_reason = NULL, version = version + 1 WHERE id = ? AND project_id = ? AND deleted_at >= DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 30 DAY)", [id, projectId]);
+    if (Number(result.affectedRows) !== 1) throw badRequest("復元期限を過ぎているか、対象が見つかりません。");
+    await writeAudit(db, request, actor, { action: "run_restored", entityType: "test_run", entityId: id, projectId });
+    return { ok: true };
+  });
+}
+

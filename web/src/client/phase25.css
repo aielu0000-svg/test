@@ -1,0 +1,84 @@
+.segmented { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
+.segmented button.active, .image-toolbar button.active { color: #fff; border-color: #17498e; background: #17498e; }
+.ordered-row, .data-link-row, .trash-row, .scenario-result-row { display: grid; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.ordered-row { grid-template-columns: minmax(180px, 1fr) auto auto auto; }
+.data-link-row { grid-template-columns: 130px minmax(180px, 1fr) minmax(180px, 1fr) auto; }
+.trash-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+.trash-groups > section { border: 1px solid #dfe5ee; border-radius: 10px; padding: .8rem; }
+.trash-row { grid-template-columns: minmax(0, 1fr) auto; border-top: 1px solid #e5e9f0; padding: .6rem 0; }
+.trash-row div { display: grid; gap: .2rem; }
+.trash-row small { color: #778195; }
+.selection-three { grid-template-columns: repeat(3, 1fr); }
+.run-create-form { border-bottom: 1px solid #e1e6ef; margin-bottom: 1rem; padding-bottom: 1rem; }
+.run-metadata { margin-bottom: 1rem; }
+.result-row-v2 { grid-template-columns: minmax(150px, 1fr) 125px minmax(210px, 1.4fr) 170px 180px 70px; }
+.scenario-result-row { grid-template-columns: minmax(180px, 1fr) 140px 190px 75px; padding: .65rem; border: 1px solid #e0e5ee; border-radius: 9px; }
+.save-state { color: #66758b; text-align: right; }
+.save-state.saved { color: #207541; }
+.save-state.error { color: #b42318; }
+.evidence-actions { display: flex; gap: .4rem; padding: 0 .65rem .65rem; }
+.image-editor-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(13, 25, 45, .78); }
+.image-editor { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; width: min(1400px, 98vw); height: min(900px, 96vh); padding: 1rem; border-radius: 12px; background: #fff; box-shadow: 0 24px 80px rgba(0, 0, 0, .35); }
+.image-toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding-bottom: .75rem; }
+.image-toolbar label { display: flex; align-items: center; gap: .35rem; }
+.image-toolbar input[type="color"] { width: 42px; padding: 2px; }
+.canvas-stage { overflow: auto; display: grid; place-items: center; min-height: 300px; border: 1px solid #cad3df; border-radius: 8px; background: #eef1f6; }
+.canvas-stage canvas { max-width: 100%; max-height: 100%; touch-action: none; background: white; }
+@media (max-width: 1100px) {
+  .result-row-v2, .scenario-result-row { grid-template-columns: 1fr 130px; }
+  .result-row-v2 textarea, .result-row-v2 input, .result-row-v2 select:nth-of-type(2), .result-row-v2 small { grid-column: 1 / -1; }
+  .selection-three { grid-template-columns: 1fr; }
+}
+@media (max-width: 650px) {
+  .ordered-row, .data-link-row { grid-template-columns: 1fr; }
+  .trash-groups { grid-template-columns: 1fr; }
+}
+.run-workflow { display: grid; grid-template-columns: minmax(240px, 290px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.run-workflow-sidebar { position: sticky; top: .75rem; padding: 1rem; max-height: calc(100vh - 11rem); overflow: auto; }
+.run-workflow-sidebar > .primary { width: 100%; margin-bottom: .75rem; }
+.run-workflow-main { padding: 1rem; min-width: 0; }
+.run-preparation { display: grid; gap: 1rem; max-width: 1000px; }
+.run-preparation > label { display: grid; gap: .35rem; font-weight: 700; }
+.run-preparation fieldset { border: 1px solid #dfe5ee; border-radius: 9px; padding: 1rem; }
+.run-advanced { margin-top: 1rem; border-top: 1px solid #dfe5ee; padding-top: .75rem; }
+.focused-run { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 1rem; }
+.focused-run-list { display: grid; align-content: start; gap: .4rem; }
+.focused-run-list > button { display: grid; gap: .2rem; padding: .7rem; text-align: left; background: #fff; border: 1px solid #dfe5ee; border-radius: 8px; }
+.focused-run-list > button.active { background: #edf3ff; border-color: #79a2ff; }
+.focused-run-list small { color: #667085; }
+.focused-run-progress { margin-bottom: .5rem; }
+.focused-run-progress > div { height: 8px; margin-top: .45rem; overflow: hidden; border-radius: 999px; background: #e7ebf1; }
+.focused-run-progress span { display: block; height: 100%; background: #2f6fed; transition: width .2s ease; }
+.focused-run-case { display: grid; gap: 1rem; min-width: 0; }
+.focused-run-case > label { display: grid; gap: .35rem; font-weight: 700; }
+.focused-run-case textarea { min-height: 6rem; resize: vertical; }
+.run-instructions { display: grid; gap: .5rem; padding: .8rem; color: #294d97; background: #f0f5ff; border: 1px solid #cad9ff; border-radius: 9px; }
+.run-instructions > div { display: grid; grid-template-columns: auto 1fr; gap: .25rem .6rem; }
+.run-instructions p { margin: 0; white-space: pre-wrap; }
+.run-result-status { border: 0; padding: 0; }
+.run-result-status legend { margin-bottom: .5rem; font-weight: 800; }
+.run-result-status > div { display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)); gap: .45rem; }
+.run-result-status button { padding: .7rem .45rem; }
+.run-result-status button.selected { color: #1f55bd; background: #edf4ff; border-color: #2f6fed; font-weight: 800; }
+.focused-run-actions { display: flex; justify-content: space-between; gap: .75rem; padding-top: .75rem; border-top: 1px solid #dfe5ee; }
+.focused-run-actions > div { display: flex; gap: .5rem; }
+.run-empty { padding: 2rem; text-align: center; }
+@media (max-width: 980px) {
+  .run-workflow, .focused-run { grid-template-columns: 1fr; }
+  .run-workflow-sidebar { position: static; max-height: none; }
+  .focused-run-list { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .focused-run-progress { grid-column: 1 / -1; }
+}
+@media (max-width: 650px) {
+  .run-result-status > div { grid-template-columns: repeat(2, 1fr); }
+  .focused-run-actions { align-items: stretch; flex-direction: column; }
+  .focused-run-actions > div { flex-wrap: wrap; }
+}
+
+.evidence-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .6rem; align-items: center; margin: .75rem 0; }
+.evidence-progress progress { width: 100%; height: .8rem; }
+.evidence-progress span { min-width: 3rem; color: #44546a; text-align: right; font-variant-numeric: tabular-nums; }
+.run-reference-images { display: grid; gap: .5rem; }
+.run-reference-images h3 { margin: 0; font-size: 1rem; }
+.run-reference-images > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .6rem; }
+.run-reference-images img { width: 100%; max-height: 220px; object-fit: contain; border: 1px solid #dfe5ee; border-radius: 8px; background: #f7f8fa; }

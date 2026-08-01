@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: the-test-backups
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 150Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: the-test-operations
+data:
+  backup.sh: |
+    #!/bin/sh
+    set -eu
+    generation="$(date -u +%Y%m%dT%H%M%SZ)"
+    temporary="/backups/.${generation}.creating"
+    destination="/backups/${generation}"
+    mkdir -p "${temporary}"
+    mariadb-dump --single-transaction --skip-lock-tables --host="${DB_HOST}" --port="${DB_PORT}" --user="${DB_USER}" --password="${DB_PASSWORD}" "${DB_NAME}" > "${temporary}/database.sql"
+    tar -C /evidence -czf "${temporary}/evidence.tar.gz" .
+    (cd "${temporary}" && sha256sum database.sql evidence.tar.gz > SHA256SUMS)
+    mv "${temporary}" "${destination}"
+    find /backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort -r | awk 'NR > 3' | while IFS= read -r expired; do
+      case "${expired}" in
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) rm -rf -- "/backups/${expired}" ;;
+      esac
+    done
+  purge.sql: |
+    START TRANSACTION;
+    DELETE FROM import_previews WHERE expires_at < UTC_TIMESTAMP(6);
+    DELETE FROM sessions WHERE expires_at < UTC_TIMESTAMP(6);
+    DELETE FROM audit_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 365 DAY);
+    COMMIT;
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: the-test-daily-backup
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: backup
+              image: mariadb:11.4
+              command: ["/bin/sh", "/operations/backup.sh"]
+              envFrom:
+                - configMapRef: { name: the-test-config }
+                - secretRef: { name: the-test-db }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: operations, mountPath: /operations }
+                - { name: evidence, mountPath: /evidence, readOnly: true }
+                - { name: backups, mountPath: /backups }
+          volumes:
+            - { name: operations, configMap: { name: the-test-operations, defaultMode: 365 } }
+            - { name: evidence, persistentVolumeClaim: { claimName: the-test-evidence } }
+            - { name: backups, persistentVolumeClaim: { claimName: the-test-backups } }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: the-test-daily-purge
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: purge
+              image: mariadb:11.4
+              command: ["/bin/sh", "-c", "mariadb --host=\"$DB_HOST\" --port=\"$DB_PORT\" --user=\"$DB_USER\" --password=\"$DB_PASSWORD\" \"$DB_NAME\" < /operations/purge.sql"]
+              envFrom:
+                - configMapRef: { name: the-test-config }
+                - secretRef: { name: the-test-db }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: operations, mountPath: /operations }
+          volumes:
+            - { name: operations, configMap: { name: the-test-operations, defaultMode: 365 } }

@@ -1,0 +1,350 @@
+openapi: 3.0.3
+info:
+  title: ザ・テスト Web API
+  version: 1.0.0
+  description: 確定仕様書 v1.0.0 Phase 1〜5 API。日時はUTCで保存し、画面ではJST表示する。
+servers:
+  - url: /
+security:
+  - sessionCookie: []
+tags:
+  - { name: auth }
+  - { name: projects }
+  - { name: definitions }
+  - { name: runs }
+  - { name: evidence }
+  - { name: procedures }
+  - { name: imports }
+  - { name: exports }
+paths:
+  /healthz:
+    get:
+      security: []
+      responses: { '200': { description: Liveness OK } }
+  /readyz:
+    get:
+      security: []
+      responses:
+        '200': { description: Ready }
+        '503': { description: Dependency unavailable }
+  /api/auth/login:
+    post:
+      security: []
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, maxLength: 100 }
+                password: { type: string, minLength: 4, maxLength: 128 }
+      responses:
+        '200': { description: Login succeeded }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/auth/me:
+    get:
+      tags: [auth]
+      responses: { '200': { description: Current user }, '401': { $ref: '#/components/responses/Unauthorized' } }
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      responses: { '200': { description: Logout succeeded } }
+  /api/projects:
+    get:
+      tags: [projects]
+      responses: { '200': { description: Visible project list } }
+    post:
+      tags: [projects]
+      responses: { '200': { description: Project created }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /api/test-cases:
+    get:
+      tags: [definitions]
+      parameters:
+        - { $ref: '#/components/parameters/projectId' }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: folderId, in: query, schema: { type: string, format: uuid } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: priority, in: query, schema: { $ref: '#/components/schemas/Priority' } }
+      responses: { '200': { description: Test case page } }
+    post:
+      tags: [definitions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TestCaseWrite' }
+      responses: { '200': { description: Test case created }, '403': { $ref: '#/components/responses/Forbidden' } }
+  /api/test-cases/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Test case detail } }
+    patch:
+      tags: [definitions]
+      responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [definitions]
+      responses: { '200': { description: Soft deleted } }
+  /api/test-cases/bulk:
+    post:
+      tags: [definitions]
+      responses: { '200': { description: Multiple test cases created atomically } }
+  /api/folders:
+    get:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Folder tree } }
+    post:
+      tags: [definitions]
+      responses: { '200': { description: Folder created } }
+  /api/scenarios:
+    get:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Scenario page } }
+    post:
+      tags: [definitions]
+      responses: { '200': { description: Scenario created } }
+  /api/scenarios/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Scenario detail } }
+    patch:
+      tags: [definitions]
+      responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [definitions]
+      responses: { '200': { description: Soft deleted } }
+  /api/data-sets:
+    get:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Data-set page } }
+    post:
+      tags: [definitions]
+      responses: { '200': { description: Data set created } }
+  /api/data-sets/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Data-set detail } }
+    patch:
+      tags: [definitions]
+      responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [definitions]
+      responses: { '200': { description: Soft deleted } }
+  /api/markdown/render:
+    post:
+      tags: [definitions]
+      responses: { '200': { description: Sanitized GFM HTML } }
+  /api/project-assignees:
+    get:
+      tags: [runs]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Enabled administrators and assigned project users } }
+  /api/test-runs:
+    get:
+      tags: [runs]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Test-run page } }
+    post:
+      tags: [runs]
+      responses: { '200': { description: Draft run created } }
+  /api/test-runs/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [runs]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Run, normalized snapshots, revisions and statistics } }
+    patch:
+      tags: [runs]
+      description: draftからin_progressで正規化スナップショットを作成する。
+      responses: { '200': { description: Run updated }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [runs]
+      responses: { '200': { description: Soft deleted } }
+  /api/test-runs/{id}/revisions:
+    post:
+      tags: [runs]
+      description: 開始後または完了後に対象を追加・除外して改訂を作成する。
+      responses: { '200': { description: Revision created } }
+  /api/run-cases/{id}:
+    patch:
+      tags: [runs]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      description: fail、blocked、skipではactualResult必須。versionで楽観ロックする。
+      responses: { '200': { description: Result saved }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/run-scenarios/{id}:
+    patch:
+      tags: [runs]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Scenario result saved }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/evidence:
+    get:
+      tags: [evidence]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Evidence metadata page } }
+    post:
+      tags: [evidence]
+      parameters:
+        - { $ref: '#/components/parameters/projectId' }
+        - { name: runCaseSnapshotId, in: query, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                description: { type: string }
+      responses: { '200': { description: Streamed to PVC with SHA-256 } }
+  /api/evidence/{id}/download:
+    get:
+      tags: [evidence]
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { name: version, in: query, schema: { type: integer, minimum: 1 } }
+      responses: { '200': { description: Authorized evidence stream } }
+  /api/evidence/{id}:
+    delete:
+      tags: [evidence]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Soft deleted } }
+  /api/evidence/{id}/versions:
+    post:
+      tags: [evidence]
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/projectId' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties: { file: { type: string, format: binary } }
+      responses: { '200': { description: Immutable canvas-edited image version } }
+  /api/evidence/{id}/image-versions:
+    post:
+      tags: [evidence]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Immutable edited image version } }
+  /api/procedures:
+    get:
+      tags: [procedures]
+      parameters: [{ $ref: '#/components/parameters/projectId' }]
+      responses: { '200': { description: Procedure list } }
+    post:
+      tags: [procedures]
+      responses: { '200': { description: Markdown procedure created } }
+  /api/procedures/{id}:
+    get:
+      tags: [procedures]
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/projectId' }
+      responses: { '200': { description: Source and sanitized HTML } }
+    patch:
+      tags: [procedures]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Immutable new procedure version } }
+  /api/imports/excel/template:
+    get:
+      tags: [imports]
+      responses: { '200': { description: Official xlsx template } }
+  /api/imports/excel/preview:
+    post:
+      tags: [imports]
+      responses: { '200': { description: Excel validation preview } }
+  /api/imports/excel/{id}/confirm:
+    post:
+      tags: [imports]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Preview confirmed atomically } }
+  /api/imports/json/preview:
+    post:
+      tags: [imports]
+      responses: { '200': { description: schema_version 1.0.0 validation preview } }
+  /api/imports/json/{id}/confirm:
+    post:
+      tags: [imports]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Formal JSON import confirmed } }
+  /api/projects/{id}/export:
+    get:
+      tags: [exports]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Formal schema_version 1.0.0 JSON including snapshots and evidence manifest } }
+  /api/projects/{id}/export.csv:
+    get:
+      tags: [exports]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: UTF-8 CSV } }
+  /api/projects/{id}/export.md:
+    get:
+      tags: [exports]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Markdown export } }
+  /api/projects/{id}/export.xlsx:
+    get:
+      tags: [exports]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: Multi-sheet Excel export } }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: the_test_session
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    projectId:
+      name: projectId
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Priority:
+      type: string
+      enum: [high, medium, low]
+    TestCaseWrite:
+      type: object
+      required: [projectId, title, steps]
+      properties:
+        projectId: { type: string, format: uuid }
+        title: { type: string, maxLength: 500 }
+        objective: { type: string }
+        preconditions: { type: string }
+        viewLocation: { type: string }
+        priority: { $ref: '#/components/schemas/Priority' }
+        tags: { type: array, items: { type: string, maxLength: 100 } }
+        folderIds: { type: array, items: { type: string, format: uuid } }
+        steps:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [action, expected]
+            properties:
+              action: { type: string }
+              expected: { type: string }
+  responses:
+    BadRequest: { description: Invalid request }
+    Unauthorized: { description: Authentication required }
+    Forbidden: { description: Permission denied }
+    Conflict: { description: Optimistic-lock conflict }
