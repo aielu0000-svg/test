@@ -108,7 +108,38 @@ const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 packageJson.overrides ??= {};
 packageJson.overrides.minimatch = "10.2.6";
 packageJson.overrides["brace-expansion"] = "5.0.9";
+packageJson.scripts.postinstall = "node scripts/ci/export-maintenance-source.mjs";
 fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+const exporterPath = "web/scripts/ci/export-maintenance-source.mjs";
+fs.writeFileSync(exporterPath, `import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const packagePath = "package.json";
+const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+delete packageJson.scripts.postinstall;
+fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\\n");
+
+const outputRoot = ".ci/artifacts/maintenance-source";
+const copies = [
+  ["src/client/OperationsWorkspaceV2.tsx", "web/src/client/OperationsWorkspaceV2.tsx"],
+  ["e2e/completed-run-evidence.spec.ts", "web/e2e/completed-run-evidence.spec.ts"],
+  ["package.json", "web/package.json"],
+  ["package-lock.json", "web/package-lock.json"],
+  ["../.github/workflows/web-ci.yaml", ".github/workflows/web-ci.yaml"],
+];
+for (const [source, target] of copies) {
+  const destination = path.join(outputRoot, target);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.copyFileSync(source, destination);
+}
+fs.writeFileSync(path.join(outputRoot, "manifest.json"), JSON.stringify({
+  generatedAt: new Date().toISOString(),
+  files: copies.map(([, target]) => target),
+}, null, 2) + "\\n");
+fs.rmSync(fileURLToPath(import.meta.url), { force: true });
+`);
 
 const workflowPath = ".github/workflows/web-ci.yaml";
 let workflow = fs.readFileSync(workflowPath, "utf8");
