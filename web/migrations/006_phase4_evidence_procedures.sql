@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS evidence_files (
   INDEX idx_evidence_project (project_id, updated_at),
   INDEX idx_evidence_case (run_case_snapshot_id),
   INDEX idx_evidence_deleted (deleted_at)
-);
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS evidence_versions (
   id CHAR(36) PRIMARY KEY,
@@ -36,7 +38,9 @@ CREATE TABLE IF NOT EXISTS evidence_versions (
   CONSTRAINT fk_evidence_versions_creator FOREIGN KEY (created_by) REFERENCES users(id),
   UNIQUE KEY uq_evidence_version (evidence_file_id, version_no),
   INDEX idx_evidence_hash (sha256)
-);
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS procedure_documents (
   id CHAR(36) PRIMARY KEY,
@@ -54,7 +58,9 @@ CREATE TABLE IF NOT EXISTS procedure_documents (
   CONSTRAINT fk_procedures_creator FOREIGN KEY (created_by) REFERENCES users(id),
   INDEX idx_procedures_project (project_id, updated_at),
   INDEX idx_procedures_deleted (deleted_at)
-);
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS procedure_versions (
   id CHAR(36) PRIMARY KEY,
@@ -68,4 +74,6 @@ CREATE TABLE IF NOT EXISTS procedure_versions (
   CONSTRAINT fk_procedure_versions_document FOREIGN KEY (procedure_document_id) REFERENCES procedure_documents(id),
   CONSTRAINT fk_procedure_versions_creator FOREIGN KEY (created_by) REFERENCES users(id),
   UNIQUE KEY uq_procedure_version (procedure_document_id, version_no)
-);
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
