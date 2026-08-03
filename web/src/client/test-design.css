@@ -81,3 +81,45 @@
   .design-wide-field { grid-column: auto; }
   .design-welcome { align-items: flex-start; flex-direction: column; }
 }
+
+/* Explorer-like folder navigation */
+.design-browser-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: center; padding: .75rem 1rem .45rem; }
+.design-browser-tools .design-search { width: 100%; margin: 0; }
+.design-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; min-height: 2rem; padding: 0 1rem .55rem; color: #667085; font-size: .78rem; }
+.design-breadcrumb span { display: inline-flex; align-items: center; gap: .25rem; min-width: 0; }
+.design-breadcrumb button { max-width: 10rem; overflow: hidden; padding: .15rem .25rem; border: 0; background: transparent; color: #315ca8; text-overflow: ellipsis; white-space: nowrap; }
+.design-selection-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem; align-items: center; margin: 0 .75rem .55rem; padding: .55rem; border: 1px solid #b8cdf4; border-radius: 8px; background: #f4f7ff; }
+.design-selection-toolbar strong { font-size: .82rem; }
+.design-selection-toolbar select { min-width: 0; }
+.design-selection-toolbar button { min-width: 0; }
+.design-tree-root { outline: none; border: 2px solid transparent; border-radius: 8px; }
+.design-tree-root.drop-target { border-color: #376fd0; background: #edf3ff; }
+.explorer-row { position: relative; min-width: 0; border: 1px solid transparent; cursor: default; user-select: none; }
+.explorer-row.selected { background: #dce8ff; border-color: #9bb8ec; }
+.explorer-row.active { outline: 2px solid #376fd0; outline-offset: -2px; }
+.explorer-row.opened::after { position: absolute; inset: 5px auto 5px 0; width: 3px; border-radius: 2px; background: #2458a6; content: ""; }
+.explorer-row.drop-target { border-color: #2458a6; background: #d9e8ff; box-shadow: inset 0 0 0 1px #2458a6; }
+.design-folder-row { grid-template-columns: auto auto minmax(0, 1fr) auto; padding-right: .25rem; }
+.design-folder-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.design-folder-toggle, .design-row-menu { display: inline-grid; place-items: center; width: 1.75rem; min-width: 1.75rem; height: 1.75rem; padding: 0; border: 0; border-radius: 5px; background: transparent; }
+.design-folder-toggle:hover, .design-row-menu:hover { background: rgba(40, 74, 130, .12); }
+.design-test-row { grid-template-columns: auto minmax(0, 1fr) auto; gap: .45rem; padding: .38rem .25rem .38rem .45rem; }
+.design-test-row:hover { background: #f1f5fb; }
+.design-test-row.selected { background: #dce8ff; }
+.design-test-label { display: grid; min-width: 0; }
+.design-test-label strong, .design-test-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.design-inline-name { width: 100%; min-width: 0; padding: .2rem .35rem; }
+.design-inline-create { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .3rem; align-items: center; padding-top: .25rem; padding-right: .25rem; padding-bottom: .25rem; }
+.design-keyboard-help { margin: .25rem .9rem .85rem; color: #667085; font-size: .72rem; line-height: 1.45; }
+.design-context-menu { position: fixed; z-index: 1200; display: grid; min-width: 13rem; max-width: min(20rem, calc(100vw - 1rem)); padding: .35rem; border: 1px solid #ccd5e2; border-radius: 9px; background: #fff; box-shadow: 0 12px 30px rgba(15, 23, 42, .22); }
+.design-context-menu button { justify-content: flex-start; width: 100%; border: 0; background: transparent; text-align: left; }
+.design-context-menu button:hover { background: #edf3ff; }
+.design-context-menu button.danger:hover { background: #fff0f0; }
+.design-modal-backdrop { position: fixed; z-index: 1300; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(15, 23, 42, .45); }
+.design-delete-dialog { display: grid; gap: .8rem; width: min(32rem, 100%); padding: 1.15rem; border-radius: 12px; background: #fff; box-shadow: 0 20px 55px rgba(15, 23, 42, .3); }
+.design-delete-dialog h3, .design-delete-dialog p { margin: 0; }
+.design-delete-dialog label { display: grid; gap: .3rem; }
+
+@media (max-width: 900px) {
+  .design-selection-toolbar { grid-template-columns: 1fr; }
+}
