@@ -1,25 +1,31 @@
 # Open Issues
 
-## P1
+## Product issues
 
-- [ ] ISSUE-20260801-008 / ISSUE-20260803-009: 分割済みE2Eの実Chromium本走
-  - 影響: 機能別specの実ブラウザ、DB、監査ログ、API応答の最終確認が未完了。
-  - 現状: 9 spec・10テストを検出済み。認証情報未設定ではskipせず明示的に失敗する。
-  - 暫定回避: E2E_USERNAME、E2E_PASSWORDを設定した隔離環境で実行する。
-  - 完了条件: 全spec成功、DB/監査ログ/API応答を直接確認し、失敗成果物を記録する。
+現在、Review 9およびP2フォルダ操作に属する未解決の製品不具合はない。
 
-- [ ] ISSUE-20260803-004 / ISSUE-20260803-007 / ISSUE-20260803-008: 失敗注入による最終API確認
-  - 影響: 画像削除失敗、形式別PNG再エンコード、全種類の部分破損DBの実環境確認が残る。
-  - 暫定回避: pending/failed状態と起動時構造検証により安全側で停止・再試行する。
-  - 完了条件: FS/DB失敗、JPEG/WebP/SVG/破損画像、各構造破損パターンを実MariaDB/APIで確認する。
+## Additional hardening candidates
 
-## P2
+以下は既知の不具合ではなく、追加の堅牢化候補として管理する。
 
-- [ ] ISSUE-20260801-009: フォルダのエクスプローラー操作化
-  - 影響: 右クリック、インライン名前変更、キーボード、複数選択/移動、パンくず、ドラッグ操作がない。
-  - 対象外理由: Review 9で明示的に別タスクとされた。
-  - 注記: アップロード上限の表示は対応済みであり、本課題には含めない。
+- OS権限を操作したファイル削除失敗の強制注入
+  - 現在の実装は回収失敗を構造化ログへ記録し、黙って成功扱いにしない。
+- JPEG、WebP、SVG、破損画像を組み合わせた形式別API試験の拡張
+  - Sharpによる実体検証、PNG再エンコード、SVG・破損画像拒否は実装済み。
+- 全種類の部分破損DBを対象とするスキーマ検証試験の拡張
+  - 型、NULL、default、索引順、FK、ON DELETEの構造検証は実装済み。
+- GitHub公式ActionのNode.js 20ランタイム廃止警告への追随
+  - アプリ自体はNode.js 20.20.0で検証済み。Actionの次期メジャー版公開後に更新する。
 
-## Review state
+## Completed verification
 
-- 外部read-onlyレビューはCodex CLIで2回試行したが、判定前にタイムアウトした。ユーザー指示により再試行を中止し、外部レビューのok判定は未取得である。ローカルテストの代替として扱わない。
+- Review 9: GitHub Actions run `30804989151`
+  - TypeCheck、Unit/API 29件、MariaDB統合2件、Build、Web起動、Chromium E2E 11件が成功。
+- P2フォルダ操作: GitHub Actions run `30808270002`
+  - TypeCheck、Unit/API 32件、MariaDB統合2件、Build、Web起動、Chromium E2E 12件が成功。
+  - 右クリック、F2、キーボード、複数選択・移動、パンくず、DnD、循環移動防止、削除理由入力を確認。
+
+## Review policy
+
+- 本環境では`codex-review`を使用しない。
+- ローカル差分確認、仕様照合、静的解析、自動テスト、実MariaDB・Chromiumを使う独立CIを代替レビューとする。
