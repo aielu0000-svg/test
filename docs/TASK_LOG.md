@@ -138,8 +138,9 @@ GitHub Actions run `30799180203`:
 ## TASK-20260803-003: Review 9残件修正と完了確認
 
 - 開始日時: 2026-08-03 19:04 JST
+- 完了日時: 2026-08-03 19:20 JST
 - 対応課題: ISSUE-20260803-003, ISSUE-20260803-004, ISSUE-20260803-005, ISSUE-20260803-007, ISSUE-20260803-009, ISSUE-20260803-011
-- 状態: In Verification
+- 状態: Completed
 
 ### 作業前の状態
 
@@ -177,16 +178,28 @@ GitHub Actions run `30799180203`:
 - `docs/ISSUE_LEDGER.md`
 - `docs/TASK_LOG.md`
 
-### 検証
+### 独立検証結果
 
-- TypeCheck: GitHub Actions実行待ち
-- Unit/API: GitHub Actions実行待ち
-- MariaDB統合: GitHub Actions実行待ち
-- Build: GitHub Actions実行待ち
-- Chromium E2E: GitHub Actions実行待ち
-- DB・監査ログ: GitHub Actions成果物で確認予定
+GitHub Actions run `30804989151`:
 
-### 残るリスク
+- TypeCheck: 成功
+- Unit/API: 29件成功
+  - 単調versionマージ単体テスト3件を含む
+- MariaDB統合: 2件成功
+  - 新規・補修MigrationとAPI統合
+  - DB既定照合順序差異の再発防止
+- Build: 成功
+- Web起動・readiness: 成功
+- Chromium E2E: 11件成功
+  - 409競合時の再読込・入力コピー・差分確認を含む
+- DBダンプ: 保存成功
+- 監査ログ・テーブル件数: 保存成功
+- Playwright HTMLレポート: 保存成功
+- Artifact: `web-ci-30804989151-1`（ID `8852421312`）
 
-- GitHub Actionsの最新runが成功するまではReview 9完了判定を行わない。
+### 結果
+
+- Review 9の対象課題はすべて実装・独立検証済みとして完了した。
 - フォルダのエクスプローラー操作はReview 9対象外のP2として継続する。
+- OS権限によるファイル削除失敗の強制注入は、追加の堅牢化候補として残す。現在の実装は回収失敗を構造化ログへ記録し、黙って成功扱いにしない。
+- GitHub Actionsの一部公式ActionについてNode.js 20ランタイム廃止警告がある。アプリ自体はNode.js 20.20.0で検証済みだが、Actionの次期メジャー版への更新は運用保守項目とする。
