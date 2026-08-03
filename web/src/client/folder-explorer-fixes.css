@@ -1,7 +1,3 @@
-.design-selection-toolbar {
-  display: none !important;
-}
-
 .design-browser:has(.design-modal-backdrop) {
   z-index: 2000;
   overflow: visible;
