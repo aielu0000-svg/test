@@ -1,16 +1,6 @@
 import { useState } from "react";
 import "./operations.css";
-
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: init.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...(init.headers ?? {}) },
-    ...init,
-  });
-  const payload = await response.json().catch(() => ({})) as { error?: { message?: string } };
-  if (!response.ok) throw new Error(payload.error?.message ?? "通信に失敗しました。");
-  return payload as T;
-}
+import { request } from "./api.js";
 
 export function ExportPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const [content, setContent] = useState("");
