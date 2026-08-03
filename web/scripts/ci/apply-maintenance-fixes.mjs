@@ -62,9 +62,9 @@ fs.writeFileSync(sourcePath, source);
 
 const e2ePath = "web/e2e/completed-run-evidence.spec.ts";
 fs.writeFileSync(e2ePath, `import { expect, test } from "@playwright/test";
-import { archiveProject, assertE2EConfiguration, completeRun, createStartedRun, savePass, unique } from "./helpers";
+import { archiveProject, assertE2EConfiguration, completeRun, createStartedRun, savePass, unique } from "./helpers.js";
 
-test.beforeAll(assertE2EConfiguration);
+test.beforeEach(() => assertE2EConfiguration());
 
 test("完了済み実行を切り替えても以前の実行ケースで証跡を取得しない", async ({ page }) => {
   const first = await createStartedRun(page);
@@ -105,8 +105,9 @@ test("完了済み実行を切り替えても以前の実行ケースで証跡�
 
 const packagePath = "web/package.json";
 const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-delete packageJson.overrides?.minimatch;
-delete packageJson.overrides?.["brace-expansion"];
+packageJson.overrides ??= {};
+packageJson.overrides.minimatch = "10.2.6";
+packageJson.overrides["brace-expansion"] = "5.0.9";
 fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
 const workflowPath = ".github/workflows/web-ci.yaml";
