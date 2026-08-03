@@ -421,7 +421,7 @@ GitHub Actions run `30844134585`:
   - テスト一覧への表示
   - テスト名・確認項目名・個別テストデータ・共通データの復元
 - DBダンプ、監査ログ、テーブル件数、Playwright成果物: 保存成功
-- Artifact: `web-ci-30844134585-1`（ID `8868021343`、SHA256 `a476286d2d7a1f62aaeee4f1a5c7d0be68fd7e3439b7d25a68b41997057c3cb0`）
+- Artifact: `web-ci-30844134585-1`（ID `8868021343`、SHA256 `a476286d2d7a1f62aaeee4f1a5c7d0be68b41997057c3cb0`）
 
 ### 結果
 
@@ -493,4 +493,85 @@ GitHub Actions run `30848395288`:
 - 完了済み実行の閲覧時に、別実行のケースIDを使った証跡API要求が発生しなくなった。
 - 依存関係のhigh severity vulnerabilityを解消し、将来の再発時はCIが失敗するようになった。
 - ISSUE-20260804-005とISSUE-20260804-006を`Verified`へ変更した。
+- PR #2はDraft・未マージのまま維持した。
+
+## TASK-20260804-004: Docker MariaDBパスワード設定
+
+- 開始日時: 2026-08-04 06:04 JST
+- 完了日時: 2026-08-04 06:15 JST
+- 対応課題: ISSUE-20260804-007
+- 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`
+- 担当: ChatGPT
+- 状態: Completed
+
+### 作業前の状態
+
+- 発生していた現象: DockerでMariaDBを再起動した際、アプリ側が空のDBパスワードで接続する構成となり、アプリを起動できなかった。
+- 再現手順: 作成済みMariaDBボリュームを残したままコンテナを再起動し、DB接続設定を確認する。
+- 期待動作: MariaDBのrootユーザーとアプリ用ユーザーに非空パスワードが設定され、アプリも同じパスワードを使用する。
+- 実際の動作: ローカルDocker用の統一Compose設定がなく、`DB_PASSWORD`未設定時はアプリが空文字を使用できた。
+- 関連ログ: MariaDB 11.4.12が3306番ポートでreadyになったログ。ログ自体は認証方式を示さないが、接続設定の不一致を調査する契機となった。
+
+### 調査内容
+
+- 確認したファイル: `web/src/server/config.ts`、`web/src/server/server.ts`、`web/Dockerfile`、`.github/workflows/web-ci.yaml`、`web/README.md`。
+- 確認したDB: GitHub ActionsのMariaDB 11.4サービス。
+- 確定原因:
+  - ローカル起動用にMariaDBとWebアプリへ同一資格情報を渡すCompose設定がなかった。
+  - アプリ設定が`DB_PASSWORD`未設定時に空文字を既定値としていた。
+  - MariaDB公式イメージの初期化環境変数は、既に初期化済みのデータボリュームへ再適用されない。
+
+### 実施内容
+
+- 変更ファイル:
+  - `compose.yaml`
+  - `.env.example`
+  - `.gitignore`
+  - `web/README.md`
+  - `web/package.json`
+  - `web/scripts/configure-local-mariadb-password.mjs`
+  - `web/src/server/config.ts`
+  - `web/src/server/config.test.ts`
+  - `web/src/server/server.ts`
+  - `.github/workflows/web-ci.yaml`
+  - `docs/ISSUE_LEDGER.md`
+  - `docs/OPEN_ISSUES.md`
+  - `docs/TASK_LOG.md`
+- DB変更: スキーマ変更なし。既存ボリュームに対してrootとアプリ用ユーザーの認証情報を更新する運用コマンドを追加した。
+- Migration: なし。
+- API変更: なし。
+- UI変更: なし。
+- テスト追加: `DB_PASSWORD`未設定・空白拒否と設定値保持の単体テスト3件を追加した。
+- ドキュメント更新: 新規起動、既存ボリューム修復、破壊的な`down -v`の注意事項を記載した。
+
+### 作業中に発生したこと
+
+- GitHub ActionsのCompose検証では、`MARIADB_ROOT_PASSWORD`と既存CI用`DB_ROOT_PASSWORD`の環境変数名が異なり、Compose側だけローカル既定値を使用していた。
+- CIへ`MARIADB_ROOT_PASSWORD`を明示し、既存ボリューム修復スクリプトの`node --check`を追加して再検証した。
+- 既存ボリューム修復処理は、希望するrootパスワードまたは空パスワードで接続できる場合を対象とする。別の未知のrootパスワードが設定済みの場合は明示エラーで停止する。
+
+### 検証
+
+GitHub Actions run `30853941396`:
+
+- Docker Compose構文・展開: 成功
+- 既存ボリューム修復スクリプト構文: 成功
+- `npm ci`: 脆弱性0件
+- `npm audit --audit-level=high`: 脆弱性0件
+- TypeCheck: 成功
+- Unit Test: 40件成功、2件skip
+- Integration Test: MariaDB 2件成功
+- Build: 成功
+- E2E: Chromium 15件成功
+- Web起動・readiness: 成功
+- DB確認: パスワード付きCIユーザーでMigration、API、DBダンプ、監査ログ取得に成功
+- セキュリティ確認: DBポートとWebポートをlocalhostへ限定し、空の`DB_PASSWORD`を起動前に拒否することを確認
+- 手動確認: 利用者の既存ローカルボリューム上での修復コマンド実行は未実施
+
+### 結果
+
+- 新規Docker環境はMariaDBとWebアプリで同じ非空パスワードを使用する。
+- アプリは`DB_PASSWORD`が未設定または空の場合に起動を拒否する。
+- 作成済み無パスワードボリュームは、データを削除せず`npm run db:password`で修復できる手順を追加した。
+- 残るリスク: 利用者環境でrootに別の未知パスワードが既に設定されている場合、そのパスワードを指定する追加手順が必要。
 - PR #2はDraft・未マージのまま維持した。
