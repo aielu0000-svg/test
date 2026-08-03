@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { FolderExplorer, type ExplorerSelection } from "./FolderExplorer.js";
+import { folderDepth } from "./folderExplorerModel.js";
 import "./test-design.css";
 
 type Priority = "high" | "medium" | "low";
@@ -74,8 +76,6 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [savedAt, setSavedAt] = useState("");
   const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
-  const [folderName, setFolderName] = useState("");
   const [busy, setBusy] = useState(false);
   const [images, setImages] = useState<Record<string, string[]>>({});
   const [imageUploading, setImageUploading] = useState(false);
@@ -221,43 +221,26 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     } catch (error) { setMessage(errorText(error, "確認項目をコピーできませんでした。")); }
   }
 
-  async function createFolder(event: React.FormEvent) {
-    event.preventDefault(); if (!folderName.trim()) return;
+  async function createFolder(name: string, parentId: string | null) {
     try {
-      await request("/api/folders", { method: "POST", body: JSON.stringify({ projectId, name: folderName.trim() }) });
-      setFolderName(""); await onChanged();
-    } catch (error) { setMessage(errorText(error, "フォルダを作成できませんでした。")); }
-  }
-  async function renameFolder(folder: DesignFolder) {
-    const name = window.prompt("新しいフォルダ名", folder.name); if (!name?.trim()) return;
-    try { await request(`/api/folders/${folder.id}`, { method: "PATCH", body: JSON.stringify({ projectId, version: folder.version, name: name.trim() }) }); await onChanged(); }
-    catch (error) { setMessage(errorText(error, "フォルダ名を変更できませんでした。")); }
-  }
-  async function deleteFolder(folder: DesignFolder) {
-    const reason = window.prompt(`フォルダ「${folder.name}」の削除理由`); if (!reason?.trim()) return;
-    try { await request(`/api/folders/${folder.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason: reason.trim() }) }); await onChanged(); }
-    catch (error) { setMessage(errorText(error, "フォルダを削除できませんでした。")); }
-  }
-  async function moveFolder(folderId: string, parentId: string | null) {
-    const folder = folders.find((item) => item.id === folderId); if (!folder || folder.parentId === parentId) return;
-    try { await request(`/api/folders/${folder.id}`, { method: "PATCH", body: JSON.stringify({ projectId, version: folder.version, parentId }) }); await onChanged(); }
-    catch (error) { setMessage(errorText(error, "フォルダを移動できませんでした。")); }
-  }
-  async function moveScenario(id: string, folderId: string | null) {
-    const item = scenarios.find((scenario) => scenario.id === id); if (!item) return;
-    try {
-      const result = await request<{ scenario: { version: number; folderId: string | null } }>(`/api/scenarios/${id}`, { method: "PATCH", body: JSON.stringify({ projectId, version: item.version, folderId }) });
-      if (selectedScenarioId === id) { setScenarioFolderId(result.scenario.folderId ?? ""); setScenarioVersion(result.scenario.version); }
+      await request("/api/folders", { method: "POST", body: JSON.stringify({ projectId, name, parentId }) });
       await onChanged();
-    } catch (error) { setMessage(errorText(error, "テストを移動できませんでした。")); }
+    } catch (error) { setMessage(errorText(error, "フォルダを作成できませんでした。")); throw error; }
   }
-  async function renameScenario(item: DesignScenario) {
-    const nextTitle = window.prompt("新しいテスト名", item.title); if (!nextTitle?.trim()) return;
+  async function renameFolder(folder: DesignFolder, name: string) {
     try {
-      const result = await request<{ scenario: { version: number; title: string } }>(`/api/scenarios/${item.id}`, { method: "PATCH", body: JSON.stringify({ projectId, version: item.version, title: nextTitle.trim() }) });
+      await request(`/api/folders/${folder.id}`, { method: "PATCH", body: JSON.stringify({ projectId, version: folder.version, name }) });
+      await onChanged();
+    } catch (error) { setMessage(errorText(error, "フォルダ名を変更できませんでした。")); throw error; }
+  }
+  async function renameScenario(item: DesignScenario, nextTitle: string) {
+    try {
+      const result = await request<{ scenario: { version: number; title: string } }>(`/api/scenarios/${item.id}`, {
+        method: "PATCH", body: JSON.stringify({ projectId, version: item.version, title: nextTitle }),
+      });
       if (selectedScenarioId === item.id) { setTitle(result.scenario.title); setScenarioVersion(result.scenario.version); }
       await onChanged();
-    } catch (error) { setMessage(errorText(error, "テスト名を変更できませんでした。")); }
+    } catch (error) { setMessage(errorText(error, "テスト名を変更できませんでした。")); throw error; }
   }
   async function duplicateScenario(item: DesignScenario) {
     try {
@@ -265,15 +248,48 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
         method: "POST", body: JSON.stringify({ projectId, title: `${item.title} のコピー` }),
       });
       await onChanged(); await selectScenario(result.id);
-    } catch (error) { setMessage(errorText(error, "テストを複製できませんでした。")); }
+    } catch (error) { setMessage(errorText(error, "テストを複製できませんでした。")); throw error; }
   }
-  async function deleteScenario(item: DesignScenario) {
-    const reason = window.prompt(`テスト「${item.title}」の削除理由`); if (!reason?.trim()) return;
+  async function moveExplorerSelection(selection: ExplorerSelection, targetFolderId: string | null) {
     try {
-      await request(`/api/scenarios/${item.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason: reason.trim() }) });
-      if (selectedScenarioId === item.id) resetEditor();
+      for (const folder of selection.folders) {
+        if ((folder.parentId ?? null) === targetFolderId) continue;
+        await request(`/api/folders/${folder.id}`, {
+          method: "PATCH", body: JSON.stringify({ projectId, version: folder.version, parentId: targetFolderId }),
+        });
+      }
+      for (const item of selection.scenarios) {
+        if ((item.folderId ?? null) === targetFolderId) continue;
+        const result = await request<{ scenario: { version: number; folderId: string | null } }>(`/api/scenarios/${item.id}`, {
+          method: "PATCH", body: JSON.stringify({ projectId, version: item.version, folderId: targetFolderId }),
+        });
+        if (selectedScenarioId === item.id) { setScenarioFolderId(result.scenario.folderId ?? ""); setScenarioVersion(result.scenario.version); }
+      }
       await onChanged();
-    } catch (error) { setMessage(errorText(error, "テストを削除できませんでした。")); }
+      setMessage(`${selection.folders.length + selection.scenarios.length}件を移動しました。`);
+    } catch (error) {
+      await onChanged().catch(() => undefined);
+      setMessage(errorText(error, "選択項目を移動できませんでした。最新状態を再読み込みしました。"));
+      throw error;
+    }
+  }
+  async function deleteExplorerSelection(selection: ExplorerSelection, reason: string) {
+    try {
+      for (const item of selection.scenarios) {
+        await request(`/api/scenarios/${item.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason }) });
+        if (selectedScenarioId === item.id) resetEditor();
+      }
+      const foldersByDepth = [...selection.folders].sort((left, right) => folderDepth(folders, right.id) - folderDepth(folders, left.id));
+      for (const folder of foldersByDepth) {
+        await request(`/api/folders/${folder.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason }) });
+      }
+      await onChanged();
+      setMessage(`${selection.folders.length + selection.scenarios.length}件を削除しました。`);
+    } catch (error) {
+      await onChanged().catch(() => undefined);
+      setMessage(errorText(error, "選択項目を削除できませんでした。最新状態を再読み込みしました。"));
+      throw error;
+    }
   }
   async function addImages(files: FileList | File[]) {
     if (!selectedRow || !files.length) return;
@@ -295,67 +311,6 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     const files = Array.from(event.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => Boolean(file));
     if (!files.length) return;
     event.preventDefault(); void addImages(files);
-  }
-
-  const visibleScenarios = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase("ja");
-    return term ? scenarios.filter((item) => item.title.toLocaleLowerCase("ja").includes(term)) : scenarios;
-  }, [scenarios, search]);
-
-  function scenarioButton(item: DesignScenario) {
-    return <div className={selectedScenarioId === item.id ? "design-test-row selected" : "design-test-row"} key={item.id}
-      draggable={canEdit} onDragStart={(event) => event.dataTransfer.setData("text/scenario-id", item.id)}>
-      <button type="button" className="design-test-select" disabled={busy} onClick={() => void selectScenario(item.id)}>
-        <span>▤</span><span><strong>{item.title}</strong><small>{item.caseCount}件の確認項目</small></span>
-      </button>
-      {canEdit && <details className="design-item-menu"><summary aria-label={`${item.title}の操作`}>…</summary><div>
-        <button type="button" onClick={() => void duplicateScenario(item)}>複製</button>
-        <button type="button" onClick={() => void renameScenario(item)}>名前変更</button>
-        <label>移動先<select value={item.folderId ?? ""} onChange={(event) => void moveScenario(item.id, event.target.value || null)}><option value="">直下</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
-        <button type="button" onClick={() => onRun(item.id)}>テスト実行を開始</button>
-        <button type="button" className="danger" onClick={() => void deleteScenario(item)}>削除</button>
-      </div></details>}
-    </div>;
-  }
-
-  function validFolderDestinations(folderId: string): DesignFolder[] {
-    return folders.filter((candidate) => {
-      let current: DesignFolder | undefined = candidate;
-      const visited = new Set<string>();
-      while (current && !visited.has(current.id)) {
-        if (current.id === folderId) return false;
-        visited.add(current.id); current = folders.find((item) => item.id === current?.parentId);
-      }
-      return true;
-    });
-  }
-  function folderBranch(parentId: string | null, depth = 0): React.ReactNode {
-    return folders.filter((folder) => (folder.parentId ?? null) === parentId).map((folder) => <div key={folder.id} className="design-folder-branch">
-      <div className="design-folder-row" style={{ paddingLeft: `${8 + depth * 14}px` }} draggable={canEdit}
-        onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.setData("text/folder-id", folder.id); }}
-        onDragOver={(event) => { if (canEdit) event.preventDefault(); }}
-        onDrop={(event) => {
-          event.preventDefault(); event.stopPropagation();
-          const scenarioId = event.dataTransfer.getData("text/scenario-id");
-          const movingFolderId = event.dataTransfer.getData("text/folder-id");
-          if (scenarioId) void moveScenario(scenarioId, folder.id);
-          else if (movingFolderId && movingFolderId !== folder.id) void moveFolder(movingFolderId, folder.id);
-        }}>
-        <span>▾</span><strong>{folder.name}</strong>
-        {canEdit && <details className="design-item-menu"><summary aria-label={`${folder.name}の操作`}>…</summary><div>
-          <button type="button" onClick={() => void renameFolder(folder)}>名前変更</button>
-          <label>移動先<select value={folder.parentId ?? ""} onChange={(event) => void moveFolder(folder.id, event.target.value || null)}>
-            <option value="">プロジェクト直下</option>
-            {validFolderDestinations(folder.id).map((destination) => <option key={destination.id} value={destination.id}>{destination.name}</option>)}
-          </select></label>
-          <button type="button" className="danger" onClick={() => void deleteFolder(folder)}>削除</button>
-        </div></details>}
-      </div>
-      <div className="design-folder-contents">
-        {visibleScenarios.filter((item) => item.folderId === folder.id).map(scenarioButton)}
-        {folderBranch(folder.id, depth + 1)}
-      </div>
-    </div>);
   }
 
   function moveRow(index: number, offset: number) {
@@ -386,18 +341,22 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     </section>}
     <div className="test-design-grid">
       <aside className="panel design-browser">
-        <div className="design-panel-head"><div><p className="eyebrow">TESTS</p><h2>テスト一覧</h2></div>{canEdit && <button type="button" className="primary small" onClick={() => { if (confirmDiscard()) resetEditor(); }}>＋ 新規</button>}</div>
-        <input className="design-search" type="search" placeholder="テストを検索" value={search} onChange={(event) => setSearch(event.target.value)} />
-        {canEdit && <form className="design-folder-create" onSubmit={createFolder}><input aria-label="新しいフォルダ名" placeholder="新しいフォルダ" value={folderName} onChange={(event) => setFolderName(event.target.value)} /><button className="small">作成</button></form>}
-        <div className="design-tree-root" onDragOver={(event) => { if (canEdit) event.preventDefault(); }} onDrop={(event) => {
-          event.preventDefault(); const scenarioId = event.dataTransfer.getData("text/scenario-id"); const folderId = event.dataTransfer.getData("text/folder-id");
-          if (scenarioId) void moveScenario(scenarioId, null); else if (folderId) void moveFolder(folderId, null);
-        }}>
-          <div className="design-root-label">プロジェクト直下</div>
-          {visibleScenarios.filter((item) => !item.folderId).map(scenarioButton)}
-          {folderBranch(null)}
-          {!visibleScenarios.length && <p className="muted">該当するテストはありません。</p>}
-        </div>
+        <FolderExplorer
+          canEdit={canEdit}
+          busy={busy}
+          folders={folders}
+          scenarios={scenarios}
+          selectedScenarioId={selectedScenarioId}
+          onNewScenario={() => { if (confirmDiscard()) resetEditor(); }}
+          onOpenScenario={(id) => selectScenario(id)}
+          onCreateFolder={createFolder}
+          onRenameFolder={renameFolder}
+          onRenameScenario={renameScenario}
+          onDuplicateScenario={duplicateScenario}
+          onDeleteSelection={deleteExplorerSelection}
+          onMoveSelection={moveExplorerSelection}
+          onRunScenario={onRun}
+        />
       </aside>
 
       <section className="panel design-editor">
@@ -448,4 +407,3 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     <div className="design-savebar"><span className={`design-save-state ${saveState}`}>{stateLabel[saveState]}</span><button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => void save()} className="primary">{saveState === "saving" ? "保存中…" : "テスト全体を保存"}</button><button type="button" disabled={!selectedScenarioId || dirty || busy} onClick={() => onRun(selectedScenarioId)}>テスト実行へ</button></div>
   </div>;
 }
-
