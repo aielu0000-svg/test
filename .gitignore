@@ -15,3 +15,16 @@ attachments/
 win-unpacked/
 *.zip:Zone.Identifier
 *:Zone.Identifier
+
+dist-web/
+# Windowsのダウンロード元情報
+*Zone.Identifier
+
+# 圧縮ファイル・ビルド成果物
+*.tar.gz
+*.zip
+*.exe
+*.exe.blockmap
+
+# テスト実行結果
+web/test-results/
