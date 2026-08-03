@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: web-ci-${{ github.workflow }}-${{ github.ref }}
@@ -71,8 +71,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -80,18 +78,6 @@ jobs:
           node-version: "20.20.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      # ONE_OFF_PATCH_START
-      - name: Apply one-off maintenance patch
-        working-directory: ${{ github.workspace }}
-        run: |
-          git fetch origin agent/folder-explorer-p2
-          git checkout -B agent/folder-explorer-p2 origin/agent/folder-explorer-p2
-          node web/scripts/ci/apply-maintenance-fixes.mjs
-
-      - name: Refresh audited lockfile
-        run: npm audit fix --package-lock-only || true
-      # ONE_OFF_PATCH_END
 
       - name: Install MariaDB client
         run: |
@@ -151,22 +137,6 @@ jobs:
 
       - name: Chromium E2E
         run: npx playwright test --workers=1 --forbid-only --reporter=line,html
-
-      # ONE_OFF_COMMIT_START
-      - name: Commit verified maintenance patch
-        working-directory: ${{ github.workspace }}
-        run: |
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            web/src/client/OperationsWorkspaceV2.tsx \
-            web/e2e/completed-run-evidence.spec.ts \
-            web/package.json \
-            web/package-lock.json
-          git commit -m "Fix completed-run evidence selection and dependency audit"
-          git push origin HEAD:agent/folder-explorer-p2
-      # ONE_OFF_COMMIT_END
 
       - name: Export DB and audit evidence
         if: always()
