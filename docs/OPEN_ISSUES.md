@@ -2,7 +2,7 @@
 
 ## Product issues
 
-現在、Review 9、P2フォルダ操作、Excelテスト設計インポート、フォルダ重複UI・オーバーレイ表示に属する未解決の製品不具合はない。
+現在、Review 9、P2フォルダ操作、Excelテスト設計インポート、フォルダ重複UI・オーバーレイ表示、完了済み実行の証跡表示、Docker MariaDB認証に属する未解決の製品不具合はない。
 
 ## Additional hardening candidates
 
@@ -18,6 +18,8 @@
   - アプリ自体はNode.js 20.20.0で検証済み。Actionの次期メジャー版公開後に更新する。
 - `TestDesignEditor.tsx`の通信エラー型統合
   - 画面固有request helperは400/409の編集競合情報を扱うため維持している。共通化する場合は、競合情報を保持できる共通エラー型の導入を先に行う。
+- 既存MariaDBボリュームの認証修復を使うDocker統合試験
+  - 修復スクリプトの構文、新規Compose設定、空パスワード拒否はCI検証済み。無パスワードで初期化した使い捨てボリュームを修復し、無パスワード接続拒否まで確認する試験は追加の堅牢化候補とする。
 
 ## Completed verification
 
@@ -33,12 +35,16 @@
   - 最新テンプレートの生成、旧テンプレート拒否、テスト・確認項目・手順・フォルダ・タグ・個別データ・共通データの登録と画面復元を確認。
   - 未使用`objectBody` import、旧フォルダUI用CSS、補正専用CSSファイルを削除・統合した。
   - Artifact: `web-ci-30844134585-1`（ID `8868021343`）。
-
 - 完了済み実行の証跡表示・依存監査: GitHub Actions run `30848395288`
   - `npm ci`と`npm audit --audit-level=high`は脆弱性0件。
   - TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。
   - 完了済み実行間の切替で以前のrun case IDを使用しないことを確認。
   - Artifact: `web-ci-30848395288-1`（ID `8869654688`）。
+- Docker MariaDB認証: GitHub Actions run `30853941396`
+  - Compose構文・環境変数展開と既存ボリューム修復スクリプト構文が成功。
+  - `npm ci`と`npm audit --audit-level=high`は脆弱性0件。
+  - TypeCheck、Unit/API 40件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。
+  - DBポート・Webポートのlocalhost限定、非空DBパスワード、認証付きhealthcheck、空パスワード拒否を確認。
 
 ## Review policy
 
