@@ -85,7 +85,7 @@ test("完了済み実行を切り替えても以前の実行ケースで証跡�
   page.on("response", (response) => {
     const url = new URL(response.url());
     if (url.pathname === "/api/evidence" && response.status() >= 400) {
-      failedEvidenceRequests.push(\`${response.status()} \${url.search}\`);
+      failedEvidenceRequests.push(response.status() + " " + url.search);
     }
   });
 
