@@ -4,6 +4,11 @@
   overflow: visible;
 }
 
+.design-context-menu {
+  max-height: calc(100vh - 1rem);
+  overflow: auto;
+}
+
 .design-modal-backdrop {
   z-index: 2100;
   overflow: auto;
