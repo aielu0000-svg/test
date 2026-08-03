@@ -547,21 +547,35 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [editing, setEditing] = useState<EvidenceItem | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState(runCases[0]?.id ?? "");
+  const activeCaseId = runCases.some((item) => item.id === selectedCaseId) ? selectedCaseId : runCases[0]?.id ?? "";
+  const refreshSequence = useRef(0);
+  const [loadError, setLoadError] = useState("");
   const [message, setMessage] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   useEffect(() => { onUploadingChange?.(uploading); return () => onUploadingChange?.(false); }, [uploading, onUploadingChange]);
   async function refresh() {
-    if (!selectedCaseId) {
+    const sequence = ++refreshSequence.current;
+    if (!activeCaseId) {
       setEvidence([]);
+      setLoadError("");
       return;
     }
-    const scopeQuery = `testRunId=${encodeURIComponent(runId)}&runCaseSnapshotId=${encodeURIComponent(selectedCaseId)}`;
-    try { setEvidence((await api<{ evidence: EvidenceItem[] }>(`/api/evidence?projectId=${encodeURIComponent(projectId)}&${scopeQuery}`)).evidence); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : "読み込みに失敗しました。"); }
+    const scopeQuery = `testRunId=${encodeURIComponent(runId)}&runCaseSnapshotId=${encodeURIComponent(activeCaseId)}`;
+    try {
+      const data = await api<{ evidence: EvidenceItem[] }>(`/api/evidence?projectId=${encodeURIComponent(projectId)}&${scopeQuery}`);
+      if (sequence !== refreshSequence.current) return;
+      setEvidence(data.evidence);
+      setLoadError("");
+    } catch (cause) {
+      if (sequence !== refreshSequence.current) return;
+      setLoadError(cause instanceof Error ? cause.message : "読み込みに失敗しました。");
+    }
   }
-  useEffect(() => { setSelectedCaseId((current) => runCases.some((item) => item.id === current) ? current : runCases[0]?.id ?? ""); }, [runCases]);
-  useEffect(() => { void refresh(); }, [projectId, runId, selectedCaseId]);
+  useEffect(() => {
+    if (selectedCaseId !== activeCaseId) setSelectedCaseId(activeCaseId);
+  }, [activeCaseId, selectedCaseId]);
+  useEffect(() => { void refresh(); }, [projectId, runId, activeCaseId]);
   function uploadEvidence(form: FormData, caseId: string): Promise<void> {
     if (!caseId) return Promise.reject(new Error("関連するテストケースを選択してください。"));
     setUploading(true);
@@ -600,7 +614,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const caseId = runCases.length === 1 ? runCases[0].id : String(form.get("runCaseSnapshotId") ?? "");
+    const caseId = activeCaseId;
     try {
       await uploadEvidence(form, caseId);
       formElement.reset(); setMessage("証跡を登録しました。"); await refresh();
@@ -616,7 +630,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
       const blob = await owner.getType(imageType);
       const form = new FormData();
       form.append("file", blob, "clipboard.png");
-      await uploadEvidence(form, selectedCaseId);
+      await uploadEvidence(form, activeCaseId);
       setMessage("クリップボード画像を登録しました。");
       await refresh();
     } catch (cause) {
@@ -639,11 +653,11 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
   return <section className="panel">
     <h2>証跡</h2>
     <p className="muted">ファイルはストリームで保存します。通常のJSONリクエスト上限は25 MiB（26,214,400 bytes）です。証跡アップロードはmultipartストリームで処理し、アプリ固有の1ファイル上限は設けていません。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより制限される場合があります。編集時も元版を保持します。</p>
-    {canEdit && <div className="evidence-entry"><form className="field-grid evidence-form" onSubmit={upload}>{runCases.length === 1 ? <p>関連する確認項目: <strong>{runCases[0].title}</strong></p> : <label>関連するテストケース<select name="runCaseSnapshotId" required value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>{runCases.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>}<label>ファイル<input name="file" type="file" required disabled={uploading || !selectedCaseId} /></label><label>説明<input name="description" disabled={uploading || !selectedCaseId} /></label><button className="primary" disabled={uploading || !selectedCaseId}>{uploading ? "アップロード中…" : "ファイルを追加"}</button></form><button type="button" disabled={uploading || !selectedCaseId} onClick={() => void pasteFromClipboard()}>クリップボードから貼り付け</button></div>}
+    {canEdit && <div className="evidence-entry"><form className="field-grid evidence-form" onSubmit={upload}>{runCases.length === 1 ? <p>関連する確認項目: <strong>{runCases[0].title}</strong></p> : <label>関連するテストケース<select name="runCaseSnapshotId" required value={activeCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>{runCases.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>}<label>ファイル<input name="file" type="file" required disabled={uploading || !activeCaseId} /></label><label>説明<input name="description" disabled={uploading || !activeCaseId} /></label><button className="primary" disabled={uploading || !activeCaseId}>{uploading ? "アップロード中…" : "ファイルを追加"}</button></form><button type="button" disabled={uploading || !activeCaseId} onClick={() => void pasteFromClipboard()}>クリップボードから貼り付け</button></div>}
     {uploadProgress !== null && <div className="evidence-progress" aria-live="polite"><progress max={100} value={uploadProgress} /><span>{uploadProgress}%</span></div>}
     <div className="evidence-grid">{evidence.map((item) => <article key={item.id}><a href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{item.original_filename}</strong></a><small>{formatByteSize(item.byte_size)} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button onClick={() => setEditing(item)}>画像編集</button>}<button className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>
     {editing && <EvidenceImageEditor projectId={projectId} evidenceId={editing.id} filename={editing.original_filename} onClose={() => setEditing(null)} onSaved={async (run) => { onRunUpdated?.(run); await refresh(); }} />}
-    {message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}
+    {loadError && <p className="error-message">{loadError}</p>}{message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}
   </section>;
 }
 
