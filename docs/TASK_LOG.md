@@ -3,7 +3,7 @@
  2026-08-01 JST
 - 対応課題: ISSUE-20260801-001, ISSUE-20260801-002, ISSUE-20260801-003
 - 担当: Codex
-- 状態: In Progress
+- 状態: Completed
 
 ### 作業前の状態
 
@@ -93,7 +93,7 @@
  2026-08-01 JST
 - 対応課題: ISSUE-20260801-001, ISSUE-20260801-002, ISSUE-20260801-003
 - 担当: Codex
-- 状態: In Progress
+- 状態: Completed
 
 ### 作業前の状態
 
@@ -139,3 +139,11 @@
 - 実行済み: npm run typecheck成功、npm test成功（26成功、MariaDB統合1件skip）、DB_INTEGRATION_TEST=1のMariaDB統合成功、npm run build成功。
 - E2E本走: E2E_USERNAMEとE2E_PASSWORDが未設定のため9件が明示的に失敗。skip成功にはしていない。
 - 外部レビュー: Web版の対象コミット作成後にread-onlyで実行する。
+
+### 完了記録
+
+- 完了日時: 2026-08-03 JST
+- 状態: Completed（実装・静的検証・Unit/API・MariaDB統合・Build完了）。
+- 外部read-onlyレビュー: Codex CLIで2回試行したが、いずれも判定前にタイムアウトした。ユーザー指示により再試行を中止し、ok判定は未取得として扱う。
+- E2E: 9機能別spec・10テストの検出は成功。E2E_USERNAMEとE2E_PASSWORDが未設定のためChromium本走は明示的に失敗し、未解決課題へ残す。
+- 残るリスク: 失敗注入画像/APIと分割E2Eの実ブラウザ本走は認証情報を設定した隔離環境で再検証が必要。

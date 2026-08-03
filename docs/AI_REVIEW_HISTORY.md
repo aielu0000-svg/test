@@ -29,4 +29,4 @@
 - 対象: Web版のみ。Electron版、フォルダ操作、DB/ストレージ構成変更は対象外。
 - 実装前検証: TypeCheck成功、Unit/API 26成功・MariaDB統合1件skip、実MariaDB統合成功、Build成功、Playwrightは認証情報未設定で明示的失敗。
 - 対応状況: ISSUE_LEDGERのReview 9 current stateを正とする。
-- 外部read-onlyレビュー: 実行待ち。
+- 外部read-onlyレビュー: Codex CLIで2回試行したが、判定前にタイムアウトした。ユーザー指示により再試行を中止し、ok判定は未取得。
