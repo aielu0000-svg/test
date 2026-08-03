@@ -104,7 +104,10 @@ jobs:
       - name: MariaDB integration tests
         env:
           DB_INTEGRATION_TEST: "1"
-        run: npm test -- src/server/mariaDb.integration.test.ts
+        run: >-
+          npm test --
+          src/server/mariaDb.integration.test.ts
+          src/server/migrationCollation.integration.test.ts
 
       - name: Build
         run: npm run build
