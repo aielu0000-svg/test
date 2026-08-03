@@ -15,6 +15,25 @@ import { projectIdFrom, routeParam } from "./routeUtils.js";
 import { ensureEvidenceRunEditable, markEvidencePostCompletionUpdate } from "./evidence.js";
 import { normalizeDatabaseRecord } from "../jsonNormalization.js";
 
+async function removeGeneratedFiles(paths: Array<string | null>, evidenceId: string): Promise<void> {
+  const failures: Array<{ path: string; error: string }> = [];
+  for (const target of paths) {
+    if (!target) continue;
+    try {
+      await rm(target, { force: true });
+    } catch (cause) {
+      failures.push({ path: target, error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  }
+  if (failures.length) {
+    console.error(JSON.stringify({
+      level: "error",
+      message: "evidence_edit_cleanup_failed",
+      evidenceId,
+      failures,
+    }));
+  }
+}
 
 export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
   app.get("/api/evidence/:id/versions", async (request) => {
@@ -54,6 +73,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
     const token = randomUUID();
     const temporaryPath = path.join(directory, `${token}.uploading`);
     const destination = path.join(directory, `v${nextVersion}-${token}.png`);
+    let thumbnailPath: string | null = null;
     let received = false;
 
     try {
@@ -74,7 +94,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
         createReadStream(destination).on("data", (chunk) => digestHash.update(chunk)).on("end", () => resolve(digestHash.digest("hex"))).on("error", reject);
       });
       const info = await stat(destination);
-      const thumbnailPath = path.join(directory, `v${nextVersion}-thumbnail.jpg`);
+      thumbnailPath = path.join(directory, `v${nextVersion}-thumbnail.jpg`);
       await sharp(destination).rotate().resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 82 }).toFile(thumbnailPath);
 
       await db.withTransaction(async (connection) => {
@@ -100,8 +120,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
       });
       return { id: evidenceId, version: nextVersion, sha256: digest, run };
     } catch (error) {
-      await rm(temporaryPath, { force: true }).catch(() => undefined);
-      await rm(destination, { force: true }).catch(() => undefined);
+      await removeGeneratedFiles([temporaryPath, destination, thumbnailPath], evidenceId);
       throw error;
     }
   });
