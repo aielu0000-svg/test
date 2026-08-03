@@ -30,9 +30,10 @@
 - P2フォルダ操作: GitHub Actions run `30808270002`
   - TypeCheck、Unit/API 32件、MariaDB統合2件、Build、Web起動、Chromium E2E 12件が成功。
   - 右クリック、F2、キーボード、複数選択・移動、パンくず、DnD、循環移動防止、削除理由入力を確認。
-- Excelインポート・フォルダ表示修正: GitHub Actions run `30840831542`
+- Excelインポート・フォルダ表示修正: GitHub Actions run `30841994179`
   - TypeCheck、Unit/API 35件、MariaDB統合2件、Build、Web起動、Chromium E2E 14件が成功。
   - 公式Excelテンプレートのプレビュー・確定・DB/API照合、重複操作非表示、複数選択DnD、右クリック削除、ダイアログ全面被覆を確認。
+  - Artifact: `web-ci-30841994179-1`（ID `8867203957`）。
 
 ## Review policy
 
