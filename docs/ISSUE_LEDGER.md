@@ -13,6 +13,8 @@
 | ISSUE-20260801-007 | 2026-08-01 | Data integrity | P1 | Closed | 完了後更新 | 完了後更新が通常SQLを共有していた。 | 結果・実績結果・備考だけの専用更新へ分離した。 | MariaDB統合とChromium E2E成功。 | Review 7 |
 | ISSUE-20260801-008 | 2026-08-01 | Test architecture | P1 | Verified | E2E | 単一specで失敗原因を分離できなかった。 | 機能別specへ分割し、409競合復旧spec、trace、screenshot、video保存を追加した。 | GitHub Actions run 30804989151でChromium 11件成功。 | Review 7, Review 9 |
 | ISSUE-20260801-009 | 2026-08-01 | Usability | P2 | Verified | フォルダ操作 | 一覧が単純表示で、階層操作・複数選択・キーボード・DnDの一貫したUIがなかった。 | 右クリックメニュー、F2インライン名前変更、Enter/矢印/Delete/Esc、Ctrl/Cmd・Shift複数選択、複数移動、パンくず、DnD、ドロップ先強調、循環移動防止を実装した。 | GitHub Actions run 30808270002でUnit/API 32件、MariaDB統合2件、Chromium E2E 12件が成功。 | Review 7, P2 Follow-up |
+| ISSUE-20260804-001 | 2026-08-04 | Bug | P1 | Verified | Excel・正式JSONインポート確定 | bodyなしPOSTへ`Content-Type: application/json`を付ける画面固有request helperが残り、Fastifyが空JSON bodyとして500を返した。 | HTTP helperを共通化し、JSON文字列だけにJSON Content-Typeを設定した。空bodyとFormDataはブラウザ既定へ委ねた。 | GitHub Actions run 30840831542でUnit/API 35件、MariaDB統合2件、公式Excelテンプレートの検証・確定E2Eを含むChromium 14件が成功。 | User Report 2026-08-04 |
+| ISSUE-20260804-002 | 2026-08-04 | Usability | P2 | Verified | フォルダ選択・右クリック・削除ダイアログ | 右クリック機能と重複する選択ツールバーが残り、sticky一覧のスタッキングコンテキストが固定保存バーより低かった。 | 重複ツールバーを削除し、複数操作は右クリック・キーボード・DnDへ統一した。コンテキストメニューとモーダルのz-index、overflow、最大高さを補正した。 | GitHub Actions run 30840831542で複数選択DnD、右クリック削除、ダイアログ全面被覆E2Eを含むChromium 14件が成功。 | User Report 2026-08-04 |
 
 ## Review 9
 
@@ -41,3 +43,10 @@
 - ISSUE-20260801-009は`Verified`とする。
 - GitHub Actions run `30808270002`でTypeCheck、Unit/API 32件、MariaDB統合2件、Build、Web起動、Chromium E2E 12件、DB・監査・Playwright成果物保存が成功した。
 - フォルダ移動の循環参照はUIで不正な移動先を除外し、既存APIでも自分自身および子孫への移動を拒否する二重防御とした。
+
+## 2026-08-04不具合修正完了判定
+
+- ISSUE-20260804-001およびISSUE-20260804-002は`Verified`とする。
+- GitHub Actions run `30840831542`でTypeCheck、Unit/API 35件、MariaDB統合2件、Build、Web起動、Chromium E2E 14件が成功した。
+- Excelは公式テンプレートのダウンロード、multipartプレビュー、bodyなし確定POST、DB登録後のAPI照合まで実ブラウザで確認した。
+- フォルダUIは重複操作非表示、複数選択DnD、右クリック削除、削除ダイアログの全面被覆を確認した。
