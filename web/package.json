@@ -11,7 +11,8 @@
     "test": "vitest run --config vitest.config.ts",
     "migrate:sqlite": "tsx src/tools/sqlite-export-v2.ts",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:password": "node scripts/configure-local-mariadb-password.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "10.0.1",
