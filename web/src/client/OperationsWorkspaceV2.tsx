@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { localDateTimeValue, requiresActualResult, toUtcIso, type SaveState } from "./autosave.js";
 import { EvidenceImageEditor } from "./EvidenceImageEditor.js";
+import { mergeRunUpdateEntity, mergeVersionedEntity } from "./runUpdateMerge.js";
 import "./operations.css";
 import "./phase25.css";
 
@@ -51,6 +52,14 @@ interface RunFormValues {
   selectedDataSets: string[];
 }
 
+interface ConflictValues {
+  status: RunCase["status"];
+  actualResult: string;
+  notes: string;
+  assigneeId: string;
+  executedAt: string;
+}
+
 class ApiClientError extends Error {
   constructor(readonly status: number, message: string, readonly requestId?: string) {
     super(message);
@@ -59,9 +68,12 @@ class ApiClientError extends Error {
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = init.body === undefined || init.body instanceof FormData
+    ? init.headers
+    : { "Content-Type": "application/json", ...(init.headers ?? {}) };
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: init.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...(init.headers ?? {}) },
+    headers,
     ...init,
   });
   const payload = await response.json().catch(() => ({})) as { error?: { message?: string; requestId?: string } };
@@ -229,17 +241,10 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
 
   function mergeRunUpdate(update: RunUpdate | null | undefined) {
     if (!update) return;
-    const merge = <T extends RunSummary>(current: T): T => {
-      if (update.version < current.version) return current;
-      return {
-        ...current,
-        ...update,
-        postCompletionUpdatedAt: update.postCompletionUpdatedAt ?? current.postCompletionUpdatedAt,
-        postCompletionUpdatedBy: update.postCompletionUpdatedBy ?? current.postCompletionUpdatedBy,
-      };
-    };
-    setDetail((current) => current && current.run.id === update.id ? { ...current, run: merge(current.run) } : current);
-    setRuns((current) => current.map((entry) => entry.id === update.id ? merge(entry) : entry));
+    setDetail((current) => current && current.run.id === update.id
+      ? { ...current, run: mergeRunUpdateEntity(current.run, update) }
+      : current);
+    setRuns((current) => current.map((entry) => entry.id === update.id ? mergeRunUpdateEntity(entry, update) : entry));
   }
 
   async function reloadAfterConflict() {
@@ -255,22 +260,29 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
       body.assigneeId = values.assigneeId;
       body.executedAt = values.executedAt;
     }
-    const result = await api<{ runCase: RunCase; run: Pick<RunSummary, "id" | "version" | "postCompletionUpdatedAt" | "postCompletionUpdatedBy"> }>(`/api/run-cases/${item.id}`, {
+    const result = await api<{ runCase: RunCase; run: RunUpdate }>(`/api/run-cases/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     });
     setDetail((current) => {
       if (!current) return current;
-      const nextCases = current.cases.map((entry) => entry.id === item.id ? { ...entry, ...result.runCase } : entry);
+      const nextCases = current.cases.map((entry) => entry.id === item.id
+        ? mergeVersionedEntity(entry, { ...entry, ...result.runCase })
+        : entry);
       const total = nextCases.filter((entry) => !entry.excluded_at).length;
       const passed = nextCases.filter((entry) => !entry.excluded_at && entry.status === "pass").length;
       const failed = nextCases.filter((entry) => !entry.excluded_at && entry.status === "fail").length;
       const blocked = nextCases.filter((entry) => !entry.excluded_at && entry.status === "blocked").length;
       const denominator = passed + failed + blocked;
       onCasesAvailable?.(nextCases.filter((entry) => !entry.excluded_at));
-      return { ...current, run: { ...current.run, ...result.run }, cases: nextCases, stats: { ...current.stats, total, passRate: denominator ? passed / denominator : null } };
+      return {
+        ...current,
+        run: mergeRunUpdateEntity(current.run, result.run),
+        cases: nextCases,
+        stats: { ...current.stats, total, passRate: denominator ? passed / denominator : null },
+      };
     });
-    setRuns((current) => current.map((entry) => entry.id === result.run.id ? { ...entry, ...result.run } : entry));
+    setRuns((current) => current.map((entry) => entry.id === result.run.id ? mergeRunUpdateEntity(entry, result.run) : entry));
     return result.runCase;
   }
 
@@ -345,12 +357,21 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
   const [executedAt, setExecutedAt] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [error, setError] = useState("");
-  const [conflictInput, setConflictInput] = useState("");
+  const [conflictValues, setConflictValues] = useState<ConflictValues | null>(null);
+  const [showConflictDiff, setShowConflictDiff] = useState(false);
+  const [copyMessage, setCopyMessage] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const editRevision = useRef(0);
   const lastSubmittedRevision = useRef(0);
   const lastResolvedRevision = useRef(0);
+  const loadedCaseId = useRef<string | null>(null);
+  const loadedCaseVersion = useRef<number | null>(null);
+
+  function syncFromItem(current: RunCase) {
+    setStatus(current.status); setActualResult(current.actual_result ?? ""); setNotes(current.notes ?? "");
+    setAssigneeId(current.assignee_id ?? ""); setExecutedAt(localDateTimeValue(current.executed_at));
+  }
 
   function edit<T>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) {
     editRevision.current += 1;
@@ -360,11 +381,19 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
 
   useEffect(() => {
     if (!item) return;
-    setStatus(item.status); setActualResult(item.actual_result ?? ""); setNotes(item.notes ?? "");
-    setAssigneeId(item.assignee_id ?? ""); setExecutedAt(localDateTimeValue(item.executed_at));
-    editRevision.current = 0; lastSubmittedRevision.current = 0; lastResolvedRevision.current = 0;
-    setIsEditing(false); setSaveState("idle"); setError(""); setConflictInput("");
-  }, [item?.id]);
+    const caseChanged = loadedCaseId.current !== item.id;
+    const versionChanged = loadedCaseVersion.current !== item.version;
+    if (caseChanged || (versionChanged && conflictValues)) {
+      syncFromItem(item);
+      editRevision.current = 0; lastSubmittedRevision.current = 0; lastResolvedRevision.current = 0;
+      setIsEditing(false); setSaveState(caseChanged ? "idle" : "error");
+    }
+    if (caseChanged) {
+      setError(""); setConflictValues(null); setShowConflictDiff(false); setCopyMessage("");
+    }
+    loadedCaseId.current = item.id;
+    loadedCaseVersion.current = item.version;
+  }, [item?.id, item?.version]);
 
   if (!item) return <div className="run-empty"><h2>確認項目がありません</h2><p className="muted">実行準備へ戻り、対象テストを選択してください。</p></div>;
 
@@ -372,11 +401,45 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
     || assigneeId !== (item.assignee_id ?? "") || executedAt !== localDateTimeValue(item.executed_at);
   const completedCount = cases.filter((entry) => !["not_run", "in_progress"].includes(entry.status)).length;
   const incompleteCount = cases.length - completedCount;
+  const serverConflictValues: ConflictValues = {
+    status: item.status,
+    actualResult: item.actual_result ?? "",
+    notes: item.notes ?? "",
+    assigneeId: item.assignee_id ?? "",
+    executedAt: localDateTimeValue(item.executed_at),
+  };
+  const conflictRows = conflictValues ? [
+    { label: "結果", local: resultLabels[conflictValues.status], server: resultLabels[serverConflictValues.status] },
+    { label: "実績結果", local: conflictValues.actualResult, server: serverConflictValues.actualResult },
+    { label: "備考", local: conflictValues.notes, server: serverConflictValues.notes },
+    { label: "担当者ID", local: conflictValues.assigneeId, server: serverConflictValues.assigneeId },
+    { label: "実行日時", local: conflictValues.executedAt, server: serverConflictValues.executedAt },
+  ].filter((row) => row.local !== row.server) : [];
 
   function changeIndex(next: number) {
     if (dirty && !window.confirm("この確認項目には未保存の変更があります。保存せずに移動しますか？")) return;
     setIndex(Math.min(Math.max(next, 0), cases.length - 1));
   }
+
+  async function reloadConflict() {
+    try {
+      await onConflict();
+      setError("サーバーの最新状態を再読み込みしました。控えと差分を確認して必要な内容を再適用してください。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "最新状態を再読み込みできませんでした。");
+    }
+  }
+
+  async function copyConflictInput() {
+    if (!conflictValues) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(conflictValues, null, 2));
+      setCopyMessage("現在入力をクリップボードへコピーしました。");
+    } catch {
+      setCopyMessage("コピーできませんでした。下のテキストを選択してコピーしてください。");
+    }
+  }
+
   async function saveCurrent(next = false) {
     if (requiresActualResult(status) && !actualResult.trim()) {
       setSaveState("error"); setError("不合格・ブロック・スキップでは実績結果を入力してください。"); return;
@@ -391,7 +454,7 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       if (editRevision.current === submittedEditRevision) {
         setStatus(saved.status); setActualResult(saved.actual_result ?? ""); setNotes(saved.notes ?? "");
         setAssigneeId(saved.assignee_id ?? ""); setExecutedAt(localDateTimeValue(saved.executed_at));
-        setIsEditing(false); setSaveState("saved");
+        setIsEditing(false); setSaveState("saved"); setConflictValues(null); setShowConflictDiff(false); setCopyMessage("");
         if (next && index < cases.length - 1) setIndex((current) => Math.min(current + 1, cases.length - 1));
       } else {
         setSaveState("idle");
@@ -401,9 +464,10 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       lastResolvedRevision.current = requestRevision;
       setSaveState("error");
       if (cause instanceof ApiClientError && cause.status === 409) {
-        setConflictInput(JSON.stringify({ status, actualResult, notes, assigneeId, executedAt: toUtcIso(executedAt) }, null, 2));
+        setConflictValues({ status, actualResult, notes, assigneeId, executedAt });
+        setShowConflictDiff(false); setCopyMessage("");
         await onConflict().catch(() => undefined);
-        setError("他の利用者の更新を検出したため、最新内容を再読み込みしました。現在の入力は下の控えからコピーして確認・再適用してください。");
+        setError("他の利用者の更新を検出しました。サーバーの最新状態を読み込み、現在入力を控えとして保持しました。");
       } else {
         setError(cause instanceof Error ? cause.message : "保存できませんでした。再読み込みして、もう一度お試しください。");
       }
@@ -436,7 +500,21 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       <div className="field-grid"><label>担当者<AssigneeSelect disabled={!canEdit || runStatus === "completed"} value={assigneeId} assignees={assignees} onChange={(value) => edit(setAssigneeId, value)} /></label><label>実行日時<input disabled={!canEdit || runStatus === "completed"} type="datetime-local" value={executedAt} onChange={(event) => edit(setExecutedAt, event.target.value)} /></label></div>
       {!!runCaseImages(item).length && <section className="run-reference-images"><h3>見る場所の画像</h3><div>{runCaseImages(item).map((source, imageIndex) => <img key={imageIndex} src={source} alt={`参考画像 ${imageIndex + 1}`} />)}</div></section>}
       {error && <p className="error-message" role="alert">{error}</p>}
-      {conflictInput && <details className="conflict-input" open><summary>競合時の現在の入力（コピー用）</summary><textarea readOnly value={conflictInput} aria-label="競合時の現在の入力" /></details>}
+      {conflictValues && <section className="conflict-input" aria-label="競合の復旧">
+        <h3>競合の復旧</h3>
+        <p>現在入力は保持されています。最新状態を確認してから、必要な値だけ再適用してください。</p>
+        <div className="button-row">
+          <button type="button" onClick={() => void reloadConflict()}>最新状態を再読み込み</button>
+          <button type="button" onClick={() => void copyConflictInput()}>現在入力をコピー</button>
+          <button type="button" onClick={() => setShowConflictDiff((current) => !current)}>{showConflictDiff ? "差分を閉じる" : "差分を確認"}</button>
+        </div>
+        {copyMessage && <p role="status">{copyMessage}</p>}
+        <label>競合時の現在入力<textarea readOnly value={JSON.stringify(conflictValues, null, 2)} aria-label="競合時の現在の入力" /></label>
+        {showConflictDiff && <div aria-label="競合差分">
+          <h4>現在入力とサーバー最新値の差分</h4>
+          {conflictRows.length ? <dl>{conflictRows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>現在入力: {row.local || "（空）"}</dd><dd>サーバー最新: {row.server || "（空）"}</dd></div>)}</dl> : <p>差分はありません。</p>}
+        </div>}
+      </section>}
       <EvidencePanelV2 projectId={projectId} canEdit={canEdit} runCases={[item]} runId={runId} onRunUpdated={onRunUpdated} onUploadingChange={setEvidenceUploading} />
       {runStatus === "in_progress" && index === cases.length - 1 && incompleteCount > 0 && <p className="muted">完了まで残り {incompleteCount} 件です。未実行・実行中の確認項目を保存してください。</p>}
       <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent(false)}>保存</button><button type="button" className="primary" disabled={saveState === "saving"} onClick={() => void saveCurrent(true)}>保存して次へ →</button></>}{runStatus === "in_progress" && index === cases.length - 1 && <button type="button" className="primary" disabled={dirty || saveState === "saving" || evidenceUploading || incompleteCount > 0} onClick={() => void completeRun()}>テストを完了</button>}</div></div>
