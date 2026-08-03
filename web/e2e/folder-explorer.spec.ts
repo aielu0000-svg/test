@@ -42,17 +42,21 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   const childFolder = page.getByRole("treeitem", { name: `フォルダ ${childName}`, exact: true });
   await expect(childFolder).toBeVisible();
 
-  await childFolder.click();
+  await childFolder.focus();
   await childFolder.press("F2");
-  await page.getByLabel("フォルダ名を変更").fill(renamedChild);
-  await page.getByLabel("フォルダ名を変更").press("Enter");
+  const childRenameInput = page.getByLabel("フォルダ名を変更");
+  await expect(childRenameInput).toBeVisible();
+  await childRenameInput.fill(renamedChild);
+  await childRenameInput.press("Enter");
   const renamedFolder = page.getByRole("treeitem", { name: `フォルダ ${renamedChild}`, exact: true });
   await expect(renamedFolder).toBeVisible();
 
-  await rootFolder.click();
+  await rootFolder.focus();
   await rootFolder.press("F2");
-  await page.getByLabel("フォルダ名を変更").fill(`${rootName} 取消確認`);
-  await page.getByLabel("フォルダ名を変更").press("Escape");
+  const rootRenameInput = page.getByLabel("フォルダ名を変更");
+  await expect(rootRenameInput).toBeVisible();
+  await rootRenameInput.fill(`${rootName} 取消確認`);
+  await rootRenameInput.press("Escape");
   await expect(page.getByRole("treeitem", { name: `フォルダ ${rootName}`, exact: true })).toBeVisible();
 
   const first = await createTestDesign(page);
@@ -84,6 +88,7 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await expect(breadcrumb).toContainText(rootName);
   await expect(breadcrumb).toContainText(renamedChild);
 
+  await renamedFolder.focus();
   await renamedFolder.press("Enter");
   await expect(renamedFolder).toHaveAttribute("aria-expanded", "false");
   await renamedFolder.press("Enter");
@@ -97,6 +102,7 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await dispatchExplorerDrag(page, "folder", rootId!, childId!);
   await expect(rootFolder).toHaveAttribute("data-parent-id", "");
 
+  await firstRow.focus();
   await firstRow.press("Enter");
   await expect(page.getByLabel("テスト名")).toHaveValue(first.testName);
 
@@ -106,7 +112,7 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await page.getByLabel("作成するフォルダ名").press("Enter");
   const deleteFolder = page.getByRole("treeitem", { name: `フォルダ ${deleteName}`, exact: true });
   await expect(deleteFolder).toBeVisible();
-  await deleteFolder.click();
+  await deleteFolder.focus();
   await deleteFolder.press("Delete");
   await expect(page.getByRole("dialog", { name: "選択項目を削除" })).toBeVisible();
   await page.getByLabel("削除理由").fill("E2Eフォルダ削除確認");
