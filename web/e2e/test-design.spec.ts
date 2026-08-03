@@ -7,6 +7,6 @@ test("テスト設計を独立プロジェクトへ保存する", async ({ page 
   await login(page);
   const projectName = await createProject(page);
   const design = await createTestDesign(page, 2);
-  await expect(page.getByText(design.caseNames[1]!, { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "確認項目名 2", exact: true })).toHaveValue(design.caseNames[1]!);
   await archiveProject(page, projectName);
 });
