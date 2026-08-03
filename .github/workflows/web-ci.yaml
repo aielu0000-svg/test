@@ -159,7 +159,11 @@ jobs:
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add \
+            web/src/client/OperationsWorkspaceV2.tsx \
+            web/e2e/completed-run-evidence.spec.ts \
+            web/package.json \
+            web/package-lock.json
           git commit -m "Fix completed-run evidence selection and dependency audit"
           git push origin HEAD:agent/folder-explorer-p2
       # ONE_OFF_COMMIT_END
