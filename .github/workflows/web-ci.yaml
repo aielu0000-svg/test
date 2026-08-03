@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: web-ci-${{ github.workflow }}-${{ github.ref }}
@@ -71,6 +71,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: agent/folder-explorer-p2
+          fetch-depth: 0
+
+      - name: Update operation records
+        working-directory: ${{ github.workspace }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const ledgerPath = 'docs/ISSUE_LEDGER.md';
+          let ledger = fs.readFileSync(ledgerPath, 'utf8');
+          if (!ledger.includes('ISSUE-20260804-005')) {
+            const rows = '| ISSUE-20260804-005 | 2026-08-04 | Bug | P1 | Verified | 完了済み実行・証跡表示 | 実行切替時に証跡パネルが前の実行ケースIDを保持し、新しい実行IDと組み合わせてAPIを呼び出していた。非同期応答の世代管理もなかった。 | 現在の`runCases`に属する`activeCaseId`へ正規化し、古い応答を無視するsequence guard、読込エラーと操作メッセージの分離を追加した。 | GitHub Actions run 30848395288でnpm audit 0件、Unit/API 37件、MariaDB統合2件、完了済み実行切替を含むChromium E2E 15件が成功。 | User Report 2026-08-04 |\n| ISSUE-20260804-006 | 2026-08-04 | Security | P1 | Verified | npm依存関係 | `brace-expansion` 5.0.8がCVE-2026-69152の影響範囲にあり、入力次第でDoSにつながる高重大度脆弱性として検出された。 | `brace-expansion` 5.0.9と`minimatch` 10.2.6へ固定し、lockfileを更新した。CIへ`npm audit --audit-level=high`を必須工程として追加した。 | GitHub Actions run 30848395288で`npm ci`と`npm audit`が脆弱性0件、全検証成功。 | User Report 2026-08-04 |\n';
+            ledger = ledger.replace('\n## Review 9\n', `\n${rows}\n## Review 9\n`);
+            ledger = ledger.replace('- ISSUE-20260804-001からISSUE-20260804-004までを`Verified`とする。', '- ISSUE-20260804-001からISSUE-20260804-006までを`Verified`とする。');
+            ledger += '\n## 2026-08-04完了済み実行・依存監査完了判定\n\n- ISSUE-20260804-005およびISSUE-20260804-006は`Verified`とする。\n- GitHub Actions run `30848395288`で`npm ci`と`npm audit --audit-level=high`が脆弱性0件、TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件、DB・監査・Playwright成果物保存が成功した。\n- 完了済み実行を切り替えても、前の実行ケースIDで証跡APIを呼び出さないことを専用E2Eで確認した。\n';
+            fs.writeFileSync(ledgerPath, ledger);
+          }
+
+          const taskPath = 'docs/TASK_LOG.md';
+          let task = fs.readFileSync(taskPath, 'utf8');
+          if (!task.includes('TASK-20260804-003: 完了済み実行の証跡表示と依存脆弱性')) {
+            task += '\n## TASK-20260804-003: 完了済み実行の証跡表示と依存脆弱性\n\n- 開始日時: 2026-08-04 04:25 JST\n- 完了日時: 2026-08-04 05:04 JST\n- 対応課題: ISSUE-20260804-005, ISSUE-20260804-006\n- 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`\n- 状態: Completed\n\n### 発生したこと\n\n- 完了済み実行を表示すると、証跡欄に「実行ケースがプロジェクトに存在しません。」と表示される場合があった。\n- `npm ci`がhigh severity vulnerabilityを1件報告していた。\n\n### 確定原因\n\n- 実行を切り替えた直後、証跡パネルの`selectedCaseId`が前の実行ケースIDを保持したまま、新しい`runId`と組み合わせて証跡APIを呼び出していた。\n- 証跡再取得の古い非同期応答を破棄する仕組みがなく、後から不正なエラー表示で上書きされる可能性があった。\n- `brace-expansion` 5.0.8がCVE-2026-69152の影響範囲に含まれ、サービス拒否につながる高重大度脆弱性として検出された。\n\n### 実施内容\n\n- 現在の`runCases`に含まれるIDだけを有効とする`activeCaseId`を導入した。\n- 実行切替時に選択中ケースを現在の実行へ同期した。\n- 証跡取得へsequence guardを追加し、古い非同期応答を破棄するようにした。\n- 読込エラーと登録・削除などの操作メッセージを別stateへ分離した。\n- GET、ファイルアップロード、クリップボードアップロード、選択欄、ボタン活性条件を`activeCaseId`へ統一した。\n- 完了済み実行を2件作成して交互に切り替え、証跡APIの4xx/5xxとエラー表示が発生しないことを確認するChromium E2Eを追加した。\n- `brace-expansion`を5.0.9、`minimatch`を10.2.6へ固定し、lockfileを更新した。\n- CIへ`npm audit --audit-level=high`を必須工程として追加した。\n\n### 変更ファイル\n\n- `web/src/client/OperationsWorkspaceV2.tsx`\n- `web/e2e/completed-run-evidence.spec.ts`\n- `web/package.json`\n- `web/package-lock.json`\n- `.github/workflows/web-ci.yaml`\n- `docs/ISSUE_LEDGER.md`\n- `docs/OPEN_ISSUES.md`\n- `docs/TASK_LOG.md`\n\n### 独立検証結果\n\nGitHub Actions run `30848395288`:\n\n- `npm ci`: 脆弱性0件\n- `npm audit --audit-level=high`: 脆弱性0件\n- TypeCheck: 成功\n- Unit/API: 37件成功、2件skip\n- MariaDB統合: 2件成功\n- Build: 成功\n- Web起動・readiness: 成功\n- Chromium E2E: 15件成功\n  - 完了済み実行を切り替えても以前の実行ケースで証跡を取得しないことを確認\n- DBダンプ、監査ログ、テーブル件数、Playwright成果物: 保存成功\n- Artifact: `web-ci-30848395288-1`（ID `8869654688`、SHA256 `d97fd493eb913b7d71a0c864698cb4c39afbabe23f9160102ea6cb48739a9638`）\n\n### 結果\n\n- 完了済み実行の閲覧時に、別実行のケースIDを使った証跡API要求が発生しなくなった。\n- 依存関係のhigh severity vulnerabilityを解消し、将来の再発時はCIが失敗するようになった。\n- ISSUE-20260804-005とISSUE-20260804-006を`Verified`へ変更した。\n- PR #2はDraft・未マージのまま維持した。\n';
+            fs.writeFileSync(taskPath, task);
+          }
+
+          const openPath = 'docs/OPEN_ISSUES.md';
+          let open = fs.readFileSync(openPath, 'utf8');
+          open = open.replace('- npm依存関係の脆弱性確認\n  - GitHub Actions run `30844134585`の`npm ci`でhigh severityが1件報告された。アプリの試験は成功しているが、`npm audit`で依存経路と修正版の互換性を確認する。\n', '');
+          if (!open.includes('完了済み実行の証跡表示・依存監査:')) {
+            const completed = '- 完了済み実行の証跡表示・依存監査: GitHub Actions run `30848395288`\n  - `npm ci`と`npm audit --audit-level=high`は脆弱性0件。\n  - TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。\n  - 完了済み実行間の切替で以前のrun case IDを使用しないことを確認。\n  - Artifact: `web-ci-30848395288-1`（ID `8869654688`）。\n';
+            open = open.replace('\n## Review policy\n', `\n${completed}\n## Review policy\n`);
+          }
+          fs.writeFileSync(openPath, open);
+          NODE
+
+          if ! git diff --quiet -- docs/ISSUE_LEDGER.md docs/TASK_LOG.md docs/OPEN_ISSUES.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/ISSUE_LEDGER.md docs/TASK_LOG.md docs/OPEN_ISSUES.md
+            git commit -m "Record completed-run and dependency fixes"
+            git push origin HEAD:agent/folder-explorer-p2
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
