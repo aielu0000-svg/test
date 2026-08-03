@@ -1,0 +1,177 @@
+name: Web CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yaml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: the_test_ci
+          MARIADB_USER: the_test
+          MARIADB_PASSWORD: ci-db-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: web
+
+    env:
+      CI: "true"
+      NODE_ENV: test
+      HOST: 127.0.0.1
+      PORT: "3000"
+      COOKIE_SECURE: "false"
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_NAME: the_test_ci
+      DB_USER: the_test
+      DB_PASSWORD: ci-db-password
+      DB_ROOT_HOST: 127.0.0.1
+      DB_ROOT_PORT: "3306"
+      DB_ROOT_USER: root
+      DB_ROOT_PASSWORD: ci-root-password
+      INITIAL_ADMIN_USERNAME: ci-e2e-admin
+      INITIAL_ADMIN_PASSWORD: ci-e2e-password
+      E2E_USERNAME: ci-e2e-admin
+      E2E_PASSWORD: ci-e2e-password
+      E2E_BASE_URL: http://127.0.0.1:3000
+      EVIDENCE_STORAGE_PATH: ${{ github.workspace }}/web/.ci/evidence
+      VIEW_IMAGE_PENDING_TTL_SECONDS: "60"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.20.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare artifact directories
+        run: |
+          mkdir -p .ci/evidence .ci/artifacts
+          rm -rf test-results playwright-report
+
+      - name: TypeCheck
+        run: npm run typecheck
+
+      - name: Unit and API tests
+        run: npm test
+
+      - name: MariaDB integration tests
+        env:
+          DB_INTEGRATION_TEST: "1"
+        run: npm test -- src/server/mariaDb.integration.test.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Start web application
+        run: |
+          nohup npm run dev > .ci/artifacts/server.log 2>&1 &
+          echo $! > .ci/server.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/readyz >/dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat .ci/server.pid)" 2>/dev/null; then
+              cat .ci/artifacts/server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          cat .ci/artifacts/server.log
+          exit 1
+
+      - name: Complete initial password setup
+        run: bash scripts/ci/bootstrap-e2e-user.sh
+
+      - name: Chromium E2E
+        run: npx playwright test --workers=1 --forbid-only --reporter=line,html
+
+      - name: Export DB and audit evidence
+        if: always()
+        run: |
+          set +e
+          mariadb-dump \
+            --host=127.0.0.1 --port=3306 \
+            --user=the_test --password=ci-db-password \
+            --single-transaction --skip-comments \
+            the_test_ci > .ci/artifacts/the_test_ci.sql
+
+          mariadb \
+            --host=127.0.0.1 --port=3306 \
+            --user=the_test --password=ci-db-password \
+            --batch --raw --database=the_test_ci \
+            --execute="SELECT occurred_at, username, project_id, action, entity_type, entity_id, request_id, success, error_code FROM audit_logs ORDER BY occurred_at" \
+            > .ci/artifacts/audit_logs.tsv
+
+          mariadb \
+            --host=127.0.0.1 --port=3306 \
+            --user=the_test --password=ci-db-password \
+            --batch --raw --database=the_test_ci \
+            --execute="SELECT 'users' AS table_name, COUNT(*) AS row_count FROM users UNION ALL SELECT 'projects', COUNT(*) FROM projects UNION ALL SELECT 'test_runs', COUNT(*) FROM test_runs UNION ALL SELECT 'audit_logs', COUNT(*) FROM audit_logs" \
+            > .ci/artifacts/table_counts.tsv
+          exit 0
+
+      - name: Stop web application
+        if: always()
+        run: |
+          if [[ -f .ci/server.pid ]]; then
+            kill "$(cat .ci/server.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            web/.ci/artifacts/**
+            web/test-results/**
+            web/playwright-report/**
