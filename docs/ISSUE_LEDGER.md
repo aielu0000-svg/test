@@ -12,7 +12,7 @@
 | ISSUE-20260801-006 | 2026-08-01 | Bug | P1 | Closed | 開発時静的配信 | 静的UI既定パスが誤っていた。 | workspace rootから解決するよう修正した。 | 実ブラウザでログイン画面を確認。 | Review 7 |
 | ISSUE-20260801-007 | 2026-08-01 | Data integrity | P1 | Closed | 完了後更新 | 完了後更新が通常SQLを共有していた。 | 結果・実績結果・備考だけの専用更新へ分離した。 | MariaDB統合とChromium E2E成功。 | Review 7 |
 | ISSUE-20260801-008 | 2026-08-01 | Test architecture | P1 | Verified | E2E | 単一specで失敗原因を分離できなかった。 | 機能別specへ分割し、409競合復旧spec、trace、screenshot、video保存を追加した。 | GitHub Actions run 30804989151でChromium 11件成功。 | Review 7, Review 9 |
-| ISSUE-20260801-009 | 2026-08-01 | Usability | P2 | Open | フォルダ操作 | Review 9対象外の別タスク。 | 右クリック、F2、複数選択、移動、パンくず、DnD等は未実装。 | 対象外として継続。 | Review 7, Review 9 |
+| ISSUE-20260801-009 | 2026-08-01 | Usability | P2 | Verified | フォルダ操作 | 一覧が単純表示で、階層操作・複数選択・キーボード・DnDの一貫したUIがなかった。 | 右クリックメニュー、F2インライン名前変更、Enter/矢印/Delete/Esc、Ctrl/Cmd・Shift複数選択、複数移動、パンくず、DnD、ドロップ先強調、循環移動防止を実装した。 | GitHub Actions run 30808270002でUnit/API 32件、MariaDB統合2件、Chromium E2E 12件が成功。 | Review 7, P2 Follow-up |
 
 ## Review 9
 
@@ -35,4 +35,9 @@
 - Review 9の対象課題はすべて`Verified`とする。
 - 独立検証はGitHub Actions run `30804989151`で実施し、TypeCheck、Unit/API 29件、MariaDB統合2件、Build、Web起動、Chromium E2E 11件、DB・監査・Playwright成果物保存が成功した。
 - OS権限によるファイル削除失敗の強制注入は追加の堅牢化候補であり、Review 9完了を妨げる未修正不具合としては扱わない。
-- フォルダ操作のISSUE-20260801-009はReview 9対象外のため、別タスクとして継続する。
+
+## P2フォルダ操作完了判定
+
+- ISSUE-20260801-009は`Verified`とする。
+- GitHub Actions run `30808270002`でTypeCheck、Unit/API 32件、MariaDB統合2件、Build、Web起動、Chromium E2E 12件、DB・監査・Playwright成果物保存が成功した。
+- フォルダ移動の循環参照はUIで不正な移動先を除外し、既存APIでも自分自身および子孫への移動を拒否する二重防御とした。
