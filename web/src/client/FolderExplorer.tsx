@@ -41,7 +41,6 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
   const [rename, setRename] = useState<{ key: Key; value: string } | null>(null);
   const [creating, setCreating] = useState<{ parentId: string | null; value: string } | null>(null);
   const [deleting, setDeleting] = useState<{ keys: Key[]; reason: string } | null>(null);
-  const [moveTarget, setMoveTarget] = useState("");
   const [dragging, setDragging] = useState<Key[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null | undefined>();
   const [working, setWorking] = useState(false);
@@ -94,8 +93,6 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
     return items;
   }, [byParent, testsByFolder, expanded, term]);
 
-  const chosen = useMemo(() => selection(selected, folders, scenarios), [selected, folders, scenarios]);
-  const invalidTargets = useMemo(() => invalidMoveTargetIds(folders, chosen.folders.map((item) => item.id)), [folders, chosen.folders]);
   const breadcrumbFolderId = active?.startsWith("folder:") ? idOf(active)
     : active?.startsWith("scenario:") ? scenarios.find((item) => item.id === idOf(active))?.folderId
     : scenarios.find((item) => item.id === selectedScenarioId)?.folderId;
@@ -207,9 +204,6 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
       {canEdit && <button type="button" className="small" disabled={working} onClick={() => setCreating({ parentId: breadcrumbFolderId ?? null, value: "" })}>＋ フォルダ</button>}</div>
     <nav className="design-breadcrumb" aria-label="フォルダのパンくず"><button type="button" onClick={() => { setSelected(new Set()); focus(visible[0]?.key ?? null); }}>プロジェクト直下</button>
       {breadcrumbs.map((folder) => <span key={folder.id}><span>›</span><button type="button" onClick={() => { setExpanded((current) => new Set([...current, folder.id])); choose(fkey(folder.id)); }}>{folder.name}</button></span>)}</nav>
-    {selected.size > 0 && canEdit && <div className="design-selection-toolbar"><strong>{selected.size}件選択</strong><select aria-label="選択項目の移動先" value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)}>
-      <option value="">プロジェクト直下</option>{folders.filter((item) => !invalidTargets.has(item.id)).map((item) => <option key={item.id} value={item.id}>{folderAncestors(folders, item.id).map((part) => part.name).join(" / ")}</option>)}</select>
-      <button type="button" disabled={working} onClick={() => void move([...selected], moveTarget || null)}>選択項目を移動</button><button type="button" className="danger" disabled={working} onClick={() => setDeleting({ keys: [...selected], reason: "" })}>削除</button><button type="button" onClick={() => setSelected(new Set())}>選択解除</button></div>}
     <div className={`design-tree-root${dropTarget === null ? " drop-target" : ""}`} role="tree" aria-label="テストとフォルダ"
       onContextMenu={(event) => { if (event.target === event.currentTarget) openMenu(event, null); }} onDragOver={(event) => { if (canEdit) { event.preventDefault(); setDropTarget(null); } }}
       onDrop={(event) => { if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains("design-root-label")) return; event.preventDefault(); void move(dragKeys(event), null); }}>
