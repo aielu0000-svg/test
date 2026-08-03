@@ -1,149 +1,192 @@
 # Task Log
 
- 2026-08-01 JST
+## TASK-20260801-001: 既存DB Migration補修と主要導線検証
+
+- 開始日: 2026-08-01 JST
+- 完了日: 2026-08-03 JST
 - 対応課題: ISSUE-20260801-001, ISSUE-20260801-002, ISSUE-20260801-003
-- 担当: Codex
 - 状態: Completed
 
-### 作業前の状態
+### 発生したこと
 
-- 発生していた現象: 既存DBでテスト保存時に `Unknown column 'view_images_json' in 'INSERT INTO'`。review7対応のE2E本走が未実施。
-- 再現手順: 既存DBでテスト設計を保存する。
-- 期待動作: Migration履歴と実スキーマが一致し、保存・実行・証跡・ログアウトの主要導線が実環境で動作する。
-- 実際の動作: 調査開始前。
-- 関連エラーID: なし。
-- 関連ログ: 追加指示文書に記載。
+- 適用済みと記録されたMigrationと実スキーマが一致せず、既存DBで保存時に列不足エラーが発生した。
+- 実行作成、連続保存、証跡、完了後更新、ログアウトの実ブラウザ検証が不足していた。
+- 見る場所画像で申告MIME依存と未関連ファイル回収の安全性が不足していた。
 
-### 調査内容
+### 原因
 
-- 確認したファイル: 運用ルール、両仕様書、review7追加指示、Migration一覧、既存進捗・セキュリティ文書。
-- 確認したDB: 未実施。
-- 実行したコマンド: 文書・Migration・Web構成の読み取りコマンド。
-- 仮説: 適用済みMigration 008の後追い変更により既存DBへ一部DDLが適用されていない。
-- 仮説の検証結果: 未実施。
-- 確定原因: 未確定。
+- 適用済みMigrationファイルへの後追い変更により、Migration履歴とDB構造が乖離した。
+- 保存応答後のstate同期と実MariaDB・Chromiumを使う検証環境が不足した。
+- 画像実体検証と回収状態の管理が不足した。
 
 ### 実施内容
 
-- 変更ファイル: `docs/ISSUE_LEDGER.md`, `docs/OPEN_ISSUES.md`, `docs/AI_REVIEW_HISTORY.md`, `docs/TASK_LOG.md`
-- DB変更: 未実施。
-- Migration: 未実施。
-- API変更: 未実施。
-- UI変更: 未実施。
-- テスト追加: 未実施。
-- ドキュメント更新: 課題台帳・開始ログを新設。
-
-### 作業中に発生したこと
-
-- 新たに発生したエラー: なし。
-- 想定外の影響: 必須管理台帳が未作成だったため、本タスクで新設する。
-- 追加で判明した課題: ISSUE-20260801-001〜003を登録。
-- 回避策: なし。
+- 補修Migration 011と起動時スキーマ構造検証を追加した。
+- run state同期、開始拒否監査、完了後更新方針Aを実装した。
+- Sharpによる画像実体検証、SVG拒否、参照確認付き回収を実装した。
+- E2Eを機能別specへ分割した。
 
 ### 検証
 
-- TypeCheck: 未実施。
-- Unit Test: 未実施。
-- Integration Test: 未実施。
-- Build: 未実施。
-- E2E: 未実施。
-- 手動確認: 未実施。
-- DB確認: 未実施。
-- セキュリティ確認: 既存評価文書を確認済み。実装確認は未実施。
+- TypeCheck: 成功
+- Unit/API: 成功
+- MariaDB統合: 成功
+- Build: 成功
+- Chromium E2E: 後続の独立CIタスクで実施
 
 ### 結果
 
-- 解消した内容: なし。
-- 解消していない内容: ISSUE-20260801-001〜003。
-- 残るリスク: 既存DB保存失敗と実導線未検証。
-- 次のタスク: 実DBを調査し、Migration補修・スキーマ検証・統合/E2Eテストを実装する。
+- 既存DB補修、主要導線、画像実体検証を実装した。
+- Chromium本走はTASK-20260803-002へ引き継いだ。
 
-## TASK-20260801-002: codex-review利用可否確認
+## TASK-20260801-002: codex-review利用可否と代替レビュー規則
 
-- 開始日時: 2026-08-01 JST
-- 完了日時: 2026-08-01 JST
-- 対応対象: codex-reviewの利用可否と開発ルールへの反映
-- 担当: Codex
+- 開始日: 2026-08-01 JST
+- 完了日: 2026-08-01 JST
+- 対応課題: ISSUE-20260801-004
 - 状態: Completed
 
-### 調査結果
+### 発生したこと
 
-- `codex` PowerShellラッパーは実行ポリシーにより起動不可。
-- `codex.cmd` は `codex-cli 0.146.0` として起動可能。
-- `codex review` サブコマンドと `-C` によるリポジトリ指定を確認済み。
-- 実レビューの実行は、リポジトリ内容を外部サービスへ送信するため安全制約により拒否された。
-- よって、本環境ではcodex-reviewを利用不可と判断し、今後使用しない代替レビュー規則を追加した。
+- `codex review`はリポジトリ内容を外部サービスへ送信するため、安全制約により実行が拒否された。
 
-### 代替レビュー
+### 対応
 
-- ローカル差分確認、仕様・受け入れ条件との照合、変更範囲に応じたテスト、手動動作確認を代替手段とする。
-- 今回は運用確認のみのため、TypeCheck、Unit Test、Integration Test、Build、E2E、DB確認、手動動作確認は未実施。
+- 本環境では`codex-review`を使用しない。
+- 外部送信を回避し、ローカル差分確認、仕様照合、静的解析、自動テスト、実DB・実ブラウザ確認を代替レビューとする。
+- 外部送信が必要な場合は、送信対象とリスクを説明し、事前の明示承認を必要とする。
 
-### 更新ファイル
+### 更新
 
 - `docs/codex-development-operation-rules.md`
-- `docs/TASK_LOG.md`
 - `docs/AI_REVIEW_HISTORY.md`
 - `docs/ISSUE_LEDGER.md`
 
-### 結果
+## TASK-20260803-001: Review 9初回修正
 
-- codex-review利用不可時の代替レビュー規則を追加済み。
-- 本タスクに伴う新たな未解決課題はなし。
- 2026-08-01 JST
-- 対応課題: ISSUE-20260801-001, ISSUE-20260801-002, ISSUE-20260801-003
-- 担当: Codex
-- 状態: Completed
+- 開始日: 2026-08-03 JST
+- 完了日: 2026-08-03 JST
+- 対応課題: ISSUE-20260803-001〜011
+- 状態: Completed with follow-up
 
-### 作業前の状態
+### 発生したこと
 
-- Web版の実装・Migration・テスト・設定が未追跡ファイルとして存在している。
-- Electron版は今回のレビュー対象外。
-- ユーザーからWeb版コードの外部送信が明示的に承認されている。
+- BIGINTのJSON化、合格率、409競合、完了後編集、シナリオ状態、PNG再エンコード、スキーマ検証、E2E構造、文書整合性にReview 9指摘があった。
 
 ### 実施内容
 
-- 変更ファイル: Web版のレビュー対象のみを専用コミットへ追加する。
-- DB変更: なし。
-- Migration: 既存ファイルをレビュー対象として追加するが、内容は変更しない。
-- テスト追加: なし。
-- ドキュメント更新: codex-review利用条件を条件付き利用へ修正。
+- BIGINT共通正規化を実装した。
+- 合格率を`pass / (pass + fail + blocked)`へ統一した。
+- run versionマージ、完了後編集方針A、シナリオ自動集計、Sharp PNG再エンコード、構造スキーマ検証を追加した。
+- E2Eを9機能別spec・10テストへ分割した。
+
+### 初回検証
+
+- TypeCheck: 成功
+- Unit/API: 26件成功
+- MariaDB統合: 成功
+- Build: 成功
+- Chromium E2E: 資格情報不足で未完了
+
+### 後続課題
+
+- 独立CI環境での本走
+- ケース保存応答を含む単調versionマージ
+- 409復旧UIの3操作
+- 編集画像失敗時のサムネイル回収
+- 仕様版管理と台帳正規化
+
+## TASK-20260803-002: GitHub Actions独立検証環境
+
+- 開始日: 2026-08-03 JST
+- 完了日: 2026-08-03 JST
+- 対象: Pull Request #1 / `codex/web-review`
+- 状態: Completed
+
+### 発生したこと
+
+1. 初回CIでは`006_phase4_evidence_procedures.sql`の照合順序不一致により外部キー作成が失敗した。
+2. 次回CIでは空bodyのログアウトにJSON Content-Typeを付与したためFastifyが500を返した。
+3. E2Eの戻る操作、警告文言、要素指定にテスト設計上の誤りがあった。
+
+### 原因
+
+- Migrationで親子テーブルの`utf8mb4_unicode_ci`指定が統一されていなかった。
+- APIクライアントがbodyの有無に関係なくJSON Content-Typeを付与した。
+- E2Eがブラウザ履歴とDOMの実構造を正確に限定していなかった。
+
+### 実施内容
+
+- 006の4テーブルへcharset/collationを明示した。
+- 異なるDB既定照合順序でMigrationを実行する統合テストを追加した。
+- bodyがある場合だけJSON Content-Typeを付与するよう修正した。
+- 認証・テスト設計E2Eを修正した。
+- MariaDB統合テスト2件をCIで実行するよう変更した。
+
+### 検証結果
+
+GitHub Actions run `30799180203`:
+
+- TypeCheck: 成功
+- Unit/API: 26件成功
+- MariaDB統合: 2件成功
+- Build: 成功
+- Web起動・readiness: 成功
+- Chromium E2E: 10件成功
+- DBダンプ・監査ログ・Playwright成果物: 保存成功
+
+## TASK-20260803-003: Review 9残件修正と完了確認
+
+- 開始日時: 2026-08-03 19:04 JST
+- 対応課題: ISSUE-20260803-003, ISSUE-20260803-004, ISSUE-20260803-005, ISSUE-20260803-007, ISSUE-20260803-009, ISSUE-20260803-011
+- 状態: In Verification
+
+### 作業前の状態
+
+- 既存CIは成功していたが、ケース保存応答がrun/case stateを直接上書きしていた。
+- 409競合時は入力控え表示だけで、再読込・コピー・差分確認の操作が不足していた。
+- 編集画像のDB更新失敗時にJPEGサムネイルが残る経路があった。
+- 確定仕様書の変更履歴とReview 9の最終検証記録が不足していた。
+
+### 確定原因
+
+- 単調versionマージが証跡更新経路に限定され、ケース保存経路へ共通適用されていなかった。
+- 競合復旧を自動再読込だけで実装し、利用者が操作できる復旧UIとして設計していなかった。
+- 例外処理で一時ファイルとPNG本体だけを削除し、後から生成したサムネイルを削除対象へ含めていなかった。
+- 仕様変更時の版上げと台帳更新がDefinition of Doneへ反映されていなかった。
+
+### 実施内容
+
+- `runUpdateMerge.ts`を追加し、runとrun caseへ単調versionマージを適用した。
+- 古いrun応答、古いcase応答、完了後更新metadata保持の単体テストを追加した。
+- 409競合UIへ「最新状態を再読み込み」「現在入力をコピー」「差分を確認」を追加した。
+- 競合時の入力控えを、再読込後も保持するよう変更した。
+- Chromium用`run-conflict.spec.ts`を追加した。
+- 画像編集失敗時に一時ファイル、PNG本体、JPEGサムネイルを回収し、回収失敗を構造化ログへ出力するよう変更した。
+- 確定仕様v1.1.0を追加し、単調versionマージ、409復旧UI、画像回収、独立CI条件を明文化した。
+- Issue LedgerとTask Logを正規化した。
+
+### 変更ファイル
+
+- `web/src/client/runUpdateMerge.ts`
+- `web/src/client/runUpdateMerge.test.ts`
+- `web/src/client/OperationsWorkspaceV2.tsx`
+- `web/src/server/routes/evidenceDerived.ts`
+- `web/e2e/run-conflict.spec.ts`
+- `the-test-web-confirmed-spec-v1.1.0.md`
+- `docs/ISSUE_LEDGER.md`
+- `docs/TASK_LOG.md`
 
 ### 検証
 
-- TypeCheck: 未実施。
-- Unit Test: 未実施。
-- Integration Test: 未実施。
-- Build: 未実施。
-- E2E: 未実施。
-- 手動確認: 未実施。
-- DB確認: 未実施。
-- セキュリティ確認: 外部送信のユーザー承認を確認。秘密情報スキャンは未実施。
+- TypeCheck: GitHub Actions実行待ち
+- Unit/API: GitHub Actions実行待ち
+- MariaDB統合: GitHub Actions実行待ち
+- Build: GitHub Actions実行待ち
+- Chromium E2E: GitHub Actions実行待ち
+- DB・監査ログ: GitHub Actions成果物で確認予定
 
-### 結果
+### 残るリスク
 
-- Web版レビュー用コミットを作成するところまでを実施する。
-- codex-reviewの実行、指摘対応、再レビューは本タスクでは実施しない。
-### TASK-20260801-003 完了追記
-
-- 完了日時: 2026-08-01 JST
-- 状態: Completed
-- 作成コミット: `3f82c16 Prepare web version for Codex review`
-- 対象: Web版のソース、Migration、テスト、API仕様、デプロイ設定。Electron版、`
-
-### 作業中の進捗
-
-- 追加Migration: 012_view_image_cleanup_retry.sql を追加。適用済みMigrationは変更していない。
-- 実装: BIGINT JSON正規化、合格率、409復旧、完了後方針A、シナリオ自動集計、PNG再エンコード、構造スキーマ検証、画像クリーンアップ再試行を修正した。
-- E2E: 単一specを9機能別specへ分割し、動画、trace、screenshotを失敗時保持する。Playwright listで10テストを検出した。
-- 実行済み: npm run typecheck成功、npm test成功（26成功、MariaDB統合1件skip）、DB_INTEGRATION_TEST=1のMariaDB統合成功、npm run build成功。
-- E2E本走: E2E_USERNAMEとE2E_PASSWORDが未設定のため9件が明示的に失敗。skip成功にはしていない。
-- 外部レビュー: Web版の対象コミット作成後にread-onlyで実行する。
-
-### 完了記録
-
-- 完了日時: 2026-08-03 JST
-- 状態: Completed（実装・静的検証・Unit/API・MariaDB統合・Build完了）。
-- 外部read-onlyレビュー: Codex CLIで2回試行したが、いずれも判定前にタイムアウトした。ユーザー指示により再試行を中止し、ok判定は未取得として扱う。
-- E2E: 9機能別spec・10テストの検出は成功。E2E_USERNAMEとE2E_PASSWORDが未設定のためChromium本走は明示的に失敗し、未解決課題へ残す。
-- 残るリスク: 失敗注入画像/APIと分割E2Eの実ブラウザ本走は認証情報を設定した隔離環境で再検証が必要。
+- GitHub Actionsの最新runが成功するまではReview 9完了判定を行わない。
+- フォルダのエクスプローラー操作はReview 9対象外のP2として継続する。
