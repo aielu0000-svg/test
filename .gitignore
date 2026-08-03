@@ -8,6 +8,12 @@ npm-debug.log*
 *.sqlite
 attachments/
 
+# Local environment secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
 # Build artifacts
 *.exe
 *.blockmap
