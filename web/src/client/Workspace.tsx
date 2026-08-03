@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AuthUser, ProjectSummary } from "../shared/types.js";
 import "./workspace.css";
+import { request } from "./api.js";
 import { ExportPanel } from "./OperationsWorkspace.js";
 import { ProceduresPanelV2, RunsPanelV2 } from "./OperationsWorkspaceV2.js";
 import { RecycleBinPanel } from "./RecycleBinPanel.js";
@@ -39,20 +40,6 @@ interface DataSet {
   scope: "common" | "case" | "scenario" | "run";
   version: number;
   updatedAt: string;
-}
-
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: init.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...(init.headers ?? {}) },
-    ...init,
-  });
-  const payload = await response.json().catch(() => ({})) as { error?: { message?: string; requestId?: string } };
-  if (!response.ok) {
-    const detail = response.status >= 500 ? "サーバーで問題が発生しました。しばらくしてから再度お試しください。" : payload.error?.message ?? "通信に失敗しました。";
-    throw new Error(detail + (payload.error?.requestId ? `（エラーID: ${payload.error.requestId}）` : ""));
-  }
-  return payload as T;
 }
 
 function ErrorNotice({ value }: { value: string }) {
