@@ -354,3 +354,79 @@ GitHub Actions run `30840831542`:
 - ISSUE-20260804-001とISSUE-20260804-002を`Verified`へ変更した。
 - Excelインポート確定のサーバーエラー、重複フォルダ操作UI、右クリック・削除ダイアログの前後関係を修正した。
 - 修正は`agent/folder-explorer-p2`へpushし、PR #2はDraft・未マージのまま維持した。
+
+## TASK-20260804-002: Excelテスト設計全体取込と保守整理
+
+- 開始日時: 2026-08-04 03:50 JST
+- 完了日時: 2026-08-04 04:07 JST
+- 対応課題: ISSUE-20260804-003, ISSUE-20260804-004
+- 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`
+- 状態: Completed
+
+### 発生したこと
+
+- Excel確定のサーバーエラーは解消したが、取り込んだデータがテスト設計のテスト一覧へ表示されなかった。
+- 公式テンプレートが現在のテスト設計画面より古く、確認項目と手順しか表現できなかった。
+- 前タスクで確認した未使用import、旧フォルダUI用CSS、補正専用CSSファイルが残っていた。
+
+### 確定原因
+
+- Excel確定処理は`test_cases`、`test_steps`、タグ、確認項目フォルダだけを登録し、`scenarios`と`scenario_cases`を作成していなかった。
+- 現行画面が扱うテスト情報、テスト全体の前提条件、個別テストデータ、共通データを旧テンプレートが保持できなかった。
+- Excel解析・テンプレート生成・HTTPルートが1ファイルへ密結合していた。
+- フォルダUI更新後も参照されないCSSと、一時的に追加した補正CSSファイルが残っていた。
+
+### 実施内容
+
+- Excelの型、テンプレート生成、検証・解析を`web/src/server/excelImport.ts`へ分離した。
+- テンプレートを`使い方`、`Scenarios`、`Cases`、`Steps`、`CommonData`の5シート構成へ変更した。
+- テストキーと確認項目キーでシート間を関連付ける形式とした。
+- テスト、確認項目、手順、テストと確認項目の関連、階層フォルダ、複数フォルダ所属、タグ、個別テストデータ、共通データを確定トランザクションで登録するよう変更した。
+- 確定後に再読込し、テスト設計タブへ自動的に戻るようUIを変更した。
+- 旧テンプレートは見えない確認項目を作成せず、「最新版を再ダウンロードしてください」と明示エラーにした。
+- 最新テンプレートの生成・解析と旧テンプレート拒否の単体テスト2件を追加した。
+- Excel E2Eを、HTTP 200だけでなくテスト一覧、テスト名、確認項目名、個別テストデータ、共通データの画面復元まで検証するよう強化した。
+- 未使用の`objectBody` importと旧フォルダUI用CSSを削除した。
+- `folder-explorer-fixes.css`を`test-design.css`へ統合し、補正専用ファイルとimportを削除した。
+
+### 変更ファイル
+
+- `web/src/server/excelImport.ts`
+- `web/src/server/excelImport.test.ts`
+- `web/src/server/routes/excel.ts`
+- `web/src/client/Workspace.tsx`
+- `web/src/client/test-design.css`
+- `web/src/client/main.tsx`
+- `web/e2e/excel-import.spec.ts`
+- `docs/ISSUE_LEDGER.md`
+- `docs/OPEN_ISSUES.md`
+- `docs/TASK_LOG.md`
+
+### 独立検証結果
+
+GitHub Actions run `30844134585`:
+
+- TypeCheck: 成功
+- Unit/API: 37件成功、2件skip
+  - 最新テンプレートの生成・解析
+  - 旧テンプレートの明示拒否
+- MariaDB統合: 2件成功
+- Build: 成功
+  - client CSS: 31.00 kB（整理前32.39 kB）
+- Web起動・readiness: 成功
+- Chromium E2E: 14件成功
+  - 最新テンプレートのダウンロード
+  - プレビューで1テスト・1確認項目を確認
+  - Excel確定HTTP 200
+  - テスト一覧への表示
+  - テスト名・確認項目名・個別テストデータ・共通データの復元
+- DBダンプ、監査ログ、テーブル件数、Playwright成果物: 保存成功
+- Artifact: `web-ci-30844134585-1`（ID `8868021343`、SHA256 `a476286d2d7a1f62aaeee4f1a5c7d0be68fd7e3439b7d25a68b41997057c3cb0`）
+
+### 結果
+
+- ISSUE-20260804-003とISSUE-20260804-004を`Verified`へ変更した。
+- Excelから現在のテスト設計画面が扱う主要データを復元できるようになった。
+- 旧テンプレートで不完全なデータを登録する経路を閉じた。
+- 安全に削除可能と確認した未使用コード・CSSを整理し、Excel処理の責務を分離した。
+- PR #2はDraft・未マージのまま維持した。
