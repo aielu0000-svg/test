@@ -8,7 +8,8 @@ export function requiresActualResult(status: RunResultStatus): boolean {
 export function calculatePassRate(counts: Partial<Record<RunResultStatus, number>>): number | null {
   const passed = Math.max(0, Number(counts.pass ?? 0));
   const failed = Math.max(0, Number(counts.fail ?? 0));
-  const denominator = passed + failed;
+  const blocked = Math.max(0, Number(counts.blocked ?? 0));
+  const denominator = passed + failed + blocked;
   return denominator === 0 ? null : passed / denominator;
 }
 

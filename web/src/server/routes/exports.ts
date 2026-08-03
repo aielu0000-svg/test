@@ -9,6 +9,7 @@ import { writeAudit } from "../audit.js";
 import { badRequest, notFound } from "../errors.js";
 import { importFormalPayload } from "../formalImport.js";
 import { objectBody, projectIdFrom, routeParam, stringValue } from "./routeUtils.js";
+import { normalizeDatabaseRecord } from "../jsonNormalization.js";
 
 export const EXPORT_SCHEMA_VERSION = "1.0.0";
 
@@ -74,27 +75,27 @@ export async function buildFormalExport(db: Database, projectId: string): Promis
   return {
     schema_version: EXPORT_SCHEMA_VERSION,
     exported_at: new Date().toISOString(),
-    project: projects[0],
-    folders,
-    test_cases: cases,
-    test_steps: steps,
-    test_case_tags: tags,
-    test_case_folders: caseFolders,
-    scenarios,
-    scenario_cases: scenarioCases,
-    data_sets: dataSets,
-    data_items: dataItems,
-    data_links: dataLinks,
-    procedures,
-    procedure_versions: procedureVersions,
-    test_runs: runs,
-    run_revisions: revisions,
-    run_scenarios: runScenarios,
-    run_cases: runCases,
-    run_steps: runSteps,
-    run_data_sets: runDataSets,
-    run_data_items: runDataItems,
-    evidence_manifest: evidence,
+    project: normalizeDatabaseRecord(projects[0]),
+    folders: folders.map(normalizeDatabaseRecord),
+    test_cases: cases.map(normalizeDatabaseRecord),
+    test_steps: steps.map(normalizeDatabaseRecord),
+    test_case_tags: tags.map(normalizeDatabaseRecord),
+    test_case_folders: caseFolders.map(normalizeDatabaseRecord),
+    scenarios: scenarios.map(normalizeDatabaseRecord),
+    scenario_cases: scenarioCases.map(normalizeDatabaseRecord),
+    data_sets: dataSets.map(normalizeDatabaseRecord),
+    data_items: dataItems.map(normalizeDatabaseRecord),
+    data_links: dataLinks.map(normalizeDatabaseRecord),
+    procedures: procedures.map(normalizeDatabaseRecord),
+    procedure_versions: procedureVersions.map(normalizeDatabaseRecord),
+    test_runs: runs.map(normalizeDatabaseRecord),
+    run_revisions: revisions.map(normalizeDatabaseRecord),
+    run_scenarios: runScenarios.map(normalizeDatabaseRecord),
+    run_cases: runCases.map(normalizeDatabaseRecord),
+    run_steps: runSteps.map(normalizeDatabaseRecord),
+    run_data_sets: runDataSets.map(normalizeDatabaseRecord),
+    run_data_items: runDataItems.map(normalizeDatabaseRecord),
+    evidence_manifest: evidence.map(normalizeDatabaseRecord),
   };
 }
 

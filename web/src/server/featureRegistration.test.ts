@@ -24,7 +24,7 @@ async function config(): Promise<AppConfig> {
   return {
     port: 0, host: "127.0.0.1", nodeEnv: "test", cookieName: "the_test_session",
     cookieSecure: false, sessionTtlSeconds: 3600, evidenceStoragePath: directory,
-    migrationDir: directory, staticDir: path.join(directory, "missing"),
+    migrationDir: directory, staticDir: path.join(directory, "missing"), viewImagePendingTtlSeconds: 3600,
     db: { host: "127.0.0.1", port: 3306, database: "test", user: "test", password: "", connectionLimit: 1 },
   };
 }

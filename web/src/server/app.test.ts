@@ -31,6 +31,7 @@ async function testConfig(): Promise<AppConfig> {
     evidenceStoragePath: directory,
     migrationDir: directory,
     staticDir: path.join(directory, "missing-client"),
+    viewImagePendingTtlSeconds: 3600,
     db: { host: "127.0.0.1", port: 3306, database: "test", user: "test", password: "", connectionLimit: 1 },
   };
 }

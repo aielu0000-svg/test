@@ -25,7 +25,7 @@ export function EvidenceImageEditor({ projectId, evidenceId, filename, onClose, 
   evidenceId: string;
   filename: string;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (run?: { id: string; version: number; postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null } | null) => Promise<void>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalRef = useRef("");
@@ -217,10 +217,10 @@ export function EvidenceImageEditor({ projectId, evidenceId, filename, onClose, 
       body: form,
       credentials: "same-origin",
     });
-    const payload = await response.json().catch(() => ({})) as { error?: { message?: string } };
+    const payload = await response.json().catch(() => ({})) as { error?: { message?: string }; run?: { id: string; version: number; postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null } | null };
     if (!response.ok) return setMessage(payload.error?.message ?? "保存に失敗しました。");
     setMessage("元画像を保持したまま、新しいバージョンを保存しました。");
-    await onSaved();
+    await onSaved(payload.run);
   }
 
   return <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="証跡画像編集">

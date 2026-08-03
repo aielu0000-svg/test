@@ -14,6 +14,7 @@ import { requireUser } from "../auth.js";
 import { requireProjectEdit, requireProjectRead } from "../access.js";
 import { renderSafeMarkdown } from "../markdown.js";
 import { authenticatedProject, objectBody, pagination, projectIdFrom, routeParam, stringValue, versionValue } from "./routeUtils.js";
+import { byteSizeString } from "../jsonNormalization.js";
 
 function safeSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_").slice(0, 180) || "file";
@@ -58,7 +59,14 @@ export async function ensureEvidenceRunEditable(db: Database, evidenceId: string
   if (row.run_case_snapshot_id && (!row.status || row.run_deleted_at)) throw badRequest("削除済みの実行に紐づく証跡は変更できません。");
 }
 
-export async function markEvidencePostCompletionUpdate(db: Database, evidenceId: string, actorId: string): Promise<void> {
+export interface PostCompletionRunUpdate {
+  id: string;
+  version: number;
+  postCompletionUpdatedAt: Date | string | null;
+  postCompletionUpdatedBy: string | null;
+}
+
+export async function markEvidencePostCompletionUpdate(db: Database, evidenceId: string, actorId: string): Promise<PostCompletionRunUpdate | null> {
   await db.execute(
     `UPDATE test_runs r
        JOIN run_case_snapshots c ON c.test_run_id = r.id
@@ -68,6 +76,21 @@ export async function markEvidencePostCompletionUpdate(db: Database, evidenceId:
      WHERE e.id = ? AND r.status = 'completed' AND r.deleted_at IS NULL`,
     [actorId, evidenceId],
   );
+  const rows = await db.query<{ id: string; version: number; post_completion_updated_at: Date | string | null; post_completion_updated_by: string | null }>(
+    `SELECT r.id, r.version, r.post_completion_updated_at, r.post_completion_updated_by
+       FROM test_runs r
+       JOIN run_case_snapshots c ON c.test_run_id = r.id
+       JOIN evidence_files e ON e.run_case_snapshot_id = c.id
+      WHERE e.id = ? AND r.status = 'completed' AND r.deleted_at IS NULL LIMIT 1`,
+    [evidenceId],
+  );
+  const run = rows[0];
+  return run ? {
+    id: run.id,
+    version: Number(run.version),
+    postCompletionUpdatedAt: run.post_completion_updated_at,
+    postCompletionUpdatedBy: run.post_completion_updated_by,
+  } : null;
 }
 
 async function generateThumbnail(sourcePath: string, destinationPath: string): Promise<string | null> {
@@ -78,6 +101,10 @@ async function generateThumbnail(sourcePath: string, destinationPath: string): P
     await rm(destinationPath, { force: true }).catch(() => undefined);
     return null;
   }
+}
+
+function evidenceSummary(row: Record<string, unknown>): Record<string, unknown> {
+  return { ...row, byte_size: byteSizeString(row.byte_size) };
 }
 
 async function evidenceVersion(db: Database, evidenceId: string, versionNo?: number): Promise<Record<string, unknown>> {
@@ -110,7 +137,7 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
        FROM evidence_files e JOIN evidence_versions v ON v.evidence_file_id = e.id AND v.version_no = e.current_version
        WHERE e.project_id = ? AND ${deletedFilter} ${caseFilter} ORDER BY e.updated_at DESC LIMIT ? OFFSET ?`, params,
     );
-    return { evidence: rows };
+    return { evidence: rows.map(evidenceSummary) };
   });
 
 
@@ -127,7 +154,7 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
        ORDER BY e.deleted_at DESC LIMIT ? OFFSET ?`,
       [projectId, limit, offset],
     );
-    return { evidence: rows };
+    return { evidence: rows.map(evidenceSummary) };
   });
   app.post("/api/evidence", async (request) => {
     const projectId = projectIdFrom(request);
@@ -179,9 +206,9 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
           [versionId, evidenceId, originalFilename, storedPath, thumbnailPath, contentType, info.size, digest, actor.id],
         );
       });
-      await markEvidencePostCompletionUpdate(db, evidenceId, actor.id);
+      const run = await markEvidencePostCompletionUpdate(db, evidenceId, actor.id);
       await writeAudit(db, request, actor, { action: "evidence_created", entityType: "evidence", entityId: evidenceId, projectId, after: { originalFilename, byteSize: info.size, sha256: digest, runCaseSnapshotId } });
-      return { id: evidenceId, version: 1, originalFilename, byteSize: info.size, sha256: digest };
+      return { id: evidenceId, version: 1, originalFilename, byteSize: info.size, sha256: digest, run };
     } catch (error) {
       await rm(temporaryPath, { force: true }).catch(() => undefined);
       if (storedPath) await rm(storedPath, { force: true }).catch(() => undefined);
@@ -255,9 +282,9 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
       if (thumbnailPath) await rm(thumbnailPath, { force: true }).catch(() => undefined);
       throw error;
     }
-    await markEvidencePostCompletionUpdate(db, id, actor.id);
+    const run = await markEvidencePostCompletionUpdate(db, id, actor.id);
     await writeAudit(db, request, actor, { action: "evidence_image_version_created", entityType: "evidence", entityId: id, projectId, after: { nextVersion, rotate, flip, flop, sha256: digest } });
-    return { id, version: nextVersion, sha256: digest };
+    return { id, version: nextVersion, sha256: digest, run };
   });
 
   app.delete("/api/evidence/:id", async (request) => {
@@ -270,9 +297,9 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
     await ensureEvidenceRunEditable(db, routeParam(request));
     const result = await db.execute("UPDATE evidence_files e LEFT JOIN run_case_snapshots c ON c.id = e.run_case_snapshot_id LEFT JOIN test_runs r ON r.id = c.test_run_id SET e.deleted_at = UTC_TIMESTAMP(6), e.deleted_by = ?, e.delete_reason = ?, e.version = e.version + 1 WHERE e.id = ? AND e.deleted_at IS NULL AND (e.run_case_snapshot_id IS NULL OR r.deleted_at IS NULL)", [actor.id, reason, routeParam(request)]);
     if (Number(result.affectedRows) !== 1) throw notFound();
-    await markEvidencePostCompletionUpdate(db, routeParam(request), actor.id);
+    const run = await markEvidencePostCompletionUpdate(db, routeParam(request), actor.id);
     await writeAudit(db, request, actor, { action: "evidence_deleted", entityType: "evidence", entityId: routeParam(request), projectId, after: { reason } });
-    return { ok: true };
+    return { ok: true, run };
   });
 
   app.post("/api/evidence/:id/restore", async (request) => {
@@ -284,9 +311,9 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
     await ensureEvidenceRunEditable(db, routeParam(request));
     const result = await db.execute("UPDATE evidence_files e LEFT JOIN run_case_snapshots c ON c.id = e.run_case_snapshot_id LEFT JOIN test_runs r ON r.id = c.test_run_id SET e.deleted_at = NULL, e.deleted_by = NULL, e.delete_reason = NULL, e.version = e.version + 1 WHERE e.id = ? AND e.deleted_at >= DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 30 DAY) AND (e.run_case_snapshot_id IS NULL OR r.deleted_at IS NULL)", [routeParam(request)]);
     if (Number(result.affectedRows) !== 1) throw badRequest("復元期限を過ぎているか、対象が見つかりません。");
-    await markEvidencePostCompletionUpdate(db, routeParam(request), actor.id);
+    const run = await markEvidencePostCompletionUpdate(db, routeParam(request), actor.id);
     await writeAudit(db, request, actor, { action: "evidence_restored", entityType: "evidence", entityId: routeParam(request), projectId });
-    return { ok: true };
+    return { ok: true, run };
   });
 
   app.get("/api/procedures", async (request) => {

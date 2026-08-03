@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
@@ -14,15 +13,8 @@ import { requireUser } from "../auth.js";
 import { requireProjectEdit, requireProjectRead } from "../access.js";
 import { projectIdFrom, routeParam } from "./routeUtils.js";
 import { ensureEvidenceRunEditable, markEvidencePostCompletionUpdate } from "./evidence.js";
+import { normalizeDatabaseRecord } from "../jsonNormalization.js";
 
-function hashingTransform(hash: ReturnType<typeof createHash>): Transform {
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      hash.update(chunk);
-      callback(null, chunk);
-    },
-  });
-}
 
 export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
   app.get("/api/evidence/:id/versions", async (request) => {
@@ -37,7 +29,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
          FROM evidence_versions WHERE evidence_file_id = ? ORDER BY version_no DESC`,
       [evidenceId],
     );
-    return { versions };
+    return { versions: versions.map(normalizeDatabaseRecord) };
   });
 
   app.post("/api/evidence/:id/versions", async (request) => {
@@ -63,20 +55,24 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
     const temporaryPath = path.join(directory, `${token}.uploading`);
     const destination = path.join(directory, `v${nextVersion}-${token}.png`);
     let received = false;
-    const hash = createHash("sha256");
 
     try {
       for await (const part of request.parts()) {
         if (part.type !== "file") continue;
         if (received) throw badRequest("1回の登録につき編集画像は1件です。");
         received = true;
-        await pipeline(part.file, hashingTransform(hash), createWriteStream(temporaryPath, { flags: "wx" }));
+        await pipeline(part.file, createWriteStream(temporaryPath, { flags: "wx" }));
       }
       if (!received) throw badRequest("編集画像がありません。");
-      const metadata = await sharp(temporaryPath).metadata();
-      if (!metadata.width || !metadata.height) throw badRequest("画像として読み取れません。");
-      await rename(temporaryPath, destination);
-      const digest = hash.digest("hex");
+      const metadata = await sharp(temporaryPath, { failOn: "error" }).metadata();
+      if (!metadata.width || !metadata.height || !["jpeg", "png", "webp", "gif"].includes(metadata.format ?? "")) {
+        throw badRequest("PNG、JPEG、WebP、GIF形式の画像を指定してください。SVGと破損画像は登録できません。");
+      }
+      await sharp(temporaryPath, { failOn: "error" }).rotate().png().toFile(destination);
+      const digest = await new Promise<string>((resolve, reject) => {
+        const digestHash = createHash("sha256");
+        createReadStream(destination).on("data", (chunk) => digestHash.update(chunk)).on("end", () => resolve(digestHash.digest("hex"))).on("error", reject);
+      });
       const info = await stat(destination);
       const thumbnailPath = path.join(directory, `v${nextVersion}-thumbnail.jpg`);
       await sharp(destination).rotate().resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 82 }).toFile(thumbnailPath);
@@ -94,7 +90,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
           [randomUUID(), evidenceId, nextVersion, `edited-${path.basename(String(current.original_filename))}.png`, destination, thumbnailPath, info.size, digest, JSON.stringify({ operation: "canvas-edit" }), actor.id],
         );
       });
-      await markEvidencePostCompletionUpdate(db, evidenceId, actor.id);
+      const run = await markEvidencePostCompletionUpdate(db, evidenceId, actor.id);
       await writeAudit(db, request, actor, {
         action: "evidence_image_version_created",
         entityType: "evidence",
@@ -102,7 +98,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
         projectId,
         after: { nextVersion, byteSize: info.size, sha256: digest, operation: "canvas-edit" },
       });
-      return { id: evidenceId, version: nextVersion, sha256: digest };
+      return { id: evidenceId, version: nextVersion, sha256: digest, run };
     } catch (error) {
       await rm(temporaryPath, { force: true }).catch(() => undefined);
       await rm(destination, { force: true }).catch(() => undefined);

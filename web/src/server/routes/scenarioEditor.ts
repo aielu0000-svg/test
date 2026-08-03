@@ -6,7 +6,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
 import type { PoolConnection } from "mariadb";
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../db.js";
 import { writeAudit } from "../audit.js";
@@ -51,7 +51,7 @@ const IMAGE_FORMATS = {
 } as const;
 
 async function validatedImage(pathname: string): Promise<{ contentType: string; extension: string }> {
-  let metadata: sharp.Metadata;
+  let metadata: Metadata;
   try {
     metadata = await sharp(pathname, { animated: true, pages: 1 }).metadata();
   } catch {
@@ -215,7 +215,7 @@ async function saveCase(connection: PoolConnection, projectId: string, actorId: 
   await connection.query("UPDATE test_case_view_images SET test_case_id = NULL WHERE project_id = ? AND test_case_id = ?", [projectId, id]);
   if (imageIds.length) {
     const rows = await connection.query<Array<{ id: string }>>(
-      "SELECT id FROM test_case_view_images WHERE project_id = ? AND id IN (?) AND (test_case_id IS NULL OR test_case_id = ?)",
+      "SELECT id FROM test_case_view_images WHERE project_id = ? AND id IN (?) AND cleanup_status = 'active' AND (test_case_id IS NULL OR test_case_id = ?)",
       [projectId, imageIds, id],
     );
     if (rows.length !== new Set(imageIds).size) throw badRequest("別プロジェクトまたは別ケースに関連付け済みの画像が含まれています。");

@@ -1,4 +1,4 @@
-﻿import path from "node:path";
+import path from "node:path";
 
 export interface AppConfig {
   port: number;
@@ -35,6 +35,7 @@ function boolean(value: string | undefined, fallback: boolean): boolean {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const nodeEnv = env.NODE_ENV ?? "development";
+  const workspaceRoot = path.basename(process.cwd()) === "web" ? path.resolve(process.cwd(), "..") : process.cwd();
   return {
     port: integer(env.PORT, 3000),
     host: env.HOST ?? "0.0.0.0",
@@ -45,7 +46,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sessionTtlSeconds: integer(env.SESSION_TTL_SECONDS, 8 * 60 * 60),
     evidenceStoragePath: env.EVIDENCE_STORAGE_PATH ?? path.resolve(process.cwd(), "data/evidence"),
     migrationDir: env.MIGRATIONS_DIR ?? (path.basename(process.cwd()) === "web" ? path.resolve(process.cwd(), "migrations") : path.resolve(process.cwd(), "web/migrations")),
-    staticDir: env.WEB_STATIC_DIR ?? path.resolve(process.cwd(), "dist-web/client"),
+    staticDir: env.WEB_STATIC_DIR ?? path.resolve(workspaceRoot, "dist-web/client"),
     db: {
       host: env.DB_HOST ?? "127.0.0.1",
       port: integer(env.DB_PORT, 3306),

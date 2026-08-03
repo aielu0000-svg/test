@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PoolConnection } from "mariadb";
 import type { AppConfig } from "../config.js";
@@ -307,7 +307,10 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
     const scenarioIds = input.scenarioIds === undefined ? storedIds(before.draft_scenario_ids_json) : stringArray(input.scenarioIds, "scenarioIds", 100);
     const caseIds = input.caseIds === undefined ? storedIds(before.draft_case_ids_json) : stringArray(input.caseIds, "caseIds", 100);
     const dataSetIds = input.dataSetIds === undefined ? storedIds(before.draft_data_set_ids_json) : stringArray(input.dataSetIds, "dataSetIds", 100);
-    if (starting && !scenarioIds.length && !caseIds.length) throw badRequest("実行を開始するにはテストまたは確認項目を1件以上選択してください。");
+    if (starting && !scenarioIds.length && !caseIds.length) {
+      await writeAudit(db, request, actor, { action: "run_start_rejected", entityType: "test_run", entityId: id, projectId, success: false, errorCode: "RUN_SELECTION_REQUIRED", before, after: { scenarioIds, caseIds } });
+      throw badRequest("実行を開始するにはテストまたは確認項目を1件以上選択してください。");
+    }
     await db.withTransaction(async (connection) => {
       if (starting) {
         await connection.query("INSERT INTO run_revisions (id, test_run_id, revision_no, change_reason, created_by) VALUES (?, ?, 1, ?, ?)", [randomUUID(), id, "実行開始時スナップショット", actor.id]);
@@ -380,31 +383,44 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
     const actor = await authenticatedProject(request, db, config, projectId, true);
     const id = routeParam(request);
     const parentStatus = await ensureSnapshotProject(db, "run_case_snapshots", id, projectId);
+    if (parentStatus === "completed" && ("assigneeId" in input || "executedAt" in input)) {
+      throw badRequest("完了後に編集できるのは結果・実績結果・備考・証跡のみです。担当者と実行日時は変更できません。");
+    }
     const status = resultStatus(input.status);
     const actualResult = stringValue(input.actualResult, "actualResult", 100_000);
     if (requiresActualResult(status) && !actualResult) throw badRequest("fail、blocked、skipではactual_resultが必須です。");
     const notes = stringValue(input.notes, "notes", 100_000);
     const version = versionValue(input.version);
-    const executedAt = optionalDate(input.executedAt, "executedAt");
-    const assigneeId = stringValue(input.assigneeId, "assigneeId", 100) || null;
-    await validateAssignee(db, projectId, assigneeId);
+    const executedAt = parentStatus === "completed" ? null : optionalDate(input.executedAt, "executedAt");
+    const assigneeId = parentStatus === "completed" ? null : stringValue(input.assigneeId, "assigneeId", 100) || null;
+    if (parentStatus !== "completed") await validateAssignee(db, projectId, assigneeId);
     await db.withTransaction(async (connection) => {
-      const result = await connection.query(
-        `UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.status = ?, c.actual_result = ?, c.notes = ?, c.assignee_id = ?, c.executed_at = COALESCE(?, CASE WHEN ? <> 'not_run' THEN UTC_TIMESTAMP(6) ELSE c.executed_at END), c.version = c.version + 1
-         WHERE c.id = ? AND c.version = ? AND c.excluded_at IS NULL AND r.project_id = ? AND r.deleted_at IS NULL`,
-        [status, actualResult || null, notes || null, assigneeId, executedAt, status, id, version, projectId],
-      );
+      const result = parentStatus === "completed"
+        ? await connection.query(
+          `UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.status = ?, c.actual_result = ?, c.notes = ?, c.version = c.version + 1
+           WHERE c.id = ? AND c.version = ? AND c.excluded_at IS NULL AND r.project_id = ? AND r.deleted_at IS NULL`,
+          [status, actualResult || null, notes || null, id, version, projectId],
+        )
+        : await connection.query(
+          `UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.status = ?, c.actual_result = ?, c.notes = ?, c.assignee_id = ?, c.executed_at = COALESCE(?, CASE WHEN ? <> 'not_run' THEN UTC_TIMESTAMP(6) ELSE c.executed_at END), c.version = c.version + 1
+           WHERE c.id = ? AND c.version = ? AND c.excluded_at IS NULL AND r.project_id = ? AND r.deleted_at IS NULL`,
+          [status, actualResult || null, notes || null, assigneeId, executedAt, status, id, version, projectId],
+        );
       if (Number(result.affectedRows) !== 1) throw conflict();
       await connection.query(
         `UPDATE run_scenario_snapshots s JOIN run_case_snapshots changed ON changed.run_scenario_snapshot_id = s.id
          SET s.started_at = CASE WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.status <> 'not_run' AND c.excluded_at IS NULL) THEN COALESCE(s.started_at, UTC_TIMESTAMP(6)) ELSE s.started_at END,
              s.status = CASE
+               WHEN NOT EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL) THEN 'not_run'
                WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status IN ('not_run','in_progress')) THEN 'in_progress'
                WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status = 'fail') THEN 'fail'
                WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status = 'blocked') THEN 'blocked'
                WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status = 'pass') THEN 'pass'
                ELSE 'skip' END,
-             s.completed_at = CASE WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status IN ('not_run','in_progress')) THEN NULL ELSE UTC_TIMESTAMP(6) END,
+             s.completed_at = CASE
+               WHEN NOT EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL) THEN NULL
+               WHEN EXISTS (SELECT 1 FROM run_case_snapshots c WHERE c.run_scenario_snapshot_id = s.id AND c.excluded_at IS NULL AND c.status IN ('not_run','in_progress')) THEN NULL
+               ELSE UTC_TIMESTAMP(6) END,
              s.version = s.version + 1
          WHERE changed.id = ?`, [id],
       );
@@ -415,15 +431,27 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
         );
       }
     });
-    await writeAudit(db, request, actor, { action: parentStatus === "completed" ? "run_case_result_updated_after_completion" : "run_case_result_updated", entityType: "run_case_snapshot", entityId: id, projectId, after: { status, actualResult, notes, executedAt, assigneeId } });
+    await writeAudit(db, request, actor, { action: parentStatus === "completed" ? "run_case_result_updated_after_completion" : "run_case_result_updated", entityType: "run_case_snapshot", entityId: id, projectId, after: parentStatus === "completed" ? { status, actualResult, notes } : { status, actualResult, notes, executedAt, assigneeId } });
     const updatedRows = await db.query<Record<string, unknown>>(
       "SELECT id, title, status, actual_result, notes, assignee_id, executed_at, version, excluded_at FROM run_case_snapshots WHERE id = ? LIMIT 1",
       [id],
     );
     const updated = updatedRows[0];
     if (!updated) throw notFound();
+    const runRows = await db.query<Pick<RunRow, "id" | "version" | "post_completion_updated_at" | "post_completion_updated_by">>(
+      "SELECT r.id, r.version, r.post_completion_updated_at, r.post_completion_updated_by FROM test_runs r JOIN run_case_snapshots c ON c.test_run_id = r.id WHERE c.id = ? LIMIT 1",
+      [id],
+    );
+    const run = runRows[0];
+    if (!run) throw notFound();
     return {
       ok: true,
+      run: {
+        id: run.id,
+        version: Number(run.version),
+        postCompletionUpdatedAt: run.post_completion_updated_at,
+        postCompletionUpdatedBy: run.post_completion_updated_by,
+      },
       runCase: {
         id: updated.id,
         title: updated.title,

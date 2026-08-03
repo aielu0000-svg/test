@@ -13,6 +13,7 @@ interface RunSummary {
   assigneeId?: string | null; memo?: string | null;
   postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null;
 }
+type RunUpdate = Pick<RunSummary, "id" | "version" | "postCompletionUpdatedAt" | "postCompletionUpdatedBy">;
 export interface RunCase {
   id: string; title: string; status: "not_run" | "in_progress" | "pass" | "fail" | "blocked" | "skip";
   actual_result: string | null; notes: string | null; assignee_id: string | null; executed_at: string | null; version: number;
@@ -50,6 +51,13 @@ interface RunFormValues {
   selectedDataSets: string[];
 }
 
+class ApiClientError extends Error {
+  constructor(readonly status: number, message: string, readonly requestId?: string) {
+    super(message);
+    this.name = "ApiClientError";
+  }
+}
+
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -57,7 +65,11 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
   });
   const payload = await response.json().catch(() => ({})) as { error?: { message?: string; requestId?: string } };
-  if (!response.ok) throw new Error(`${response.status >= 500 ? "処理を完了できませんでした。もう一度お試しください。" : payload.error?.message ?? "通信に失敗しました。"}${payload.error?.requestId ? `（エラーID: ${payload.error.requestId}）` : ""}`);
+  if (!response.ok) {
+    const requestId = payload.error?.requestId;
+    const message = (response.status >= 500 ? "処理を完了できませんでした。もう一度お試しください。" : payload.error?.message ?? "通信に失敗しました。") + (requestId ? "（エラーID: " + requestId + "）" : "");
+    throw new ApiClientError(response.status, message, requestId);
+  }
   return payload as T;
 }
 
@@ -215,19 +227,51 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
     catch (cause) { setError(cause instanceof Error ? cause.message : "状態変更に失敗しました。"); }
   }
 
-  async function saveCase(item: RunCase, values: { status: RunCase["status"]; actualResult: string; notes: string; executedAt: string | null; assigneeId: string }) {
-    const result = await api<{ runCase: RunCase }>(`/api/run-cases/${item.id}`, {
+  function mergeRunUpdate(update: RunUpdate | null | undefined) {
+    if (!update) return;
+    const merge = <T extends RunSummary>(current: T): T => {
+      if (update.version < current.version) return current;
+      return {
+        ...current,
+        ...update,
+        postCompletionUpdatedAt: update.postCompletionUpdatedAt ?? current.postCompletionUpdatedAt,
+        postCompletionUpdatedBy: update.postCompletionUpdatedBy ?? current.postCompletionUpdatedBy,
+      };
+    };
+    setDetail((current) => current && current.run.id === update.id ? { ...current, run: merge(current.run) } : current);
+    setRuns((current) => current.map((entry) => entry.id === update.id ? merge(entry) : entry));
+  }
+
+  async function reloadAfterConflict() {
+    if (!detail) return;
+    await Promise.all([loadDetail(detail.run.id), refreshLists()]);
+  }
+
+  async function saveCase(item: RunCase, values: { status: RunCase["status"]; actualResult: string; notes: string; executedAt: string | null; assigneeId: string }): Promise<RunCase> {
+    const body: Record<string, unknown> = {
+      projectId, version: item.version, status: values.status, actualResult: values.actualResult, notes: values.notes,
+    };
+    if (detail?.run.status !== "completed") {
+      body.assigneeId = values.assigneeId;
+      body.executedAt = values.executedAt;
+    }
+    const result = await api<{ runCase: RunCase; run: Pick<RunSummary, "id" | "version" | "postCompletionUpdatedAt" | "postCompletionUpdatedBy"> }>(`/api/run-cases/${item.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ projectId, version: item.version, ...values }),
+      body: JSON.stringify(body),
     });
     setDetail((current) => {
       if (!current) return current;
       const nextCases = current.cases.map((entry) => entry.id === item.id ? { ...entry, ...result.runCase } : entry);
       const total = nextCases.filter((entry) => !entry.excluded_at).length;
       const passed = nextCases.filter((entry) => !entry.excluded_at && entry.status === "pass").length;
+      const failed = nextCases.filter((entry) => !entry.excluded_at && entry.status === "fail").length;
+      const blocked = nextCases.filter((entry) => !entry.excluded_at && entry.status === "blocked").length;
+      const denominator = passed + failed + blocked;
       onCasesAvailable?.(nextCases.filter((entry) => !entry.excluded_at));
-      return { ...current, cases: nextCases, stats: { ...current.stats, total, passRate: total ? passed / total : null } };
+      return { ...current, run: { ...current.run, ...result.run }, cases: nextCases, stats: { ...current.stats, total, passRate: denominator ? passed / denominator : null } };
     });
+    setRuns((current) => current.map((entry) => entry.id === result.run.id ? { ...entry, ...result.run } : entry));
+    return result.runCase;
   }
 
   async function revise() {
@@ -272,8 +316,8 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
         <fieldset><legend>対象テスト</legend><SelectionLists cases={cases} scenarios={scenarios} dataSets={dataSets} selectedCases={selectedCases} selectedScenarios={selectedScenarios} selectedDataSets={selectedDataSets} setCases={setSelectedCases} setScenarios={setSelectedScenarios} setDataSets={setSelectedDataSets} /></fieldset>
         {canEdit && <div className="button-row"><button type="button" onClick={() => void patchRun().catch((cause) => setError(cause instanceof Error ? cause.message : "保存に失敗しました。"))}>準備内容を保存</button><button type="button" className="primary" disabled={!selectedCases.length && !selectedScenarios.length} onClick={() => void changeRunStatus("in_progress")}>実行を開始</button><button type="button" className="danger" onClick={() => void deleteRun()}>削除</button></div>}
       </div>}
-      {detail && detail.run.status === "in_progress" && <FocusedRunPanel projectId={projectId} runId={detail.run.id} runStatus={detail.run.status} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onComplete={() => changeRunStatus("completed")} />}
-      {detail && detail.run.status === "completed" && <CompletedRunPanel projectId={projectId} runId={detail.run.id} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} postCompletionUpdatedAt={detail.run.postCompletionUpdatedAt} postCompletionUpdatedBy={detail.run.postCompletionUpdatedBy} />}
+      {detail && detail.run.status === "in_progress" && <FocusedRunPanel projectId={projectId} runId={detail.run.id} runStatus={detail.run.status} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} onComplete={() => changeRunStatus("completed")} />}
+      {detail && detail.run.status === "completed" && <CompletedRunPanel projectId={projectId} runId={detail.run.id} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} postCompletionUpdatedAt={detail.run.postCompletionUpdatedAt} postCompletionUpdatedBy={detail.run.postCompletionUpdatedBy} />}
       {detail && <details className="run-advanced"><summary>実行の詳細・改訂履歴</summary><p>環境: {detail.run.environmentName || "未設定"} / ビルド: {detail.run.buildName || "未設定"} / 改訂{detail.run.currentRevision}</p>{detail.revisions.length > 0 && <ul>{detail.revisions.map((item) => <li key={item.revision_no}>#{item.revision_no} {item.change_reason}</li>)}</ul>}</details>}
       {error && <p className="error-message" role="alert">{error}</p>}
     </section>
@@ -282,12 +326,14 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
 
 function CompletedRunPanel({ postCompletionUpdatedAt, postCompletionUpdatedBy, ...props }: Omit<React.ComponentProps<typeof FocusedRunPanel>, "runStatus" | "onComplete"> & { postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null }) {
   const updater = props.assignees.find((item) => item.id === postCompletionUpdatedBy);
-  return <div><p className="warning-banner" role="status">この実行は完了済みです。変更内容は「完了後更新」として監査ログへ記録されます。{postCompletionUpdatedAt && <> 最終更新: {new Date(postCompletionUpdatedAt).toLocaleString("ja-JP")} / {updater?.displayName || updater?.username || postCompletionUpdatedBy || "不明"}</>}</p><FocusedRunPanel {...props} runStatus="completed" onComplete={async () => undefined} /></div>;
+  return <div><p className="warning-banner" role="status">この実行は完了済みです。編集できるのは結果・実績結果・備考・証跡のみで、変更内容は「完了後更新」として監査ログへ記録されます。{postCompletionUpdatedAt && <> 最終更新: {new Date(postCompletionUpdatedAt).toLocaleString("ja-JP")} / {updater?.displayName || updater?.username || postCompletionUpdatedBy || "不明"}</>}</p><FocusedRunPanel {...props} runStatus="completed" onComplete={async () => undefined} /></div>;
 }
 
-function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignees, onSave, onComplete }: {
+function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignees, onSave, onRunUpdated, onConflict, onComplete }: {
   projectId: string; runId: string; runStatus: RunSummary["status"]; cases: RunCase[]; canEdit: boolean; assignees: Assignee[];
-  onSave: (item: RunCase, values: { status: RunCase["status"]; actualResult: string; notes: string; executedAt: string | null; assigneeId: string }) => Promise<void>;
+  onSave: (item: RunCase, values: { status: RunCase["status"]; actualResult: string; notes: string; executedAt: string | null; assigneeId: string }) => Promise<RunCase>;
+  onRunUpdated: (update: RunUpdate | null | undefined) => void;
+  onConflict: () => Promise<void>;
   onComplete: () => Promise<void>;
 }) {
   const [index, setIndex] = useState(0);
@@ -299,6 +345,7 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
   const [executedAt, setExecutedAt] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [error, setError] = useState("");
+  const [conflictInput, setConflictInput] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const editRevision = useRef(0);
@@ -316,7 +363,7 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
     setStatus(item.status); setActualResult(item.actual_result ?? ""); setNotes(item.notes ?? "");
     setAssigneeId(item.assignee_id ?? ""); setExecutedAt(localDateTimeValue(item.executed_at));
     editRevision.current = 0; lastSubmittedRevision.current = 0; lastResolvedRevision.current = 0;
-    setIsEditing(false); setSaveState("idle"); setError("");
+    setIsEditing(false); setSaveState("idle"); setError(""); setConflictInput("");
   }, [item?.id]);
 
   if (!item) return <div className="run-empty"><h2>確認項目がありません</h2><p className="muted">実行準備へ戻り、対象テストを選択してください。</p></div>;
@@ -338,10 +385,12 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
     const submittedEditRevision = editRevision.current;
     setSaveState("saving"); setError("");
     try {
-      await onSave(item, { status, actualResult, notes, assigneeId, executedAt: toUtcIso(executedAt) });
+      const saved = await onSave(item, { status, actualResult, notes, assigneeId, executedAt: toUtcIso(executedAt) });
       if (requestRevision < lastSubmittedRevision.current || requestRevision < lastResolvedRevision.current) return;
       lastResolvedRevision.current = requestRevision;
       if (editRevision.current === submittedEditRevision) {
+        setStatus(saved.status); setActualResult(saved.actual_result ?? ""); setNotes(saved.notes ?? "");
+        setAssigneeId(saved.assignee_id ?? ""); setExecutedAt(localDateTimeValue(saved.executed_at));
         setIsEditing(false); setSaveState("saved");
         if (next && index < cases.length - 1) setIndex((current) => Math.min(current + 1, cases.length - 1));
       } else {
@@ -351,7 +400,13 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       if (requestRevision < lastSubmittedRevision.current || requestRevision < lastResolvedRevision.current) return;
       lastResolvedRevision.current = requestRevision;
       setSaveState("error");
-      setError(cause instanceof Error ? cause.message : "保存できませんでした。再読み込みして、もう一度お試しください。");
+      if (cause instanceof ApiClientError && cause.status === 409) {
+        setConflictInput(JSON.stringify({ status, actualResult, notes, assigneeId, executedAt: toUtcIso(executedAt) }, null, 2));
+        await onConflict().catch(() => undefined);
+        setError("他の利用者の更新を検出したため、最新内容を再読み込みしました。現在の入力は下の控えからコピーして確認・再適用してください。");
+      } else {
+        setError(cause instanceof Error ? cause.message : "保存できませんでした。再読み込みして、もう一度お試しください。");
+      }
     }
   }
   async function completeRun() {
@@ -378,10 +433,11 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       <fieldset className="run-result-status"><legend>結果</legend><div>{(["not_run", "pass", "fail", "blocked", "skip"] as RunCase["status"][]).map((value) => <button type="button" disabled={!canEdit} className={status === value ? "selected" : ""} key={value} onClick={() => edit(setStatus, value)}>{resultLabels[value]}</button>)}</div></fieldset>
       <label>実績結果{requiresActualResult(status) && "（必須）"}<textarea disabled={!canEdit} aria-invalid={requiresActualResult(status) && !actualResult.trim()} value={actualResult} onChange={(event) => edit(setActualResult, event.target.value)} /></label>
       <label>備考<textarea disabled={!canEdit} value={notes} onChange={(event) => edit(setNotes, event.target.value)} /></label>
-      <div className="field-grid"><label>担当者<AssigneeSelect disabled={!canEdit} value={assigneeId} assignees={assignees} onChange={(value) => edit(setAssigneeId, value)} /></label><label>実行日時<input disabled={!canEdit} type="datetime-local" value={executedAt} onChange={(event) => edit(setExecutedAt, event.target.value)} /></label></div>
+      <div className="field-grid"><label>担当者<AssigneeSelect disabled={!canEdit || runStatus === "completed"} value={assigneeId} assignees={assignees} onChange={(value) => edit(setAssigneeId, value)} /></label><label>実行日時<input disabled={!canEdit || runStatus === "completed"} type="datetime-local" value={executedAt} onChange={(event) => edit(setExecutedAt, event.target.value)} /></label></div>
       {!!runCaseImages(item).length && <section className="run-reference-images"><h3>見る場所の画像</h3><div>{runCaseImages(item).map((source, imageIndex) => <img key={imageIndex} src={source} alt={`参考画像 ${imageIndex + 1}`} />)}</div></section>}
       {error && <p className="error-message" role="alert">{error}</p>}
-      <EvidencePanelV2 projectId={projectId} canEdit={canEdit} runCases={[item]} runId={runId} onUploadingChange={setEvidenceUploading} />
+      {conflictInput && <details className="conflict-input" open><summary>競合時の現在の入力（コピー用）</summary><textarea readOnly value={conflictInput} aria-label="競合時の現在の入力" /></details>}
+      <EvidencePanelV2 projectId={projectId} canEdit={canEdit} runCases={[item]} runId={runId} onRunUpdated={onRunUpdated} onUploadingChange={setEvidenceUploading} />
       {runStatus === "in_progress" && index === cases.length - 1 && incompleteCount > 0 && <p className="muted">完了まで残り {incompleteCount} 件です。未実行・実行中の確認項目を保存してください。</p>}
       <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent(false)}>保存</button><button type="button" className="primary" disabled={saveState === "saving"} onClick={() => void saveCurrent(true)}>保存して次へ →</button></>}{runStatus === "in_progress" && index === cases.length - 1 && <button type="button" className="primary" disabled={dirty || saveState === "saving" || evidenceUploading || incompleteCount > 0} onClick={() => void completeRun()}>テストを完了</button>}</div></div>
     </section>
@@ -401,11 +457,15 @@ function SelectionLists({ cases, scenarios, dataSets, selectedCases, selectedSce
 }
 
 interface EvidenceItem {
-  id: string; original_filename: string; content_type: string; byte_size: number; sha256: string;
+  id: string; original_filename: string; content_type: string; byte_size: string; sha256: string;
   current_version: number; description?: string | null;
 }
 
-export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onUploadingChange }: { projectId: string; canEdit: boolean; runCases: RunCase[]; runId: string; onUploadingChange?: (uploading: boolean) => void }) {
+function formatByteSize(byteSize: string): string {
+  try { return BigInt(byteSize).toLocaleString("ja-JP"); } catch { return byteSize; }
+}
+
+export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpdated, onUploadingChange }: { projectId: string; canEdit: boolean; runCases: RunCase[]; runId: string; onRunUpdated?: (update: RunUpdate | null | undefined) => void; onUploadingChange?: (uploading: boolean) => void }) {
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [editing, setEditing] = useState<EvidenceItem | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState(runCases[0]?.id ?? "");
@@ -438,6 +498,10 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onUploadi
       request.onerror = () => reject(new Error("ネットワークエラーによりアップロードできませんでした。"));
       request.onload = () => {
         if (request.status >= 200 && request.status < 300) {
+          try {
+            const payload = JSON.parse(request.responseText) as { run?: RunUpdate | null };
+            onRunUpdated?.(payload.run);
+          } catch { /* empty responses are allowed for backward compatibility */ }
           setUploadProgress(100);
           resolve();
           return;
@@ -489,17 +553,18 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onUploadi
     const reason = window.prompt("証跡の削除理由を入力してください。");
     if (!reason?.trim()) return;
     try {
-      await api(`/api/evidence/${item.id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) });
+      const result = await api<{ run?: RunUpdate | null }>(`/api/evidence/${item.id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) });
+      onRunUpdated?.(result.run);
       setMessage("証跡をごみ箱へ移動しました。"); await refresh();
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
   }
   return <section className="panel">
     <h2>証跡</h2>
-    <p className="muted">ファイルはストリームで保存します。1リクエストのAPI上限は25MBで、配備先のプロキシ設定によりさらに制限される場合があります。編集時も元版を保持します。</p>
+    <p className="muted">ファイルはストリームで保存します。通常のJSONリクエスト上限は25 MiB（26,214,400 bytes）です。証跡アップロードはmultipartストリームで処理し、アプリ固有の1ファイル上限は設けていません。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより制限される場合があります。編集時も元版を保持します。</p>
     {canEdit && <div className="evidence-entry"><form className="field-grid evidence-form" onSubmit={upload}>{runCases.length === 1 ? <p>関連する確認項目: <strong>{runCases[0].title}</strong></p> : <label>関連するテストケース<select name="runCaseSnapshotId" required value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>{runCases.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>}<label>ファイル<input name="file" type="file" required disabled={uploading || !selectedCaseId} /></label><label>説明<input name="description" disabled={uploading || !selectedCaseId} /></label><button className="primary" disabled={uploading || !selectedCaseId}>{uploading ? "アップロード中…" : "ファイルを追加"}</button></form><button type="button" disabled={uploading || !selectedCaseId} onClick={() => void pasteFromClipboard()}>クリップボードから貼り付け</button></div>}
     {uploadProgress !== null && <div className="evidence-progress" aria-live="polite"><progress max={100} value={uploadProgress} /><span>{uploadProgress}%</span></div>}
-    <div className="evidence-grid">{evidence.map((item) => <article key={item.id}><a href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{item.original_filename}</strong></a><small>{Number(item.byte_size).toLocaleString()} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button onClick={() => setEditing(item)}>画像編集</button>}<button className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>
-    {editing && <EvidenceImageEditor projectId={projectId} evidenceId={editing.id} filename={editing.original_filename} onClose={() => setEditing(null)} onSaved={refresh} />}
+    <div className="evidence-grid">{evidence.map((item) => <article key={item.id}><a href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{item.original_filename}</strong></a><small>{formatByteSize(item.byte_size)} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button onClick={() => setEditing(item)}>画像編集</button>}<button className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>
+    {editing && <EvidenceImageEditor projectId={projectId} evidenceId={editing.id} filename={editing.original_filename} onClose={() => setEditing(null)} onSaved={async (run) => { onRunUpdated?.(run); await refresh(); }} />}
     {message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}
   </section>;
 }

@@ -422,7 +422,7 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
       db.query<{ count: number }>("SELECT COUNT(*) AS count FROM scenarios WHERE project_id IN (" + placeholders + ") AND deleted_at IS NULL", projectIds),
       db.query<{ count: number }>("SELECT COUNT(*) AS count FROM test_runs WHERE project_id IN (" + placeholders + ") AND status = 'in_progress' AND deleted_at IS NULL", projectIds),
       db.query<{ passed: number; total: number }>(
-        "SELECT COALESCE(SUM(CASE WHEN c.status = 'pass' THEN 1 ELSE 0 END), 0) AS passed, COUNT(*) AS total FROM run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id WHERE r.project_id IN (" + placeholders + ") AND r.deleted_at IS NULL AND c.excluded_at IS NULL",
+        "SELECT COALESCE(SUM(CASE WHEN c.status = 'pass' THEN 1 ELSE 0 END), 0) AS passed, COALESCE(SUM(CASE WHEN c.status IN ('pass', 'fail', 'blocked') THEN 1 ELSE 0 END), 0) AS total FROM run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id LEFT JOIN run_scenario_snapshots s ON s.id = c.run_scenario_snapshot_id WHERE r.project_id IN (" + placeholders + ") AND r.deleted_at IS NULL AND c.excluded_at IS NULL AND (s.id IS NULL OR s.excluded_at IS NULL)",
         projectIds,
       ),
       db.query<Record<string, unknown>>(

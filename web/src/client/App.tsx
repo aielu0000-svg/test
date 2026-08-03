@@ -3,7 +3,7 @@ import type { AuthUser, ProjectSummary } from "../shared/types.js";
 import { api, RequestError } from "./api.js";
 import { Workspace } from "./Workspace.js";
 
-function LoginForm({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+function LoginForm({ onLogin, notice }: { onLogin: (user: AuthUser) => void; notice?: string }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -12,7 +12,7 @@ function LoginForm({ onLogin }: { onLogin: (user: AuthUser) => void }) {
     try { onLogin((await api.login(username, password)).user); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "ログインに失敗しました。"); }
   }
-  return <main className="center-page"><section className="panel auth-panel"><p className="eyebrow">THE TEST WEB</p><h1>ザ・テスト</h1><p className="muted">テスト管理Web版へログイン</p><form onSubmit={submit} className="stack-form"><label>ユーザー名<input required value={username} onChange={(event) => setUsername(event.target.value)} /></label><label>パスワード<input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="error-message">{error}</p>}<button className="primary">ログイン</button></form></section></main>;
+  return <main className="center-page"><section className="panel auth-panel"><p className="eyebrow">THE TEST WEB</p><h1>ザ・テスト</h1><p className="muted">テスト管理Web版へログイン</p>{notice && <p className="error-message" role="alert">{notice}</p>}<form onSubmit={submit} className="stack-form"><label>ユーザー名<input required value={username} onChange={(event) => setUsername(event.target.value)} /></label><label>パスワード<input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="error-message">{error}</p>}<button className="primary">ログイン</button></form></section></main>;
 }
 
 function ChangePassword({ onChanged }: { user: AuthUser; onChanged: (user: AuthUser) => void }) {
@@ -139,16 +139,18 @@ function Dashboard({ user, onOpen, onLogout }: { user: AuthUser; onOpen: (projec
 export function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
+  const [logoutWarning, setLogoutWarning] = useState("");
   const [loading, setLoading] = useState(true);
   useEffect(() => { api.me().then(({ user: current }) => setUser(current)).catch(() => undefined).finally(() => setLoading(false)); }, []);
   if (loading) return <main className="center-page"><p>読み込み中…</p></main>;
-  if (!user) return <LoginForm onLogin={setUser} />;
+  if (!user) return <LoginForm onLogin={(current) => { setLogoutWarning(""); setUser(current); }} notice={logoutWarning} />;
   if (user.mustChangePassword) return <ChangePassword user={user} onChanged={setUser} />;
   async function logout() {
     try {
       await api.logout();
     } catch (reason) {
       if (!(reason instanceof RequestError && reason.status === 401)) {
+        setLogoutWarning("クライアントのログイン状態は解除しましたが、サーバー側のセッションが残っている可能性があります。");
         void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => undefined);
       }
     } finally {

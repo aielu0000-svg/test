@@ -174,13 +174,13 @@ paths:
   /api/test-runs/{id}/revisions:
     post:
       tags: [runs]
-      description: 開始後または完了後に対象を追加・除外して改訂を作成する。
+      description: 開始後に対象を追加・除外して改訂を作成する。完了後は改訂を作成できない。
       responses: { '200': { description: Revision created } }
   /api/run-cases/{id}:
     patch:
       tags: [runs]
       parameters: [{ $ref: '#/components/parameters/id' }]
-      description: fail、blocked、skipではactualResult必須。versionで楽観ロックする。
+      description: fail、blocked、skipではactualResult必須。versionで楽観ロックする。completedの実行では結果・実績結果・備考だけを変更でき、409時は最新内容を再読込する。
       responses: { '200': { description: Result saved }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/run-scenarios/{id}:
     patch:
@@ -191,7 +191,7 @@ paths:
     get:
       tags: [evidence]
       parameters: [{ $ref: '#/components/parameters/projectId' }]
-      responses: { '200': { description: Evidence metadata page } }
+      responses: { '200': { description: Evidence metadata page. byte_size is a decimal string to preserve BIGINT UNSIGNED precision. } }
     post:
       tags: [evidence]
       parameters:
@@ -207,7 +207,7 @@ paths:
               properties:
                 file: { type: string, format: binary }
                 description: { type: string }
-      responses: { '200': { description: Streamed to PVC with SHA-256 } }
+      responses: { '200': { description: Streamed multipart upload to PVC with SHA-256. The 25 MiB JSON body limit does not impose an application-specific per-file multipart limit. } }
   /api/evidence/{id}/download:
     get:
       tags: [evidence]
@@ -221,8 +221,16 @@ paths:
       parameters: [{ $ref: '#/components/parameters/id' }]
       responses: { '200': { description: Soft deleted } }
   /api/evidence/{id}/versions:
+    get:
+      tags: [evidence]
+      description: Lists immutable evidence versions. byte_size is a decimal string.
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/projectId' }
+      responses: { '200': { description: Evidence version metadata } }
     post:
       tags: [evidence]
+      description: Creates an immutable image version by decoding a PNG, JPEG, WebP, or GIF input and re-encoding it as PNG. SVG and invalid image data are rejected.
       parameters:
         - { $ref: '#/components/parameters/id' }
         - { $ref: '#/components/parameters/projectId' }
@@ -285,7 +293,7 @@ paths:
     get:
       tags: [exports]
       parameters: [{ $ref: '#/components/parameters/id' }]
-      responses: { '200': { description: Formal schema_version 1.0.0 JSON including snapshots and evidence manifest } }
+      responses: { '200': { description: Formal schema_version 1.0.0 JSON including snapshots and evidence manifest. All byte_size values are decimal strings. } }
   /api/projects/{id}/export.csv:
     get:
       tags: [exports]
