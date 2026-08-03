@@ -12,24 +12,28 @@ const sourcePath = "web/src/client/OperationsWorkspaceV2.tsx";
 let source = fs.readFileSync(sourcePath, "utf8");
 source = replaceOnce(
   source,
-  '  const [selectedCaseId, setSelectedCaseId] = useState(runCases[0]?.id ?? "");\n  const [evidence, setEvidence] = useState<EvidenceRow[]>([]);',
-  '  const [selectedCaseId, setSelectedCaseId] = useState(runCases[0]?.id ?? "");\n  const activeCaseId = runCases.some((item) => item.id === selectedCaseId) ? selectedCaseId : runCases[0]?.id ?? "";\n  const refreshSequence = useRef(0);\n  const [evidence, setEvidence] = useState<EvidenceRow[]>([]);',
+  '  const [selectedCaseId, setSelectedCaseId] = useState(runCases[0]?.id ?? "");\n  const [message, setMessage] = useState("");',
+  '  const [selectedCaseId, setSelectedCaseId] = useState(runCases[0]?.id ?? "");\n  const activeCaseId = runCases.some((item) => item.id === selectedCaseId) ? selectedCaseId : runCases[0]?.id ?? "";\n  const refreshSequence = useRef(0);\n  const [loadError, setLoadError] = useState("");\n  const [message, setMessage] = useState("");',
   "evidence case selection state",
 );
 
 const refreshPattern = /  async function refresh\(\) \{[\s\S]*?  useEffect\(\(\) => \{ void refresh\(\); \}, \[projectId, runId, selectedCaseId\]\);\n/;
 const refreshReplacement = `  async function refresh() {
     const sequence = ++refreshSequence.current;
-    if (!activeCaseId) { setEvidence([]); setMessage(""); return; }
+    if (!activeCaseId) {
+      setEvidence([]);
+      setLoadError("");
+      return;
+    }
+    const scopeQuery = \`testRunId=\${encodeURIComponent(runId)}&runCaseSnapshotId=\${encodeURIComponent(activeCaseId)}\`;
     try {
-      const scopeQuery = \`projectId=\${encodeURIComponent(projectId)}&testRunId=\${encodeURIComponent(runId)}&runCaseId=\${encodeURIComponent(activeCaseId)}\`;
-      const data = await request<{ evidence: EvidenceRow[] }>(\`/api/evidence?\${scopeQuery}\`);
+      const data = await api<{ evidence: EvidenceItem[] }>(\`/api/evidence?projectId=\${encodeURIComponent(projectId)}&\${scopeQuery}\`);
       if (sequence !== refreshSequence.current) return;
       setEvidence(data.evidence);
-      setMessage("");
-    } catch (error) {
+      setLoadError("");
+    } catch (cause) {
       if (sequence !== refreshSequence.current) return;
-      setMessage(errorText(error, "証跡を取得できませんでした。"));
+      setLoadError(cause instanceof Error ? cause.message : "読み込みに失敗しました。");
     }
   }
   useEffect(() => {
@@ -41,15 +45,19 @@ if (!refreshPattern.test(source)) throw new Error("Could not find evidence refre
 source = source.replace(refreshPattern, refreshReplacement);
 source = replaceOnce(
   source,
-  "      const runCaseId = runCases.length === 1 ? runCases[0]!.id : selectedCaseId;",
-  "      const runCaseId = activeCaseId;",
+  '    const caseId = runCases.length === 1 ? runCases[0].id : String(form.get("runCaseSnapshotId") ?? "");',
+  "    const caseId = activeCaseId;",
   "evidence upload run case selection",
 );
-source = replaceOnce(source, "    if (!item.file || !selectedCaseId) return;", "    if (!item.file || !activeCaseId) return;", "clipboard case guard");
-source = replaceOnce(source, '      form.append("runCaseId", selectedCaseId);', '      form.append("runCaseId", activeCaseId);', "clipboard case form field");
-source = replaceOnce(source, "<select value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>", "<select value={activeCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>", "evidence case select");
-source = source.replaceAll("disabled={!selectedCaseId || uploading}", "disabled={!activeCaseId || uploading}");
-source = replaceOnce(source, "disabled={!description.trim() || !selectedCaseId || uploading}", "disabled={!description.trim() || !activeCaseId || uploading}", "clipboard upload button state");
+source = replaceOnce(source, "      await uploadEvidence(form, selectedCaseId);", "      await uploadEvidence(form, activeCaseId);", "clipboard case upload");
+source = replaceOnce(source, 'value={selectedCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}', 'value={activeCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}', "evidence case select");
+source = source.replaceAll("uploading || !selectedCaseId", "uploading || !activeCaseId");
+source = replaceOnce(
+  source,
+  '{message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}',
+  '{loadError && <p className="error-message">{loadError}</p>}{message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}',
+  "evidence messages",
+);
 fs.writeFileSync(sourcePath, source);
 
 const e2ePath = "web/e2e/completed-run-evidence.spec.ts";
@@ -73,7 +81,7 @@ test("完了済み実行を切り替えても以前の実行ケースで証跡�
   await savePass(page, first.caseNames[0]!);
   await completeRun(page);
 
-  const failedEvidenceRequests = [];
+  const failedEvidenceRequests: string[] = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
     if (url.pathname === "/api/evidence" && response.status() >= 400) {
