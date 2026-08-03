@@ -64,6 +64,7 @@ jobs:
       DB_ROOT_PORT: "3306"
       DB_ROOT_USER: root
       DB_ROOT_PASSWORD: ci-root-password
+      MARIADB_ROOT_PASSWORD: ci-root-password
       INITIAL_ADMIN_USERNAME: ci-e2e-admin
       INITIAL_ADMIN_PASSWORD: ci-e2e-password
       E2E_USERNAME: ci-e2e-admin
@@ -96,6 +97,9 @@ jobs:
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
+
+      - name: Validate password repair script
+        run: node --check scripts/configure-local-mariadb-password.mjs
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
