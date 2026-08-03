@@ -21,6 +21,7 @@
 - 未使用コード候補の整理
   - `web/src/server/routes/excel.ts`の未使用`objectBody` import。
   - `web/src/client/test-design.css`の旧フォルダUI用selector候補（`.design-folder-create`、`.design-test-select`、`.design-folder-contents`、`.design-item-menu`）。削除前に全参照検索と画面回帰確認を行う。
+  - `TestDesignEditor.tsx`の画面固有request helperは400/409の編集競合情報を扱うため現時点では維持し、共通化する場合はエラー型の統合を先に行う。
 
 ## Completed verification
 
