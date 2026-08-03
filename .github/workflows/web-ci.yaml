@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "compose.yaml"
+      - ".env.example"
       - ".github/workflows/web-ci.yaml"
   pull_request:
     paths:
       - "web/**"
+      - "compose.yaml"
+      - ".env.example"
       - ".github/workflows/web-ci.yaml"
   workflow_dispatch:
 
@@ -71,6 +75,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose -f ../compose.yaml config
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
