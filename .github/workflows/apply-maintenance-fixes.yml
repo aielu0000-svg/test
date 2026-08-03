@@ -1,12 +1,16 @@
 name: Apply maintenance fixes
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/folder-explorer-p2
+      - codex/web-review
 
 permissions:
   contents: write
+
+concurrency:
+  group: apply-maintenance-fixes-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   patch:
