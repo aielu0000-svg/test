@@ -66,19 +66,18 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await expect(firstRow).toBeVisible();
   await expect(secondRow).toBeVisible();
 
-  await firstRow.click();
-  await secondRow.click({ modifiers: ["Control"] });
-  await expect(page.getByText("2件選択", { exact: true })).toBeVisible();
-  await page.getByLabel("選択項目の移動先").selectOption({ label: `${rootName} / ${renamedChild}` });
-  await page.getByRole("button", { name: "選択項目を移動" }).click();
-  await expect(page.getByText("2件を移動しました。", { exact: true })).toBeVisible();
-
   const rootId = await rootFolder.getAttribute("data-item-id");
   const childId = await renamedFolder.getAttribute("data-item-id");
   const firstId = await firstRow.getAttribute("data-item-id");
   expect(rootId).toBeTruthy();
   expect(childId).toBeTruthy();
   expect(firstId).toBeTruthy();
+
+  await firstRow.click();
+  await secondRow.click({ modifiers: ["Control"] });
+  await expect(firstRow).toHaveAttribute("aria-selected", "true");
+  await expect(secondRow).toHaveAttribute("aria-selected", "true");
+  await dispatchExplorerDrag(page, "scenario", firstId!, childId!);
   await expect(firstRow).toHaveAttribute("data-parent-id", childId!);
   await expect(secondRow).toHaveAttribute("data-parent-id", childId!);
 
@@ -94,7 +93,9 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await renamedFolder.press("Enter");
   await expect(renamedFolder).toHaveAttribute("aria-expanded", "true");
 
-  await page.getByRole("button", { name: "選択解除" }).click();
+  await firstRow.click();
+  await expect(firstRow).toHaveAttribute("aria-selected", "true");
+  await expect(secondRow).toHaveAttribute("aria-selected", "false");
   await dispatchExplorerDrag(page, "scenario", firstId!, null);
   await expect(firstRow).toHaveAttribute("data-parent-id", "");
   await expect(secondRow).toHaveAttribute("data-parent-id", childId!);
