@@ -33,6 +33,13 @@ function boolean(value: string | undefined, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function requiredSecret(value: string | undefined, name: string): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`${name} is required and must not be empty.`);
+  }
+  return value;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const nodeEnv = env.NODE_ENV ?? "development";
   const workspaceRoot = path.basename(process.cwd()) === "web" ? path.resolve(process.cwd(), "..") : process.cwd();
@@ -52,7 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       port: integer(env.DB_PORT, 3306),
       database: env.DB_NAME ?? "the_test",
       user: env.DB_USER ?? "the_test",
-      password: env.DB_PASSWORD ?? "",
+      password: requiredSecret(env.DB_PASSWORD, "DB_PASSWORD"),
       connectionLimit: integer(env.DB_CONNECTION_LIMIT, 10),
     },
     initialAdminUsername: env.INITIAL_ADMIN_USERNAME,
