@@ -18,6 +18,9 @@
 | ISSUE-20260804-003 | 2026-08-04 | Data integrity | P1 | Verified | Excelテスト設計インポート | 旧テンプレートと確定処理が`test_cases`中心の旧構造のままで、`scenarios`と`scenario_cases`を作成せず、取り込み後のテスト一覧に表示されなかった。 | テンプレートとパーサーを`Scenarios`、`Cases`、`Steps`、`CommonData`へ再設計し、テスト、確認項目、関連、フォルダ、タグ、個別データ、共通データを単一トランザクションで登録するよう変更した。旧テンプレートは明示エラーとした。 | GitHub Actions run 30844134585でUnit/API 37件、MariaDB統合2件、Build、Web起動、テスト設計全体のExcel取込を含むChromium E2E 14件が成功。 | User Report 2026-08-04 |
 | ISSUE-20260804-004 | 2026-08-04 | Maintainability | P2 | Verified | Excel・フォルダUIコード | Excelルートに解析・テンプレート生成が密結合し、未使用import、旧フォルダUI用CSS、補正専用CSSファイルが残っていた。 | Excel解析・テンプレート生成を`excelImport.ts`へ分離し、未使用importと旧CSSを削除、補正CSSを`test-design.css`へ統合した。 | TypeCheck、Unit/API 37件、Build、Chromium E2E 14件が成功。CSSバンドルは32.39 kBから31.00 kBへ縮小した。 | User Report 2026-08-04 |
 
+| ISSUE-20260804-005 | 2026-08-04 | Bug | P1 | Verified | 完了済み実行・証跡表示 | 実行切替時に証跡パネルが前の実行ケースIDを保持し、新しい実行IDと組み合わせてAPIを呼び出していた。非同期応答の世代管理もなかった。 | 現在の`runCases`に属する`activeCaseId`へ正規化し、古い応答を無視するsequence guard、読込エラーと操作メッセージの分離を追加した。 | GitHub Actions run 30848395288でnpm audit 0件、Unit/API 37件、MariaDB統合2件、完了済み実行切替を含むChromium E2E 15件が成功。 | User Report 2026-08-04 |
+| ISSUE-20260804-006 | 2026-08-04 | Security | P1 | Verified | npm依存関係 | `brace-expansion` 5.0.8がCVE-2026-69152の影響範囲にあり、入力次第でDoSにつながる高重大度脆弱性として検出された。 | `brace-expansion` 5.0.9と`minimatch` 10.2.6へ固定し、lockfileを更新した。CIへ`npm audit --audit-level=high`を必須工程として追加した。 | GitHub Actions run 30848395288で`npm ci`と`npm audit`が脆弱性0件、全検証成功。 | User Report 2026-08-04 |
+
 ## Review 9
 
 | ID | 優先度 | 状態 | 確定原因 | 対応結果 | 検証状況・残存リスク |
@@ -48,7 +51,13 @@
 
 ## 2026-08-04不具合修正完了判定
 
-- ISSUE-20260804-001からISSUE-20260804-004までを`Verified`とする。
+- ISSUE-20260804-001からISSUE-20260804-006までを`Verified`とする。
 - Excel確定の通信エラーはrun `30840831542`、テスト設計全体の取り込みと保守整理はrun `30844134585`で独立検証した。
 - 最新run `30844134585`ではTypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 14件、DB・監査・Playwright成果物保存が成功した。
 - ExcelのE2Eは最新版テンプレートを取得し、プレビュー、確定、テスト一覧表示、テスト名、確認項目名、個別テストデータ、共通データの画面復元まで確認した。
+
+## 2026-08-04完了済み実行・依存監査完了判定
+
+- ISSUE-20260804-005およびISSUE-20260804-006は`Verified`とする。
+- GitHub Actions run `30848395288`で`npm ci`と`npm audit --audit-level=high`が脆弱性0件、TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件、DB・監査・Playwright成果物保存が成功した。
+- 完了済み実行を切り替えても、前の実行ケースIDで証跡APIを呼び出さないことを専用E2Eで確認した。

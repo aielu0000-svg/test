@@ -430,3 +430,67 @@ GitHub Actions run `30844134585`:
 - 旧テンプレートで不完全なデータを登録する経路を閉じた。
 - 安全に削除可能と確認した未使用コード・CSSを整理し、Excel処理の責務を分離した。
 - PR #2はDraft・未マージのまま維持した。
+
+## TASK-20260804-003: 完了済み実行の証跡表示と依存脆弱性
+
+- 開始日時: 2026-08-04 04:25 JST
+- 完了日時: 2026-08-04 05:04 JST
+- 対応課題: ISSUE-20260804-005, ISSUE-20260804-006
+- 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`
+- 状態: Completed
+
+### 発生したこと
+
+- 完了済み実行を表示すると、証跡欄に「実行ケースがプロジェクトに存在しません。」と表示される場合があった。
+- `npm ci`がhigh severity vulnerabilityを1件報告していた。
+
+### 確定原因
+
+- 実行を切り替えた直後、証跡パネルの`selectedCaseId`が前の実行ケースIDを保持したまま、新しい`runId`と組み合わせて証跡APIを呼び出していた。
+- 証跡再取得の古い非同期応答を破棄する仕組みがなく、後から不正なエラー表示で上書きされる可能性があった。
+- `brace-expansion` 5.0.8がCVE-2026-69152の影響範囲に含まれ、サービス拒否につながる高重大度脆弱性として検出された。
+
+### 実施内容
+
+- 現在の`runCases`に含まれるIDだけを有効とする`activeCaseId`を導入した。
+- 実行切替時に選択中ケースを現在の実行へ同期した。
+- 証跡取得へsequence guardを追加し、古い非同期応答を破棄するようにした。
+- 読込エラーと登録・削除などの操作メッセージを別stateへ分離した。
+- GET、ファイルアップロード、クリップボードアップロード、選択欄、ボタン活性条件を`activeCaseId`へ統一した。
+- 完了済み実行を2件作成して交互に切り替え、証跡APIの4xx/5xxとエラー表示が発生しないことを確認するChromium E2Eを追加した。
+- `brace-expansion`を5.0.9、`minimatch`を10.2.6へ固定し、lockfileを更新した。
+- CIへ`npm audit --audit-level=high`を必須工程として追加した。
+
+### 変更ファイル
+
+- `web/src/client/OperationsWorkspaceV2.tsx`
+- `web/e2e/completed-run-evidence.spec.ts`
+- `web/package.json`
+- `web/package-lock.json`
+- `.github/workflows/web-ci.yaml`
+- `docs/ISSUE_LEDGER.md`
+- `docs/OPEN_ISSUES.md`
+- `docs/TASK_LOG.md`
+
+### 独立検証結果
+
+GitHub Actions run `30848395288`:
+
+- `npm ci`: 脆弱性0件
+- `npm audit --audit-level=high`: 脆弱性0件
+- TypeCheck: 成功
+- Unit/API: 37件成功、2件skip
+- MariaDB統合: 2件成功
+- Build: 成功
+- Web起動・readiness: 成功
+- Chromium E2E: 15件成功
+  - 完了済み実行を切り替えても以前の実行ケースで証跡を取得しないことを確認
+- DBダンプ、監査ログ、テーブル件数、Playwright成果物: 保存成功
+- Artifact: `web-ci-30848395288-1`（ID `8869654688`、SHA256 `d97fd493eb913b7d71a0c864698cb4c39afbabe23f9160102ea6cb48739a9638`）
+
+### 結果
+
+- 完了済み実行の閲覧時に、別実行のケースIDを使った証跡API要求が発生しなくなった。
+- 依存関係のhigh severity vulnerabilityを解消し、将来の再発時はCIが失敗するようになった。
+- ISSUE-20260804-005とISSUE-20260804-006を`Verified`へ変更した。
+- PR #2はDraft・未マージのまま維持した。

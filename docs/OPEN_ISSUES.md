@@ -16,8 +16,6 @@
   - 型、NULL、default、索引順、FK、ON DELETEの構造検証は実装済み。
 - GitHub公式ActionのNode.js 20ランタイム廃止警告への追随
   - アプリ自体はNode.js 20.20.0で検証済み。Actionの次期メジャー版公開後に更新する。
-- npm依存関係の脆弱性確認
-  - GitHub Actions run `30844134585`の`npm ci`でhigh severityが1件報告された。アプリの試験は成功しているが、`npm audit`で依存経路と修正版の互換性を確認する。
 - `TestDesignEditor.tsx`の通信エラー型統合
   - 画面固有request helperは400/409の編集競合情報を扱うため維持している。共通化する場合は、競合情報を保持できる共通エラー型の導入を先に行う。
 
@@ -35,6 +33,12 @@
   - 最新テンプレートの生成、旧テンプレート拒否、テスト・確認項目・手順・フォルダ・タグ・個別データ・共通データの登録と画面復元を確認。
   - 未使用`objectBody` import、旧フォルダUI用CSS、補正専用CSSファイルを削除・統合した。
   - Artifact: `web-ci-30844134585-1`（ID `8868021343`）。
+
+- 完了済み実行の証跡表示・依存監査: GitHub Actions run `30848395288`
+  - `npm ci`と`npm audit --audit-level=high`は脆弱性0件。
+  - TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。
+  - 完了済み実行間の切替で以前のrun case IDを使用しないことを確認。
+  - Artifact: `web-ci-30848395288-1`（ID `8869654688`）。
 
 ## Review policy
 
