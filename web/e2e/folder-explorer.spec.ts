@@ -1,7 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { assertE2EConfiguration, createProject, createTestDesign, login, unique } from "./helpers.js";
 
 test.beforeEach(() => assertE2EConfiguration());
+
+async function dispatchExplorerDrag(page: Page, sourceType: "folder" | "scenario", sourceId: string, targetFolderId: string | null): Promise<void> {
+  await page.evaluate(({ sourceType, sourceId, targetFolderId }) => {
+    const source = document.querySelector<HTMLElement>(`[data-item-type="${sourceType}"][data-item-id="${sourceId}"]`);
+    const target = targetFolderId
+      ? document.querySelector<HTMLElement>(`[data-item-type="folder"][data-item-id="${targetFolderId}"]`)
+      : document.querySelector<HTMLElement>(".design-root-label");
+    if (!source || !target) throw new Error("DnD source or target was not found.");
+    const dataTransfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
+  }, { sourceType, sourceId, targetFolderId });
+}
 
 test("フォルダをエクスプローラー操作で作成・選択・移動・名前変更・削除できる", async ({ page }) => {
   await login(page);
@@ -53,8 +69,12 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await page.getByRole("button", { name: "選択項目を移動" }).click();
   await expect(page.getByText("2件を移動しました。", { exact: true })).toBeVisible();
 
+  const rootId = await rootFolder.getAttribute("data-item-id");
   const childId = await renamedFolder.getAttribute("data-item-id");
+  const firstId = await firstRow.getAttribute("data-item-id");
+  expect(rootId).toBeTruthy();
   expect(childId).toBeTruthy();
+  expect(firstId).toBeTruthy();
   await expect(firstRow).toHaveAttribute("data-parent-id", childId!);
   await expect(secondRow).toHaveAttribute("data-parent-id", childId!);
 
@@ -70,11 +90,11 @@ test("フォルダをエクスプローラー操作で作成・選択・移動�
   await expect(renamedFolder).toHaveAttribute("aria-expanded", "true");
 
   await page.getByRole("button", { name: "選択解除" }).click();
-  await firstRow.dragTo(page.locator(".design-root-label"));
+  await dispatchExplorerDrag(page, "scenario", firstId!, null);
   await expect(firstRow).toHaveAttribute("data-parent-id", "");
   await expect(secondRow).toHaveAttribute("data-parent-id", childId!);
 
-  await rootFolder.dragTo(renamedFolder);
+  await dispatchExplorerDrag(page, "folder", rootId!, childId!);
   await expect(rootFolder).toHaveAttribute("data-parent-id", "");
 
   await firstRow.press("Enter");
