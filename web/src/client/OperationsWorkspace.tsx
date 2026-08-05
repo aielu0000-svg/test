@@ -1,11 +1,34 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./operations.css";
 import { request } from "./api.js";
 
+interface ExportRunOption { id: string; name: string; status: "draft" | "in_progress" | "completed"; updatedAt: string }
+
 export function ExportPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
+  const [target, setTarget] = useState<"project" | "design" | "run">("project");
+  const [format, setFormat] = useState<"json" | "xlsx" | "csv" | "md">("json");
+  const [runs, setRuns] = useState<ExportRunOption[]>([]);
+  const [runId, setRunId] = useState("");
   const [content, setContent] = useState("");
   const [previewId, setPreviewId] = useState("");
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    void request<{ runs: ExportRunOption[] }>(`/api/test-runs?projectId=${encodeURIComponent(projectId)}&limit=100`).then((result) => {
+      setRuns(result.runs);
+      setRunId((current) => current && result.runs.some((item) => item.id === current) ? current : result.runs[0]?.id ?? "");
+    }).catch((cause) => setMessage(cause instanceof Error ? cause.message : "テスト実行を読み込めませんでした。"));
+  }, [projectId]);
+  useEffect(() => {
+    if (target === "project" && !["json", "xlsx"].includes(format)) setFormat("json");
+    if (target === "design" && !["xlsx", "csv", "md"].includes(format)) setFormat("xlsx");
+    if (target === "run") setFormat("xlsx");
+  }, [target]);
+  const projectLinks: Record<string, string> = {
+    json: `/api/projects/${projectId}/export`, xlsx: `/api/projects/${projectId}/export.xlsx`,
+    csv: `/api/projects/${projectId}/export.csv`, md: `/api/projects/${projectId}/export.md`,
+  };
+  const downloadHref = target === "run" ? (runId ? `/api/test-runs/${runId}/export.xlsx?projectId=${encodeURIComponent(projectId)}` : "") : projectLinks[format];
+  const selectedRun = runs.find((item) => item.id === runId);
   async function preview() {
     try {
       const payload = JSON.parse(content);
@@ -17,5 +40,9 @@ export function ExportPanel({ projectId, canEdit }: { projectId: string; canEdit
     try { const result = await request<{ imported: number }>(`/api/imports/json/${previewId}/confirm`, { method: "POST" }); setMessage(`${result.imported}件のID対応を作成して取り込みました。`); setPreviewId(""); }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : "取込に失敗しました。"); }
   }
-  return <div className="workspace-grid"><section className="panel"><h2>エクスポート</h2><p className="muted">正式JSONは完全移行用です。CSV・Markdownはケース中心、Excelは定義・実行・証跡manifestの複数シートを出力します。</p><div className="export-buttons"><a className="link-button primary" href={`/api/projects/${projectId}/export`} download>正式JSON</a><a className="link-button" href={`/api/projects/${projectId}/export.csv`} download>CSV</a><a className="link-button" href={`/api/projects/${projectId}/export.md`} download>Markdown</a><a className="link-button" href={`/api/projects/${projectId}/export.xlsx`} download>Excel</a></div></section><section className="panel"><h2>正式JSONインポート</h2>{canEdit ? <><textarea className="json-import" placeholder="schema_version付きJSONを貼り付け" value={content} onChange={(event) => { setContent(event.target.value); setPreviewId(""); }} /><div className="button-row"><button onClick={() => void preview()}>プレビュー検証</button>{previewId && <button className="primary" onClick={() => void confirm()}>確定</button>}</div></> : <p className="muted">取込には編集権限が必要です。</p>}{message && <p>{message}</p>}</section></div>;
+  return <div className="workspace-grid export-workspace"><section className="panel export-panel"><div className="section-heading"><div><p className="eyebrow">EXPORT</p><h2>エクスポート</h2><p className="muted">出力したい内容を選択してください。</p></div></div>
+    <div className="export-targets" role="radiogroup" aria-label="エクスポート対象"><label className={target === "project" ? "selected" : ""}><input type="radio" name="export-target" checked={target === "project"} onChange={() => setTarget("project")} /><strong>プロジェクト全体</strong><span>移行・保管向け。定義、実行、データ、証跡manifestを含みます。</span></label><label className={target === "design" ? "selected" : ""}><input type="radio" name="export-target" checked={target === "design"} onChange={() => setTarget("design")} /><strong>テスト設計</strong><span>確認項目と操作手順を共有・確認するための出力です。</span></label><label className={target === "run" ? "selected" : ""}><input type="radio" name="export-target" checked={target === "run"} onChange={() => setTarget("run")} /><strong>テスト実行</strong><span>結果、データ、証跡画像を1つのExcelへまとめます。</span></label></div>
+    {target === "run" ? <div className="export-options"><label>テスト実行<select value={runId} onChange={(event) => setRunId(event.target.value)}><option value="">選択してください</option>{runs.map((item) => <option key={item.id} value={item.id}>{item.name}（{item.status === "completed" ? "完了" : item.status === "in_progress" ? "実行中" : "下書き"}）</option>)}</select></label><div className="export-summary"><strong>{selectedRun?.name || "テスト実行を選択してください"}</strong><span>Excel：実行概要／実行結果／テストデータ／証跡</span></div></div> : <div className="export-options"><label>形式<select value={format} onChange={(event) => setFormat(event.target.value as typeof format)}>{target === "project" && <><option value="json">正式JSON</option><option value="xlsx">Excel</option></>}{target === "design" && <><option value="xlsx">Excel</option><option value="csv">CSV</option><option value="md">Markdown</option></>}</select></label><div className="export-summary"><strong>{target === "project" ? "プロジェクト全体" : "テスト設計"}</strong><span>{format === "json" ? "完全移行用の正式形式" : format === "xlsx" ? "複数シートのExcel" : format === "csv" ? "確認項目中心のCSV" : "確認項目と手順のMarkdown"}</span></div></div>}
+    {downloadHref ? <a className="link-button primary export-download" href={downloadHref} download>選択した内容をダウンロード</a> : <button className="primary export-download" disabled>テスト実行を選択してください</button>}
+  </section><section className="panel"><h2>正式JSONインポート</h2>{canEdit ? <><textarea className="json-import" placeholder="schema_version付きJSONを貼り付け" value={content} onChange={(event) => { setContent(event.target.value); setPreviewId(""); }} /><div className="button-row"><button onClick={() => void preview()}>プレビュー検証</button>{previewId && <button className="primary" onClick={() => void confirm()}>確定</button>}</div></> : <p className="muted">取込には編集権限が必要です。</p>}{message && <p>{message}</p>}</section></div>;
 }
