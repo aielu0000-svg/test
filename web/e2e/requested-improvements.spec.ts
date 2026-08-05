@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import ExcelJS from "exceljs";
-import { archiveProject, assertE2EConfiguration, createProject, login, pngBase64, unique } from "./helpers.js";
+import sharp from "sharp";
+import { archiveProject, assertE2EConfiguration, createProject, login, unique } from "./helpers.js";
 
 test.beforeEach(() => assertE2EConfiguration());
 
@@ -72,6 +73,7 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
   const testName = `データ表示テスト ${suffix}`;
   const caseName = `データ確認項目 ${suffix}`;
   const runName = `証跡出力実行 ${suffix}`;
+  const validPng = await sharp({ create: { width: 32, height: 24, channels: 4, background: { r: 38, g: 105, b: 189, alpha: 1 } } }).png().toBuffer();
 
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
   await page.getByLabel("テスト名").fill(testName);
@@ -85,7 +87,7 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
   await common.getByRole("button", { name: "＋ データ項目" }).click();
   await common.getByLabel("共通データ名 1").fill("共通キー");
   await common.getByLabel("共通データ値 1").fill("共通値 ABC");
-  await page.locator(".design-image-actions input[type=file]").setInputFiles({ name: "view.png", mimeType: "image/png", buffer: Buffer.from(pngBase64, "base64") });
+  await page.locator(".design-image-actions input[type=file]").setInputFiles({ name: "view.png", mimeType: "image/png", buffer: validPng });
   await expect(page.locator(".design-image-grid img")).toBeVisible();
   await page.getByRole("button", { name: "保存して実行を作成" }).click();
 
@@ -114,7 +116,7 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
   await expect(execution.locator(".save-state")).toContainText("保存済み");
   await expect(execution.getByRole("button", { name: "保存して次の未実行へ →", exact: true })).toBeDisabled();
 
-  await execution.locator('input[type="file"]').setInputFiles({ name: "evidence.png", mimeType: "image/png", buffer: Buffer.from(pngBase64, "base64") });
+  await execution.locator('input[type="file"]').setInputFiles({ name: "evidence.png", mimeType: "image/png", buffer: validPng });
   await execution.getByRole("button", { name: "ファイルを追加" }).click();
   await expect(execution.getByText("証跡を登録しました。")).toBeVisible();
 

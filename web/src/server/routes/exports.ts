@@ -309,8 +309,16 @@ async function buildRunExcel(db: Database, projectId: string, runId: string): Pr
     if (String(evidence.content_type ?? "").startsWith("image/")) {
       try {
         const source = await readFile(String(evidence.stored_path));
-        const image = await sharp(source).rotate().resize({ width: 900, height: 600, fit: "inside", withoutEnlargement: true }).png().toBuffer();
-        const imageId = workbook.addImage({ base64: `data:image/png;base64,${image.toString("base64")}`, extension: "png" });
+        const contentType = String(evidence.content_type ?? "").toLowerCase();
+        let image = source;
+        let extension: "png" | "jpeg" = contentType === "image/jpeg" ? "jpeg" : "png";
+        try {
+          image = await sharp(source).rotate().resize({ width: 900, height: 600, fit: "inside", withoutEnlargement: true }).png().toBuffer();
+          extension = "png";
+        } catch (conversionError) {
+          if (contentType !== "image/png" && contentType !== "image/jpeg") throw conversionError;
+        }
+        const imageId = workbook.addImage({ base64: `data:image/${extension};base64,${image.toString("base64")}`, extension });
         const rowNumber = row.number;
         evidenceSheet.addImage(imageId, `I${rowNumber}:J${rowNumber + 1}`);
         row.height = 190;
