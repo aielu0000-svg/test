@@ -2,7 +2,7 @@
 
 ## Product issues
 
-現在、Review 9、P2フォルダ操作、Excelテスト設計インポート、フォルダ重複UI・オーバーレイ表示、完了済み実行の証跡表示、Docker MariaDB認証に属する未解決の製品不具合はない。
+現在、Review 9、フォルダ・テスト設計、管理画面、実行データ・画像、選択式エクスポート、OpenShift配備に属する既知の未解決製品不具合はない。
 
 ## Additional hardening candidates
 
@@ -25,6 +25,8 @@
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- 管理・テスト設計・実行・エクスポート改善（ISSUE-20260805-003〜006）: GitHub Actions run `30997068195`でUnit/API 43件、MariaDB統合2件、OpenShift任意UID起動、Chromium E2E 19件を含む全工程成功。
 
 - OpenShiftコンテナ・運用基盤（ISSUE-20260805-002）: GitHub Actions run `30976592066`でKustomize生成、任意UID・read-only root filesystem起動、Unit/API 43件、MariaDB統合2件、Chromium E2E 16件を含む全工程成功。
 
