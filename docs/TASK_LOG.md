@@ -581,7 +581,7 @@ GitHub Actions run `30853941396`:
 - 開始日時: 2026-08-05 12:24 JST
 - 対応課題: ISSUE-20260805-001
 - 担当: ChatGPT
-- 状態: Ready for Verification
+- 状態: Verified
 
 ### 作業前の状態
 
@@ -602,4 +602,8 @@ GitHub Actions run `30853941396`:
 
 ### 検証
 
-- 最終結果とrun IDはGitHub Actions完了後に追記する。
+- GitHub Actions run `30973198333`では既存E2E 15件と新規導線の実処理は成功したが、最後の未選択確認が部分一致で2要素に一致し、テストコードだけが失敗した。
+- チェックボックスを名前の完全一致で取得するよう修正した。
+- GitHub Actions run `30973373586`で依存監査0件、TypeCheck、Unit/API 42件（2件skip）、MariaDB統合2件、Build、Web起動、Chromium E2E 16件、DB・監査・Playwright成果物保存が成功した。
+- Migration追加なし。既存データの変換なし。
+- Artifact: `web-ci-30973373586-1`、ID `8917372044`、SHA256 `2eccc4b8ef3aea4ef9262bbf63d2efc36637ded72d5fa01271d56b57d09e12eb`。
