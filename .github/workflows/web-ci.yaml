@@ -7,12 +7,14 @@ on:
       - "web/**"
       - "compose.yaml"
       - ".env.example"
+      - ".dockerignore"
       - ".github/workflows/web-ci.yaml"
   pull_request:
     paths:
       - "web/**"
       - "compose.yaml"
       - ".env.example"
+      - ".dockerignore"
       - ".github/workflows/web-ci.yaml"
   workflow_dispatch:
 
@@ -26,7 +28,7 @@ concurrency:
 jobs:
   verify-web:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     services:
       mariadb:
@@ -80,6 +82,13 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose -f ../compose.yaml config
 
+      - name: Validate OpenShift Kustomize output
+        run: |
+          mkdir -p .ci/artifacts
+          kubectl kustomize . > .ci/artifacts/openshift-rendered.yaml
+          grep -q 'kind: Route' .ci/artifacts/openshift-rendered.yaml
+          grep -q 'kind: StatefulSet' .ci/artifacts/openshift-rendered.yaml
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -100,6 +109,9 @@ jobs:
 
       - name: Validate password repair script
         run: node --check scripts/configure-local-mariadb-password.mjs
+
+      - name: Validate OpenShift deployment script
+        run: bash -n scripts/openshift/deploy.sh
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
@@ -125,6 +137,47 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Build OpenShift-compatible container
+        run: docker build -f Dockerfile -t the-test-web:ci ..
+
+      - name: Run container as arbitrary OpenShift UID
+        run: |
+          docker run -d --name the-test-web-container \
+            --network host \
+            --user 1000780000:0 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=1g,uid=1000780000,gid=0,mode=0770 \
+            --tmpfs /var/lib/the-test/evidence:rw,noexec,nosuid,size=1g,uid=1000780000,gid=0,mode=0770 \
+            -e NODE_ENV=production \
+            -e HOST=127.0.0.1 \
+            -e PORT=3100 \
+            -e COOKIE_SECURE=false \
+            -e TRUST_PROXY=true \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 \
+            -e DB_NAME=the_test_ci \
+            -e DB_USER=the_test \
+            -e DB_PASSWORD=ci-db-password \
+            -e INITIAL_ADMIN_USERNAME=ci-e2e-admin \
+            -e INITIAL_ADMIN_PASSWORD=ci-e2e-password \
+            the-test-web:ci
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/readyz >/dev/null; then
+              exit 0
+            fi
+            if ! docker inspect -f '{{.State.Running}}' the-test-web-container 2>/dev/null | grep -q true; then
+              docker logs the-test-web-container
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs the-test-web-container
+          exit 1
+
+      - name: Stop arbitrary-UID container
+        if: always()
+        run: docker rm -f the-test-web-container 2>/dev/null || true
 
       - name: Start web application
         run: |

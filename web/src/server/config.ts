@@ -6,6 +6,7 @@ export interface AppConfig {
   nodeEnv: string;
   cookieName: string;
   cookieSecure: boolean;
+  trustProxy: boolean;
   sessionTtlSeconds: number;
   evidenceStoragePath: string;
   migrationDir: string;
@@ -50,6 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nodeEnv,
     cookieName: env.SESSION_COOKIE_NAME ?? "the_test_session",
     cookieSecure: boolean(env.COOKIE_SECURE, nodeEnv === "production"),
+    trustProxy: boolean(env.TRUST_PROXY, false),
     sessionTtlSeconds: integer(env.SESSION_TTL_SECONDS, 8 * 60 * 60),
     evidenceStoragePath: env.EVIDENCE_STORAGE_PATH ?? path.resolve(process.cwd(), "data/evidence"),
     migrationDir: env.MIGRATIONS_DIR ?? (path.basename(process.cwd()) === "web" ? path.resolve(process.cwd(), "migrations") : path.resolve(process.cwd(), "web/migrations")),

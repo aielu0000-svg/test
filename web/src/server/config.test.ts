@@ -14,4 +14,9 @@ describe("application configuration", () => {
     const config = loadConfig({ NODE_ENV: "test", DB_PASSWORD: "db-secret" });
     expect(config.db.password).toBe("db-secret");
   });
+
+  it("enables trusted proxy handling only when configured", () => {
+    expect(loadConfig({ NODE_ENV: "test", DB_PASSWORD: "db-secret" }).trustProxy).toBe(false);
+    expect(loadConfig({ NODE_ENV: "test", DB_PASSWORD: "db-secret", TRUST_PROXY: "true" }).trustProxy).toBe(true);
+  });
 });
