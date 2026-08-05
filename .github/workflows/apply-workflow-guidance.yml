@@ -43,6 +43,11 @@ jobs:
           path.write_text(content.replace(old, new, 1), encoding='utf-8')
           PY
           python .github/scripts/apply_workflow_guidance.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('docs/TASK_LOG.md')
+          path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
 
       - name: Install dependencies
         working-directory: web
