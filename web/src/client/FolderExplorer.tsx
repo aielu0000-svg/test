@@ -23,7 +23,7 @@ function selection(keys: Iterable<Key>, folders: ExplorerFolder[], scenarios: Ex
 export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScenarioId, onNewScenario, onOpenScenario,
   onCreateFolder, onRenameFolder, onRenameScenario, onDuplicateScenario, onDeleteSelection, onMoveSelection, onRunScenario }: {
   canEdit: boolean; busy: boolean; folders: ExplorerFolder[]; scenarios: ExplorerScenario[]; selectedScenarioId: string;
-  onNewScenario: () => void; onOpenScenario: (id: string) => void | Promise<void>;
+  onNewScenario: (folderId: string | null) => void; onOpenScenario: (id: string) => void | Promise<void>;
   onCreateFolder: (name: string, parentId: string | null) => Promise<void>;
   onRenameFolder: (folder: ExplorerFolder, name: string) => Promise<void>;
   onRenameScenario: (scenario: ExplorerScenario, title: string) => Promise<void>;
@@ -199,24 +199,22 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
   }
 
   return <>
-    <div className="design-panel-head"><div><p className="eyebrow">TESTS</p><h2>テスト一覧</h2></div>{canEdit && <button type="button" className="primary small" disabled={busy || working} onClick={onNewScenario}>＋ 新規</button>}</div>
+    <div className="design-panel-head"><div><p className="eyebrow">TESTS</p><h2>テスト一覧</h2></div>{canEdit && <button type="button" className="primary small" disabled={busy || working} onClick={() => onNewScenario(breadcrumbFolderId ?? null)}>＋ 新規</button>}</div>
     <div className="design-browser-tools"><input className="design-search" type="search" placeholder="テスト・フォルダを検索" value={search} onChange={(event) => setSearch(event.target.value)} />
       {canEdit && <button type="button" className="small" disabled={working} onClick={() => setCreating({ parentId: breadcrumbFolderId ?? null, value: "" })}>＋ フォルダ</button>}</div>
     <nav className="design-breadcrumb" aria-label="フォルダのパンくず"><button type="button" onClick={() => { setSelected(new Set()); focus(visible[0]?.key ?? null); }}>プロジェクト直下</button>
       {breadcrumbs.map((folder) => <span key={folder.id}><span>›</span><button type="button" onClick={() => { setExpanded((current) => new Set([...current, folder.id])); choose(fkey(folder.id)); }}>{folder.name}</button></span>)}</nav>
     <div className={`design-tree-root${dropTarget === null ? " drop-target" : ""}`} role="tree" aria-label="テストとフォルダ"
       onContextMenu={(event) => { if (event.target === event.currentTarget) openMenu(event, null); }} onDragOver={(event) => { if (canEdit) { event.preventDefault(); setDropTarget(null); } }}
-      onDrop={(event) => { if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains("design-root-label")) return; event.preventDefault(); void move(dragKeys(event), null); }}>
+      onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const keys = dragKeys(event); if (canDrop(null, keys)) void move(keys, null); }}>
       <div className="design-root-label" onContextMenu={(event) => openMenu(event, null)}>プロジェクト直下</div>{createRow(null, 0)}
       {visible.map((item) => <div key={item.key}>{row(item)}{item.kind === "folder" && createRow(item.id, item.depth + 1)}</div>)}
       {!visible.length && <p className="muted">該当するテストまたはフォルダはありません。</p>}
     </div>
-    <p className="design-keyboard-help">↑↓で移動、Enterで開く、Ctrl/⌘またはShiftで複数選択、F2で名前変更、Deleteで削除、Escで取消</p>
-
     {menu && <div className="design-context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
       {menu.key === null && <>{canEdit && <button role="menuitem" type="button" onClick={() => { setCreating({ parentId: null, value: "" }); setMenu(null); }}>新しいフォルダ</button>}{selected.size > 0 && canEdit && <button role="menuitem" type="button" onClick={() => { void move([...selected], null); setMenu(null); }}>選択項目をここへ移動</button>}</>}
       {menu.key?.startsWith("folder:") && (() => { const item = folders.find((folder) => folder.id === idOf(menu.key!)); return item ? <><button role="menuitem" type="button" onClick={() => { toggle(item.id); setMenu(null); }}>{expanded.has(item.id) ? "折りたたむ" : "展開する"}</button>
-        {canEdit && <button role="menuitem" type="button" onClick={() => { setCreating({ parentId: item.id, value: "" }); setExpanded((current) => new Set([...current, item.id])); setMenu(null); }}>新しいサブフォルダ</button>}{canEdit && selected.size === 1 && <button role="menuitem" type="button" onClick={() => startRename(fkey(item.id))}>名前変更（F2）</button>}{canEdit && <button role="menuitem" type="button" className="danger" onClick={() => { setDeleting({ keys: actionKeys(fkey(item.id)), reason: "" }); setMenu(null); }}>削除</button>}</> : null; })()}
+        {canEdit && <button role="menuitem" type="button" onClick={() => { setCreating({ parentId: item.id, value: "" }); setExpanded((current) => new Set([...current, item.id])); setMenu(null); }}>新しいサブフォルダ</button>}{canEdit && selected.size > 0 && !selected.has(fkey(item.id)) && <button role="menuitem" type="button" onClick={() => { void move([...selected], item.id); setMenu(null); }}>選択項目をこのフォルダへ移動</button>}{canEdit && selected.size === 1 && <button role="menuitem" type="button" onClick={() => startRename(fkey(item.id))}>名前変更（F2）</button>}{canEdit && <button role="menuitem" type="button" className="danger" onClick={() => { setDeleting({ keys: actionKeys(fkey(item.id)), reason: "" }); setMenu(null); }}>削除</button>}</> : null; })()}
       {menu.key?.startsWith("scenario:") && (() => { const item = scenarios.find((test) => test.id === idOf(menu.key!)); return item ? <><button role="menuitem" type="button" onClick={() => { void onOpenScenario(item.id); setMenu(null); }}>開く</button>
         {canEdit && selected.size === 1 && <button role="menuitem" type="button" onClick={() => startRename(skey(item.id))}>名前変更（F2）</button>}{canEdit && selected.size === 1 && <button role="menuitem" type="button" onClick={() => { void onDuplicateScenario(item).catch(() => undefined); setMenu(null); }}>複製</button>}<button role="menuitem" type="button" onClick={() => { onRunScenario(item.id); setMenu(null); }}>テスト実行を開始</button>{canEdit && <button role="menuitem" type="button" className="danger" onClick={() => { setDeleting({ keys: actionKeys(skey(item.id)), reason: "" }); setMenu(null); }}>削除</button>}</> : null; })()}
     </div>}

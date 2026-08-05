@@ -364,6 +364,47 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
     }
   });
 
+  app.post("/api/test-case-images/:id/derived", async (request) => {
+    const projectId = projectIdFrom(request);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const sourceId = routeParam(request);
+    const sourceRows = await db.query<{ id: string; test_case_id: string | null; original_filename: string }>(
+      "SELECT id, test_case_id, original_filename FROM test_case_view_images WHERE id = ? AND project_id = ? AND cleanup_status = 'active' LIMIT 1",
+      [sourceId, projectId],
+    );
+    const source = sourceRows[0];
+    if (!source) throw notFound();
+    const id = randomUUID();
+    const directory = path.join(config.evidenceStoragePath, "view-images", safeSegment(projectId), safeSegment(id));
+    const temporaryPath = path.join(directory, "uploading");
+    await mkdir(directory, { recursive: true });
+    try {
+      let received = false;
+      const hash = createHash("sha256");
+      for await (const part of request.parts()) {
+        if (part.type !== "file") continue;
+        if (received) throw badRequest("1回の登録につきファイルは1件です。");
+        received = true;
+        await pipeline(part.file, hashingTransform(hash), createWriteStream(temporaryPath, { flags: "wx" }));
+      }
+      if (!received) throw badRequest("編集済み画像がありません。");
+      const digest = hash.digest("hex");
+      const verified = await validatedImage(temporaryPath);
+      const storedPath = path.join(directory, `edited-${digest}${verified.extension}`);
+      await rename(temporaryPath, storedPath);
+      const info = await stat(storedPath);
+      await db.execute(
+        "INSERT INTO test_case_view_images (id, project_id, test_case_id, original_filename, stored_path, content_type, byte_size, sha256, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, projectId, source.test_case_id, `${source.original_filename}.edited.png`, storedPath, verified.contentType, info.size, digest, actor.id],
+      );
+      await writeAudit(db, request, actor, { action: "test_case_view_image_derived", entityType: "test_case_view_image", entityId: id, projectId, before: { sourceId }, after: { byteSize: info.size, sha256: digest } });
+      return { id, url: `/api/test-case-images/${id}/content`, byteSize: info.size, sha256: digest };
+    } catch (error) {
+      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    }
+  });
+
   app.get("/api/test-case-images/:id/content", async (request, reply) => {
     const rows = await db.query<{ project_id: string; stored_path: string; content_type: string; byte_size: number }>(
       "SELECT project_id, stored_path, content_type, byte_size FROM test_case_view_images WHERE id = ? LIMIT 1",
@@ -443,4 +484,3 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
     };
   });
 }
-

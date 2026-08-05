@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FolderExplorer, type ExplorerSelection } from "./FolderExplorer.js";
 import { folderDepth } from "./folderExplorerModel.js";
+import { ViewImageEditor } from "./ViewImageEditor.js";
 import "./test-design.css";
 
 type Priority = "high" | "medium" | "low";
@@ -79,6 +80,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
   const [busy, setBusy] = useState(false);
   const [images, setImages] = useState<Record<string, string[]>>({});
   const [imageUploading, setImageUploading] = useState(false);
+  const [editingImage, setEditingImage] = useState<{ rowKey: string; source: string } | null>(null);
   const loadSequence = useRef(0);
   const editorRef = useRef<HTMLDivElement>(null);
   const dirty = saveState === "dirty" || saveState === "error";
@@ -93,11 +95,11 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row));
     markDirty();
   }
-  function resetEditor() {
+  function resetEditor(folderId = "") {
     loadSequence.current += 1;
     setBusy(false);
     const row = emptyCase();
-    setSelectedScenarioId(""); setScenarioVersion(null); setScenarioFolderId(""); setTitle(""); setObjective(""); setPreconditions("");
+    setSelectedScenarioId(""); setScenarioVersion(null); setScenarioFolderId(folderId); setTitle(""); setObjective(""); setPreconditions("");
     setRows([row]); setSelectedRowKey(row.key); setCommonData(emptyCommonData()); setCommonEnabled(false);
     setSaveState("clean"); setSavedAt(""); setMessage(""); setImages({});
   }
@@ -252,14 +254,27 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     } catch (error) { setMessage(errorText(error, "テストを複製できませんでした。")); throw error; }
   }
   async function moveExplorerSelection(selection: ExplorerSelection, targetFolderId: string | null) {
+    const selectedFolderIds = new Set(selection.folders.map((item) => item.id));
+    const parentById = new Map(folders.map((item) => [item.id, item.parentId ?? null]));
+    const hasSelectedAncestor = (folderId: string | null | undefined) => {
+      let current = folderId ?? null;
+      const visited = new Set<string>();
+      while (current && !visited.has(current)) {
+        if (selectedFolderIds.has(current)) return true;
+        visited.add(current); current = parentById.get(current) ?? null;
+      }
+      return false;
+    };
+    const movableFolders = selection.folders.filter((folder) => !hasSelectedAncestor(folder.parentId));
+    const movableScenarios = selection.scenarios.filter((item) => !hasSelectedAncestor(item.folderId));
     try {
-      for (const folder of selection.folders) {
+      for (const folder of movableFolders) {
         if ((folder.parentId ?? null) === targetFolderId) continue;
         await request(`/api/folders/${folder.id}`, {
           method: "PATCH", body: JSON.stringify({ projectId, version: folder.version, parentId: targetFolderId }),
         });
       }
-      for (const item of selection.scenarios) {
+      for (const item of movableScenarios) {
         if ((item.folderId ?? null) === targetFolderId) continue;
         const result = await request<{ scenario: { version: number; folderId: string | null } }>(`/api/scenarios/${item.id}`, {
           method: "PATCH", body: JSON.stringify({ projectId, version: item.version, folderId: targetFolderId }),
@@ -267,7 +282,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
         if (selectedScenarioId === item.id) { setScenarioFolderId(result.scenario.folderId ?? ""); setScenarioVersion(result.scenario.version); }
       }
       await onChanged();
-      setMessage(`${selection.folders.length + selection.scenarios.length}件を移動しました。`);
+      setMessage(`${movableFolders.length + movableScenarios.length}件を移動しました。`);
     } catch (error) {
       await onChanged().catch(() => undefined);
       setMessage(errorText(error, "選択項目を移動できませんでした。最新状態を再読み込みしました。"));
@@ -338,7 +353,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     {!canEdit && <div className="readonly-banner" role="status">このプロジェクトは閲覧のみです。編集するには管理者へプロジェクト割り当てを依頼してください。</div>}
     {!selectedScenarioId && scenarios.length === 0 && <section className="design-welcome panel">
       <div><p className="eyebrow">はじめに</p><h2>このプロジェクトで行うこと</h2><p>1. テストを作成する　→　2. テストを実行する　→　3. 結果と証跡を残す</p></div>
-      <div className="button-row"><button type="button" className="primary" disabled={!canEdit} onClick={resetEditor}>＋ 新しいテストを作る</button><button type="button" onClick={onOpenExcel}>Excelから取り込む</button></div>
+      <div className="button-row"><button type="button" className="primary" disabled={!canEdit} onClick={() => resetEditor()}>＋ 新しいテストを作る</button><button type="button" onClick={onOpenExcel}>Excelから取り込む</button></div>
     </section>}
     <div className="test-design-grid">
       <aside className="panel design-browser">
@@ -348,7 +363,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
           folders={folders}
           scenarios={scenarios}
           selectedScenarioId={selectedScenarioId}
-          onNewScenario={() => { if (confirmDiscard()) resetEditor(); }}
+          onNewScenario={(folderId) => { if (confirmDiscard()) resetEditor(folderId ?? ""); }}
           onOpenScenario={(id) => selectScenario(id)}
           onCreateFolder={createFolder}
           onRenameFolder={renameFolder}
@@ -373,8 +388,8 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
           {rows.map((row, index) => <tr key={row.key} className={selectedRow?.key === row.key ? "selected" : ""} onClick={() => setSelectedRowKey(row.key)}>
             <td>{index + 1}</td>
             <td><textarea disabled={!canEdit} aria-label={`確認項目名 ${index + 1}`} value={row.title} onPaste={(event) => pasteGrid(event, index, 0)} onInput={(event) => grow(event.currentTarget)} onChange={(event) => updateRow(index, { title: event.target.value })} /></td>
-            <td><textarea disabled={!canEdit} aria-label={`操作 ${index + 1}`} value={row.steps[0]?.action ?? ""} onPaste={(event) => pasteGrid(event, index, 1)} onInput={(event) => grow(event.currentTarget)} onChange={(event) => updateRow(index, { steps: [{ ...(row.steps[0] ?? { action: "", expected: "" }), action: event.target.value }, ...row.steps.slice(1)] })} /></td>
-            <td><textarea disabled={!canEdit} aria-label={`期待結果 ${index + 1}`} value={row.steps[0]?.expected ?? ""} onPaste={(event) => pasteGrid(event, index, 2)} onInput={(event) => grow(event.currentTarget)} onChange={(event) => updateRow(index, { steps: [{ ...(row.steps[0] ?? { action: "", expected: "" }), expected: event.target.value }, ...row.steps.slice(1)] })} /></td>
+            <td><div className="design-step-summary" aria-label={`操作手順 ${index + 1}`}><strong>{row.steps.length}手順</strong>{row.steps.map((step, stepIndex) => <span key={stepIndex}><b>{stepIndex + 1}.</b> {step.action || "（未入力）"}</span>)}<small>右側の確認項目詳細で編集</small></div></td>
+            <td><div className="design-step-summary expected" aria-label={`期待結果一覧 ${index + 1}`}>{row.steps.map((step, stepIndex) => <span key={stepIndex}><b>{stepIndex + 1}.</b> {step.expected || "（未入力）"}</span>)}</div></td>
             <td><textarea disabled={!canEdit} aria-label={`テストデータ ${index + 1}`} value={row.data} onPaste={(event) => pasteGrid(event, index, 3)} onInput={(event) => grow(event.currentTarget)} onChange={(event) => updateRow(index, { data: event.target.value })} /></td>
             <td><div className="design-row-actions"><button type="button" disabled={!canEdit || index === 0} onClick={(event) => { event.stopPropagation(); moveRow(index, -1); }}>↑</button><button type="button" disabled={!canEdit || index === rows.length - 1} onClick={(event) => { event.stopPropagation(); moveRow(index, 1); }}>↓</button><button type="button" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); addRow(index, row); }}>複製</button><button type="button" className="danger" disabled={!canEdit || rows.length === 1} onClick={(event) => { event.stopPropagation(); removeRow(index); }}>削除</button></div></td>
           </tr>)}
@@ -396,15 +411,15 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
           <label>目的<textarea disabled={!canEdit} value={selectedRow.objective} onInput={(event) => grow(event.currentTarget)} onChange={(event) => updateRow(selectedIndex, { objective: event.target.value })} /></label>
           <label>前提条件<textarea disabled={!canEdit} value={selectedRow.preconditions} onInput={(event) => grow(event.currentTarget)} onChange={(event) => updateRow(selectedIndex, { preconditions: event.target.value })} /></label>
           <div className="design-detail-columns"><label>優先度<select disabled={!canEdit} value={selectedRow.priority} onChange={(event) => updateRow(selectedIndex, { priority: event.target.value as Priority })}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div>
-          <fieldset className="design-folder-memberships"><legend>所属フォルダ（複数選択可）</legend>{folders.map((folder) => <label className="check-label" key={folder.id}><input type="checkbox" disabled={!canEdit} checked={selectedRow.folderIds.includes(folder.id)} onChange={(event) => updateRow(selectedIndex, { folderIds: event.target.checked ? [...selectedRow.folderIds, folder.id] : selectedRow.folderIds.filter((id) => id !== folder.id) })} />{folder.name}</label>)}{!folders.length && <span className="muted">フォルダはありません。</span>}</fieldset>
           <label>タグ（カンマ区切り）<input disabled={!canEdit} value={selectedRow.tags.join(", ")} onChange={(event) => updateRow(selectedIndex, { tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} /></label>
           <label>見る場所<textarea disabled={!canEdit} value={selectedRow.viewLocation} onChange={(event) => updateRow(selectedIndex, { viewLocation: event.target.value })} /></label>
           <fieldset><legend>操作手順</legend>{selectedRow.steps.map((step, stepIndex) => <div className="design-step" key={stepIndex}><span>{stepIndex + 1}</span><textarea disabled={!canEdit} aria-label={`詳細操作 ${stepIndex + 1}`} placeholder="操作" value={step.action} onChange={(event) => updateRow(selectedIndex, { steps: selectedRow.steps.map((entry, index) => index === stepIndex ? { ...entry, action: event.target.value } : entry) })} /><textarea disabled={!canEdit} aria-label={`詳細期待結果 ${stepIndex + 1}`} placeholder="期待結果" value={step.expected} onChange={(event) => updateRow(selectedIndex, { steps: selectedRow.steps.map((entry, index) => index === stepIndex ? { ...entry, expected: event.target.value } : entry) })} /><button type="button" className="danger" disabled={!canEdit || selectedRow.steps.length === 1} onClick={() => updateRow(selectedIndex, { steps: selectedRow.steps.filter((_, index) => index !== stepIndex) })}>削除</button></div>)}{canEdit && <button type="button" onClick={() => updateRow(selectedIndex, { steps: [...selectedRow.steps, { action: "", expected: "" }] })}>＋ 操作手順</button>}</fieldset>
-          <fieldset><legend>見る場所の画像</legend><div className="design-image-actions"><label className="link-button">画像を追加<input hidden type="file" accept="image/*" multiple disabled={!canEdit || imageUploading} onChange={(event) => { if (event.target.files) void addImages(event.target.files); event.currentTarget.value = ""; }} /></label><span className="muted">{imageUploading ? "アップロード中…" : "または画像をこの欄へ貼り付け"}</span></div><div className="design-image-grid">{(images[selectedRow.key] ?? []).map((source, imageIndex) => <figure key={imageIndex}><img src={source} alt={`参考画像 ${imageIndex + 1}`} />{canEdit && <button type="button" className="danger small" onClick={() => { setImages((current) => ({ ...current, [selectedRow.key]: (current[selectedRow.key] ?? []).filter((_, index) => index !== imageIndex) })); markDirty(); }}>削除</button>}</figure>)}</div></fieldset>
+          <fieldset><legend>見る場所の画像</legend><div className="design-image-actions"><label className="link-button">画像を追加<input hidden type="file" accept="image/*" multiple disabled={!canEdit || imageUploading} onChange={(event) => { if (event.target.files) void addImages(event.target.files); event.currentTarget.value = ""; }} /></label><span className="muted">{imageUploading ? "アップロード中…" : "または画像をこの欄へ貼り付け"}</span></div><div className="design-image-grid">{(images[selectedRow.key] ?? []).map((source, imageIndex) => <figure key={imageIndex}><button type="button" className="design-image-preview" onClick={() => setEditingImage({ rowKey: selectedRow.key, source })}><img src={source} alt={`参考画像 ${imageIndex + 1}`} /></button>{canEdit && <div className="button-row"><button type="button" className="small" onClick={() => setEditingImage({ rowKey: selectedRow.key, source })}>編集</button><button type="button" className="danger small" onClick={() => { setImages((current) => ({ ...current, [selectedRow.key]: (current[selectedRow.key] ?? []).filter((_, index) => index !== imageIndex) })); markDirty(); }}>削除</button></div>}</figure>)}</div></fieldset>
         </div>}
       </aside>
     </div>
     {message && <p className={saveState === "error" || message.includes("入力") ? "error-message design-message" : "success-message design-message"} role="status">{message}</p>}
+    {editingImage && <ViewImageEditor projectId={projectId} sourceUrl={editingImage.source} onClose={() => setEditingImage(null)} onSaved={async (url) => { setImages((current) => ({ ...current, [editingImage.rowKey]: (current[editingImage.rowKey] ?? []).map((item) => item === editingImage.source ? url : item) })); setEditingImage(null); markDirty(); }} />}
     <div className="design-savebar"><span className={`design-save-state ${saveState}`}>{stateLabel[saveState]}</span><button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => void save(false)} className="primary">{saveState === "saving" ? "保存中…" : "テスト全体を保存"}</button><button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => { if (selectedScenarioId && !dirty) onRun(selectedScenarioId); else void save(true); }}>{selectedScenarioId && !dirty ? "このテストで実行を作成" : "保存して実行を作成"}</button></div>
   </div>;
 }
