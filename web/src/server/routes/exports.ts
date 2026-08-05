@@ -312,7 +312,7 @@ async function buildRunExcel(db: Database, projectId: string, runId: string): Pr
         const image = await sharp(source).rotate().resize({ width: 900, height: 600, fit: "inside", withoutEnlargement: true }).png().toBuffer();
         const imageId = workbook.addImage({ base64: `data:image/png;base64,${image.toString("base64")}`, extension: "png" });
         const rowNumber = row.number;
-        evidenceSheet.addImage(imageId, `I${rowNumber}:I${rowNumber}`);
+        evidenceSheet.addImage(imageId, `I${rowNumber}:J${rowNumber + 1}`);
         row.height = 190;
       } catch {
         row.getCell(9).value = "画像の埋め込みに失敗しました。証跡メタデータは保持されています。";

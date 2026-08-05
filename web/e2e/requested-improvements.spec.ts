@@ -41,7 +41,7 @@ test("選択フォルダへ新規テストを配置し、複数手順を一覧�
   expect(folderId).toBeTruthy();
   await folder.click();
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
-  await expect(page.getByLabel("フォルダ")).toHaveValue(folderId!);
+  await expect(page.locator("label").filter({ hasText: /^フォルダ/ }).locator("select").first()).toHaveValue(folderId!);
 
   const testName = unique("フォルダ内テスト");
   const caseName = unique("複数手順ケース");
