@@ -1,0 +1,53 @@
+name: Apply admin improvements
+
+on:
+  push:
+    branches:
+      - agent/folder-explorer-p2
+    paths:
+      - .github/workflows/apply-admin-improvements.yml
+      - .github/scripts/apply_admin_improvements.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/folder-explorer-p2
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python .github/scripts/apply_admin_improvements.py
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install and verify
+        working-directory: web
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src/client/App.tsx web/src/client/api.ts web/src/client/styles.css web/src/server/app.ts
+          git commit -m "Improve project and user administration"
+          git push origin HEAD:agent/folder-explorer-p2
