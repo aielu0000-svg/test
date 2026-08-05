@@ -63,6 +63,28 @@ describe("project deletion", () => {
     await expect(api.deleteProject("project-1", 2, "削除対象", "不要になったため")).resolves.toEqual({ ok: true });
   });
 
+  it("removes an already deleted project even when a stale list response still contains it", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { code: "NOT_FOUND", message: "対象データが見つかりません。", requestId: "request-2" },
+      }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        projects: [{ id: "project-stale", name: "削除済み", status: "archived", version: 2 }],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.deleteProject("project-stale", 2, "削除済み", "不要になったため");
+    const result = await api.projects();
+
+    expect(result.projects).toEqual([]);
+  });
+
   it("does not hide other deletion errors", async () => {
     installFetchMock({
       status: 409,
