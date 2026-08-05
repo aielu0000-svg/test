@@ -23,6 +23,8 @@
 
 ## Completed verification
 
+- 業務導線改善（ISSUE-20260805-001）: 最終GitHub Actions確認待ち。
+
 - Review 9: GitHub Actions run `30804989151`
   - TypeCheck、Unit/API 29件、MariaDB統合2件、Build、Web起動、Chromium E2E 11件が成功。
 - P2フォルダ操作: GitHub Actions run `30808270002`

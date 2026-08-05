@@ -54,8 +54,8 @@ function ErrorNotice({ value }: { value: string }) {
   return value ? <p className="error-message" role="alert">{value}</p> : null;
 }
 
-export function Workspace({ project, user, onBack, onLogout }: { project: ProjectSummary; user: AuthUser; onBack: () => void; onLogout: () => Promise<void> }) {
-  const [tab, setTab] = useState<Tab>("bulk");
+export function Workspace({ project, user, initialRunId, onBack, onLogout }: { project: ProjectSummary; user: AuthUser; initialRunId?: string; onBack: () => void; onLogout: () => Promise<void> }) {
+  const [tab, setTab] = useState<Tab>(initialRunId ? "runs" : "bulk");
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -113,7 +113,7 @@ export function Workspace({ project, user, onBack, onLogout }: { project: Projec
         onRun={(scenarioId) => { setRunScenarioId(scenarioId); setTab("runs"); }}
         onOpenExcel={() => setTab("excel")}
       />}
-      {tab === "runs" && <RunsPanelV2 projectId={project.id} canEdit={canEdit} cases={cases} scenarios={scenarios} dataSets={dataSets} initialScenarioId={runScenarioId} />}
+      {tab === "runs" && <RunsPanelV2 projectId={project.id} canEdit={canEdit} cases={cases} scenarios={scenarios} dataSets={dataSets} initialScenarioId={runScenarioId} initialRunId={initialRunId} />}
       {tab === "procedures" && <ProceduresPanelV2 projectId={project.id} canEdit={canEdit} />}
       {tab === "trash" && <RecycleBinPanel projectId={project.id} canEdit={canEdit} onChanged={refresh} />}
       {tab === "excel" && <section className="panel import-panel"><h2>Excelから追加</h2><ol><li>最新版の公式テンプレートをダウンロードします。</li><li>Scenarios、Cases、Stepsを入力し、必要に応じてCommonDataを入力します。</li><li>アップロードしてテスト数・確認項目数と検証結果を確認し、追加を確定します。</li></ol><p className="muted">旧テンプレートは現在のテスト設計構造に対応していません。取り込み前に最新版を取得してください。</p><div className="button-row"><a className="link-button" href="/api/imports/excel/template" download>公式テンプレート</a></div>{canEdit ? <form className="stack-form upload-form" onSubmit={previewExcel}><label>.xlsxファイル<input type="file" name="file" accept=".xlsx" required /></label><button className="primary">アップロードして検証</button></form> : <p className="muted">追加には編集権限が必要です。</p>}{preview && <div className="preview-result"><h3>検証結果</h3><p>{preview.counts.scenarios}テスト / {preview.counts.cases}確認項目</p>{preview.scenarios.map((scenario) => <p key={scenario.scenarioKey}>{scenario.title}（{scenario.cases.length}確認項目）</p>)}{preview.errors.map((item) => <p className="error-message" key={item}>{item}</p>)}{preview.warnings.map((item) => <p className="warning-message" key={item}>{item}</p>)}<button className="primary" disabled={preview.errors.length > 0} onClick={() => void confirmExcel()}>追加を確定</button></div>}</section>}

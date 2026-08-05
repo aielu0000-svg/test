@@ -287,6 +287,43 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
     return { id };
   });
 
+
+  app.post("/api/test-runs/:id/rerun-failures", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const source = await loadRun(db, routeParam(request), projectId);
+    if (source.status !== "completed") throw badRequest("不合格・ブロック項目の再実行は完了済み実行から作成してください。");
+    const failedCases = await db.query<{ source_test_case_id: string }>(
+      `SELECT c.source_test_case_id
+         FROM run_case_snapshots c
+         JOIN test_cases tc ON tc.id = c.source_test_case_id AND tc.project_id = ? AND tc.deleted_at IS NULL
+         LEFT JOIN run_scenario_snapshots s ON s.id = c.run_scenario_snapshot_id
+        WHERE c.test_run_id = ? AND c.status IN ('fail','blocked') AND c.excluded_at IS NULL
+          AND (s.id IS NULL OR s.excluded_at IS NULL)
+        GROUP BY c.source_test_case_id
+        ORDER BY MIN(c.created_at)`,
+      [projectId, source.id],
+    );
+    const caseIds = failedCases.map((item) => item.source_test_case_id).filter(Boolean);
+    if (!caseIds.length) throw badRequest("再実行できる不合格・ブロック項目がありません。元の確認項目が削除されている場合は新しい実行を手動で作成してください。");
+    const id = randomUUID();
+    const name = stringValue(input.name ?? `${source.name} 再実行`, "name", 500, true);
+    const rerunNote = `再実行元: ${source.name} (${source.id})`;
+    const memo = source.memo ? `${source.memo}
+
+${rerunNote}` : rerunNote;
+    await db.execute(
+      "INSERT INTO test_runs (id, project_id, name, environment_name, build_name, assignee_id, memo, draft_scenario_ids_json, draft_case_ids_json, draft_data_set_ids_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, projectId, name, source.environment_name, source.build_name, source.assignee_id, memo, "[]", JSON.stringify(caseIds), "[]", actor.id],
+    );
+    await writeAudit(db, request, actor, {
+      action: "run_failure_rerun_created", entityType: "test_run", entityId: id, projectId,
+      after: { sourceRunId: source.id, caseCount: caseIds.length },
+    });
+    return { id, caseCount: caseIds.length };
+  });
+
   app.patch("/api/test-runs/:id", async (request) => {
     const input = objectBody(request);
     const projectId = projectIdFrom(request, input);

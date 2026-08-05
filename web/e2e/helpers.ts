@@ -69,7 +69,7 @@ export async function createStartedRun(page: Page, caseCount = 1): Promise<Start
   const projectName = await createProject(page);
   const { testName, caseNames } = await createTestDesign(page, caseCount);
   const runName = unique("E2E 実行");
-  await page.getByRole("button", { name: "テスト実行へ" }).click();
+  await page.getByRole("button", { name: "このテストで実行を作成" }).click();
   await page.getByLabel("実行名").fill(runName);
   await page.getByRole("button", { name: "実行準備を保存" }).click();
   await expect(page.getByRole("heading", { name: runName })).toBeVisible();
@@ -82,7 +82,7 @@ export async function savePass(page: Page, caseName: string, next = false): Prom
   const execution = page.locator(".focused-run-case");
   await expect(execution.getByRole("heading", { name: caseName, exact: true })).toBeVisible();
   await execution.getByRole("button", { name: "合格", exact: true }).click();
-  await execution.getByRole("button", { name: next ? "保存して次へ →" : "保存", exact: true }).click();
+  await execution.getByRole("button", { name: next ? "保存して次の未実行へ →" : "保存", exact: true }).click();
   await expect(execution.locator(".save-state")).toContainText("保存済み");
 }
 
@@ -97,9 +97,11 @@ export async function uploadPngEvidence(page: Page, filename = "evidence.png"): 
 
 export async function completeRun(page: Page): Promise<void> {
   const execution = page.locator(".focused-run-case");
-  const complete = execution.getByRole("button", { name: "テストを完了", exact: true });
+  await execution.getByRole("button", { name: "完了内容を確認", exact: true }).click();
+  const review = page.getByRole("dialog", { name: "完了前チェック" });
+  await expect(review).toBeVisible();
+  const complete = review.getByRole("button", { name: "テストを完了", exact: true });
   await expect(complete).toBeEnabled();
-  page.once("dialog", (dialog) => dialog.accept());
   await complete.click();
   await expect(page.getByText(/この実行は完了済みです/)).toBeVisible();
 }

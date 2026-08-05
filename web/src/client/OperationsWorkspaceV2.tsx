@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { localDateTimeValue, requiresActualResult, toUtcIso, type SaveState } from "./autosave.js";
 import { EvidenceImageEditor } from "./EvidenceImageEditor.js";
 import { mergeRunUpdateEntity, mergeVersionedEntity } from "./runUpdateMerge.js";
+import { countRunStatuses, nextPendingCaseIndex } from "./runWorkflow.js";
 import "./operations.css";
 import "./phase25.css";
 
@@ -151,7 +152,7 @@ function RunCreatePanel({ projectId, cases, scenarios, dataSets, assignees, init
   </div>;
 }
 
-export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, onCasesAvailable, initialScenarioId }: {
+export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, onCasesAvailable, initialScenarioId, initialRunId }: {
   projectId: string;
   canEdit: boolean;
   cases: DefinitionRef[];
@@ -159,10 +160,11 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
   dataSets: DataSetRef[];
   onCasesAvailable?: (cases: RunCase[]) => void;
   initialScenarioId?: string;
+  initialRunId?: string;
 }) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(initialRunId ?? "");
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [environmentName, setEnvironmentName] = useState("");
   const [buildName, setBuildName] = useState("");
@@ -219,6 +221,7 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
     }
   }
   useEffect(() => { void refreshLists(); }, [projectId]);
+  useEffect(() => { if (initialRunId) setSelectedId(initialRunId); }, [initialRunId]);
   useEffect(() => { void loadDetail(selectedId); }, [projectId, selectedId]);
 
   async function patchRun(status = detail?.run.status) {
@@ -311,6 +314,20 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
     } catch (cause) { setError(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
   }
 
+  async function createFailureRerun() {
+    if (!detail) return;
+    try {
+      const result = await api<{ id: string; caseCount: number }>(`/api/test-runs/${detail.run.id}/rerun-failures`, {
+        method: "POST", body: JSON.stringify({ projectId }),
+      });
+      await refreshLists();
+      setSelectedId(result.id);
+      setError(`${result.caseCount}件の不合格・ブロック項目で再実行を作成しました。`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "再実行を作成できませんでした。");
+    }
+  }
+
   const activeCases = detail?.cases.filter((item) => !item.excluded_at) ?? [];
   const runStatusLabel: Record<RunSummary["status"], string> = { draft: "実行準備", in_progress: "実行中", completed: "完了" };
   return <div className="run-workflow">
@@ -329,16 +346,20 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
         {canEdit && <div className="button-row"><button type="button" onClick={() => void patchRun().catch((cause) => setError(cause instanceof Error ? cause.message : "保存に失敗しました。"))}>準備内容を保存</button><button type="button" className="primary" disabled={!selectedCases.length && !selectedScenarios.length} onClick={() => void changeRunStatus("in_progress")}>実行を開始</button><button type="button" className="danger" onClick={() => void deleteRun()}>削除</button></div>}
       </div>}
       {detail && detail.run.status === "in_progress" && <FocusedRunPanel projectId={projectId} runId={detail.run.id} runStatus={detail.run.status} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} onComplete={() => changeRunStatus("completed")} />}
-      {detail && detail.run.status === "completed" && <CompletedRunPanel projectId={projectId} runId={detail.run.id} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} postCompletionUpdatedAt={detail.run.postCompletionUpdatedAt} postCompletionUpdatedBy={detail.run.postCompletionUpdatedBy} />}
+      {detail && detail.run.status === "completed" && <CompletedRunPanel projectId={projectId} runId={detail.run.id} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} postCompletionUpdatedAt={detail.run.postCompletionUpdatedAt} postCompletionUpdatedBy={detail.run.postCompletionUpdatedBy} failureCount={activeCases.filter((item) => item.status === "fail" || item.status === "blocked").length} onCreateFailureRerun={createFailureRerun} />}
       {detail && <details className="run-advanced"><summary>実行の詳細・改訂履歴</summary><p>環境: {detail.run.environmentName || "未設定"} / ビルド: {detail.run.buildName || "未設定"} / 改訂{detail.run.currentRevision}</p>{detail.revisions.length > 0 && <ul>{detail.revisions.map((item) => <li key={item.revision_no}>#{item.revision_no} {item.change_reason}</li>)}</ul>}</details>}
       {error && <p className="error-message" role="alert">{error}</p>}
     </section>
   </div>;
 }
 
-function CompletedRunPanel({ postCompletionUpdatedAt, postCompletionUpdatedBy, ...props }: Omit<React.ComponentProps<typeof FocusedRunPanel>, "runStatus" | "onComplete"> & { postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null }) {
+function CompletedRunPanel({ postCompletionUpdatedAt, postCompletionUpdatedBy, failureCount, onCreateFailureRerun, ...props }: Omit<React.ComponentProps<typeof FocusedRunPanel>, "runStatus" | "onComplete"> & { postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null; failureCount: number; onCreateFailureRerun: () => Promise<void> }) {
   const updater = props.assignees.find((item) => item.id === postCompletionUpdatedBy);
-  return <div><p className="warning-banner" role="status">この実行は完了済みです。編集できるのは結果・実績結果・備考・証跡のみで、変更内容は「完了後更新」として監査ログへ記録されます。{postCompletionUpdatedAt && <> 最終更新: {new Date(postCompletionUpdatedAt).toLocaleString("ja-JP")} / {updater?.displayName || updater?.username || postCompletionUpdatedBy || "不明"}</>}</p><FocusedRunPanel {...props} runStatus="completed" onComplete={async () => undefined} /></div>;
+  return <div>
+    <p className="warning-banner" role="status">この実行は完了済みです。編集できるのは結果・実績結果・備考・証跡のみで、変更内容は「完了後更新」として監査ログへ記録されます。{postCompletionUpdatedAt && <> 最終更新: {new Date(postCompletionUpdatedAt).toLocaleString("ja-JP")} / {updater?.displayName || updater?.username || postCompletionUpdatedBy || "不明"}</>}</p>
+    {props.canEdit && failureCount > 0 && <div className="completed-run-toolbar"><div><strong>再確認が必要な項目: {failureCount}件</strong><p className="muted">前回の結果・証跡はコピーせず、元の確認項目だけで新しい実行準備を作成します。</p></div><button type="button" className="primary" onClick={() => void onCreateFailureRerun()}>不合格・ブロック{failureCount}件で再実行を作成</button></div>}
+    <FocusedRunPanel {...props} runStatus="completed" onComplete={async () => undefined} />
+  </div>;
 }
 
 function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignees, onSave, onRunUpdated, onConflict, onComplete }: {
@@ -362,6 +383,7 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
   const [copyMessage, setCopyMessage] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [evidenceUploading, setEvidenceUploading] = useState(false);
+  const [completionReviewOpen, setCompletionReviewOpen] = useState(false);
   const editRevision = useRef(0);
   const lastSubmittedRevision = useRef(0);
   const lastResolvedRevision = useRef(0);
@@ -399,8 +421,9 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
 
   const dirty = isEditing || status !== item.status || actualResult !== (item.actual_result ?? "") || notes !== (item.notes ?? "")
     || assigneeId !== (item.assignee_id ?? "") || executedAt !== localDateTimeValue(item.executed_at);
-  const completedCount = cases.filter((entry) => !["not_run", "in_progress"].includes(entry.status)).length;
-  const incompleteCount = cases.length - completedCount;
+  const statusCounts = countRunStatuses(cases);
+  const completedCount = statusCounts.pass + statusCounts.fail + statusCounts.blocked + statusCounts.skip;
+  const incompleteCount = statusCounts.not_run + statusCounts.in_progress;
   const serverConflictValues: ConflictValues = {
     status: item.status,
     actualResult: item.actual_result ?? "",
@@ -440,7 +463,7 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
     }
   }
 
-  async function saveCurrent(next = false) {
+  async function saveCurrent(move: "stay" | "nextPending" = "stay") {
     if (requiresActualResult(status) && !actualResult.trim()) {
       setSaveState("error"); setError("不合格・ブロック・スキップでは実績結果を入力してください。"); return;
     }
@@ -455,7 +478,11 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
         setStatus(saved.status); setActualResult(saved.actual_result ?? ""); setNotes(saved.notes ?? "");
         setAssigneeId(saved.assignee_id ?? ""); setExecutedAt(localDateTimeValue(saved.executed_at));
         setIsEditing(false); setSaveState("saved"); setConflictValues(null); setShowConflictDiff(false); setCopyMessage("");
-        if (next && index < cases.length - 1) setIndex((current) => Math.min(current + 1, cases.length - 1));
+        if (move === "nextPending") {
+          const updatedCases = cases.map((entry) => entry.id === item.id ? { ...entry, status: saved.status } : entry);
+          const nextIndex = nextPendingCaseIndex(updatedCases, index);
+          if (nextIndex >= 0) setIndex(nextIndex);
+        }
       } else {
         setSaveState("idle");
       }
@@ -473,17 +500,18 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       }
     }
   }
+  function moveToStatus(statuses: RunCase["status"][]) {
+    const target = cases.findIndex((entry) => statuses.includes(entry.status));
+    if (target >= 0) changeIndex(target);
+    setCompletionReviewOpen(false);
+  }
+
   async function completeRun() {
     if (dirty || saveState === "saving" || evidenceUploading) {
-      setError("未保存の変更または証跡アップロードが完了してから実行を完了してください。");
+      setError("未保存の変更または証跡アップロードが完了してから完了内容を確認してください。");
       return;
     }
-    if (incompleteCount > 0) {
-      setError(`未実行または実行中の確認項目が${incompleteCount}件あります。すべての結果を保存してください。`);
-      return;
-    }
-    if (!window.confirm(`全${cases.length}件の結果を確認しました。テストを完了しますか？`)) return;
-    await onComplete();
+    setCompletionReviewOpen(true);
   }
 
   return <div className="focused-run">
@@ -517,8 +545,9 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       </section>}
       <EvidencePanelV2 projectId={projectId} canEdit={canEdit} runCases={[item]} runId={runId} onRunUpdated={onRunUpdated} onUploadingChange={setEvidenceUploading} />
       {runStatus === "in_progress" && index === cases.length - 1 && incompleteCount > 0 && <p className="muted">完了まで残り {incompleteCount} 件です。未実行・実行中の確認項目を保存してください。</p>}
-      <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent(false)}>保存</button><button type="button" className="primary" disabled={saveState === "saving"} onClick={() => void saveCurrent(true)}>保存して次へ →</button></>}{runStatus === "in_progress" && index === cases.length - 1 && <button type="button" className="primary" disabled={dirty || saveState === "saving" || evidenceUploading || incompleteCount > 0} onClick={() => void completeRun()}>テストを完了</button>}</div></div>
+      <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent("stay")}>保存</button><button type="button" className="primary" disabled={saveState === "saving"} onClick={() => void saveCurrent("nextPending")}>保存して次の未実行へ →</button></>}{runStatus === "in_progress" && <button type="button" disabled={dirty || saveState === "saving" || evidenceUploading} onClick={() => void completeRun()}>完了内容を確認</button>}</div></div>
     </section>
+    {completionReviewOpen && <div className="run-completion-backdrop" role="dialog" aria-modal="true" aria-label="完了前チェック"><section className="panel run-completion-dialog"><div className="section-heading"><div><p className="eyebrow">FINAL CHECK</p><h2>完了前チェック</h2></div><button type="button" onClick={() => setCompletionReviewOpen(false)}>閉じる</button></div><div className="run-completion-counts"><button type="button" onClick={() => moveToStatus(["pass"])}><span>合格</span><strong>{statusCounts.pass}</strong></button><button type="button" onClick={() => moveToStatus(["fail"])}><span>不合格</span><strong>{statusCounts.fail}</strong></button><button type="button" onClick={() => moveToStatus(["blocked"])}><span>ブロック</span><strong>{statusCounts.blocked}</strong></button><button type="button" onClick={() => moveToStatus(["skip"])}><span>スキップ</span><strong>{statusCounts.skip}</strong></button><button type="button" onClick={() => moveToStatus(["not_run", "in_progress"])}><span>未実行・実行中</span><strong>{incompleteCount}</strong></button></div>{incompleteCount > 0 ? <p className="warning-message">未実行または実行中の確認項目が残っています。件数カードから対象へ移動し、結果を保存してください。</p> : <p className="success-message">全確認項目の結果が保存されています。</p>}<div className="button-row"><button type="button" onClick={() => setCompletionReviewOpen(false)}>実行へ戻る</button><button type="button" className="primary" disabled={incompleteCount > 0} onClick={() => { setCompletionReviewOpen(false); void onComplete(); }}>テストを完了</button></div></section></div>}
   </div>;
 }
 

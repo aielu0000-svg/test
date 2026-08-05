@@ -150,7 +150,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     }
   }
 
-  async function save() {
+  async function save(runAfterSave = false) {
     if (!canEdit || busy) return;
     if (!title.trim()) return setMessage("テスト名を入力してください。");
     if (!rows.length || rows.some((row) => !row.title.trim() || !row.steps.length || row.steps.some((step) => !step.action.trim() || !step.expected.trim()))) {
@@ -190,6 +190,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
       setSavedAt(new Date(loaded.scenario.updatedAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }));
       setSaveState("saved"); setMessage("テスト全体を保存しました。");
       await onChanged();
+      if (runAfterSave) onRun(loaded.scenario.id);
     } catch (error) { setSaveState("error"); setMessage(errorText(error, "保存に失敗しました。")); }
     finally { setBusy(false); }
   }
@@ -404,6 +405,6 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
       </aside>
     </div>
     {message && <p className={saveState === "error" || message.includes("入力") ? "error-message design-message" : "success-message design-message"} role="status">{message}</p>}
-    <div className="design-savebar"><span className={`design-save-state ${saveState}`}>{stateLabel[saveState]}</span><button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => void save()} className="primary">{saveState === "saving" ? "保存中…" : "テスト全体を保存"}</button><button type="button" disabled={!selectedScenarioId || dirty || busy} onClick={() => onRun(selectedScenarioId)}>テスト実行へ</button></div>
+    <div className="design-savebar"><span className={`design-save-state ${saveState}`}>{stateLabel[saveState]}</span><button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => void save(false)} className="primary">{saveState === "saving" ? "保存中…" : "テスト全体を保存"}</button><button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => { if (selectedScenarioId && !dirty) onRun(selectedScenarioId); else void save(true); }}>{selectedScenarioId && !dirty ? "このテストで実行を作成" : "保存して実行を作成"}</button></div>
   </div>;
 }
