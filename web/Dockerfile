@@ -25,7 +25,8 @@ ENV NODE_ENV=production \
     WEB_STATIC_DIR=/app/dist-web/client \
     EVIDENCE_STORAGE_PATH=/var/lib/the-test/evidence
 
-COPY --from=build /app/web/node_modules ./web/node_modules
+COPY --from=build /app/web/package.json ./package.json
+COPY --from=build /app/web/node_modules ./node_modules
 COPY --from=build /app/dist-web ./dist-web
 COPY --from=build /app/web/migrations ./web/migrations
 COPY --from=build /app/web/openapi.yaml ./web/openapi.yaml
