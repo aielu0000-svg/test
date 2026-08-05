@@ -24,7 +24,19 @@ jobs:
           fetch-depth: 0
 
       - name: Apply patch
-        run: python .github/scripts/apply_admin_improvements.py
+        run: |
+          python .github/scripts/apply_admin_improvements.py
+          python - <<'PY'
+          from pathlib import Path
+          for name in [
+              "web/src/client/App.tsx",
+              "web/src/client/api.ts",
+              "web/src/client/styles.css",
+              "web/src/server/app.ts",
+          ]:
+              path = Path(name)
+              path.write_text(path.read_text(encoding="utf-8-sig").rstrip() + "\n", encoding="utf-8")
+          PY
 
       - name: Validate diff
         run: git diff --check
