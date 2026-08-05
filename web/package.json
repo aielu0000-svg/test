@@ -7,7 +7,7 @@
     "build": "npm run build:ui && npm run build:api",
     "build:ui": "vite build --config vite.config.ts",
     "build:api": "tsc -p tsconfig.server.json",
-    "start": "node ../dist-web/server/server.js",
+    "start": "node ../dist-web/server/server/server.js",
     "test": "vitest run --config vitest.config.ts",
     "migrate:sqlite": "tsx src/tools/sqlite-export-v2.ts",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
