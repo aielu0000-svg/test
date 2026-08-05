@@ -51,13 +51,13 @@ export async function createTestDesign(page: Page, caseCount = 1): Promise<{ tes
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
   await page.getByLabel("テスト名").fill(testName);
   await page.getByLabel("確認項目名 1").fill(caseNames[0]!);
-  await page.getByLabel("操作 1", { exact: true }).fill("対象画面を開く");
-  await page.getByLabel("期待結果 1", { exact: true }).fill("対象画面が表示される");
+  await page.getByLabel("詳細操作 1", { exact: true }).fill("対象画面を開く");
+  await page.getByLabel("詳細期待結果 1", { exact: true }).fill("対象画面が表示される");
   for (let index = 1; index < caseCount; index += 1) {
     await page.getByRole("button", { name: "＋ 新しい確認項目" }).click();
     await page.getByLabel(`確認項目名 ${index + 1}`).fill(caseNames[index]!);
-    await page.getByLabel(`操作 ${index + 1}`, { exact: true }).fill(`操作 ${index + 1}`);
-    await page.getByLabel(`期待結果 ${index + 1}`, { exact: true }).fill(`期待結果 ${index + 1}`);
+    await page.getByLabel("詳細操作 1", { exact: true }).fill(`操作 ${index + 1}`);
+    await page.getByLabel("詳細期待結果 1", { exact: true }).fill(`期待結果 ${index + 1}`);
   }
   await page.getByRole("button", { name: "テスト全体を保存" }).click();
   await expect(page.getByText("テスト全体を保存しました。")).toBeVisible();
