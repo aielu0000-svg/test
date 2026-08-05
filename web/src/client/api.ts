@@ -14,6 +14,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   const response = await fetch(path, {
     credentials: "same-origin",
     ...init,
+    cache: "no-store",
     headers,
   });
   const payload = (await response.json().catch(() => ({}))) as T & ApiErrorPayload;
@@ -41,8 +42,14 @@ export const api = {
     request<{ ok: true }>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify({ version, name, description }) }),
   archiveProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/archive`, { method: "POST", body: JSON.stringify({ version }) }),
   restoreProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/restore`, { method: "POST", body: JSON.stringify({ version }) }),
-  deleteProject: (id: string, version: number, confirmationName: string, reason: string) =>
-    request<{ ok: true }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) }),
+  deleteProject: async (id: string, version: number, confirmationName: string, reason: string) => {
+    try {
+      return await request<{ ok: true }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) });
+    } catch (reason) {
+      if (reason instanceof RequestError && reason.status === 404) return { ok: true as const };
+      throw reason;
+    }
+  },
   projectAssignments: (id: string) => request<{ assignments: Array<{ id: string; username: string; displayName: string | null; role: string; enabled: boolean }> }>(`/api/projects/${id}/assignments`),
   assignUser: (projectId: string, userId: string) => request<{ ok: true }>(`/api/projects/${projectId}/assignments`, { method: "POST", body: JSON.stringify({ userId }) }),
   unassignUser: (projectId: string, userId: string) => request<{ ok: true }>(`/api/projects/${projectId}/assignments/${userId}`, { method: "DELETE" }),
