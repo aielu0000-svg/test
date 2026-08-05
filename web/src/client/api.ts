@@ -26,13 +26,22 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return payload as T;
 }
 
+const locallyDeletedProjectIds = new Set<string>();
+
+async function projects(): Promise<{ projects: ProjectSummary[] }> {
+  const result = await request<{ projects: ProjectSummary[] }>("/api/projects");
+  return {
+    projects: result.projects.filter((project) => !locallyDeletedProjectIds.has(project.id)),
+  };
+}
+
 export const api = {
   me: () => request<{ user: AuthUser }>("/api/auth/me"),
   login: (username: string, password: string) => request<{ user: AuthUser }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST", keepalive: true }),
   changePassword: (currentPassword: string, newPassword: string, confirmation: string) =>
     request<{ user: AuthUser }>("/api/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword, confirmation }) }),
-  projects: () => request<{ projects: ProjectSummary[] }>("/api/projects"),
+  projects,
   dashboard: () => request<{
     metrics: { testCases: number; scenarios: number; runningTests: number; passRate: number | null };
     recentRuns: Array<{ id: string; name: string; status: string; updatedAt: string | null; projectId: string; projectName: string }>;
@@ -44,10 +53,15 @@ export const api = {
   restoreProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/restore`, { method: "POST", body: JSON.stringify({ version }) }),
   deleteProject: async (id: string, version: number, confirmationName: string, reason: string) => {
     try {
-      return await request<{ ok: true }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) });
-    } catch (reason) {
-      if (reason instanceof RequestError && reason.status === 404) return { ok: true as const };
-      throw reason;
+      const result = await request<{ ok: true }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) });
+      locallyDeletedProjectIds.add(id);
+      return result;
+    } catch (error) {
+      if (error instanceof RequestError && error.status === 404) {
+        locallyDeletedProjectIds.add(id);
+        return { ok: true as const };
+      }
+      throw error;
     }
   },
   projectAssignments: (id: string) => request<{ assignments: Array<{ id: string; username: string; displayName: string | null; role: string; enabled: boolean }> }>(`/api/projects/${id}/assignments`),
