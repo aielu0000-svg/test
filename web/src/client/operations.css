@@ -58,3 +58,19 @@
 .run-completion-counts button { display: grid; gap: 0.25rem; text-align: left; }
 .run-completion-counts strong { font-size: 1.5rem; }
 @media (max-width: 720px) { .completed-run-toolbar { align-items: stretch; flex-direction: column; } }
+
+.run-test-data { display: grid; gap: .8rem; padding: 1rem; border: 1px solid #dbe5f4; border-radius: 12px; background: #f8faff; }
+.run-test-data h3, .run-test-data h4 { margin: 0; }
+.run-test-data summary { cursor: pointer; font-weight: 750; }
+.run-test-data dl { display: grid; gap: .35rem; margin: .6rem 0 0; }
+.run-test-data dl > div { display: grid; grid-template-columns: minmax(140px, .45fr) 1fr; gap: .75rem; padding: .5rem .6rem; border-radius: 7px; background: #fff; }
+.run-test-data dt { font-weight: 700; }
+.run-test-data dt small { display: block; color: #6b7689; font-weight: 400; }
+.run-test-data dd { margin: 0; white-space: pre-wrap; }
+.run-reference-images figure { display: grid; gap: .4rem; margin: 0; }
+.run-reference-preview { padding: 0; overflow: hidden; background: #eef2f8; }
+.run-reference-preview img { display: block; width: 100%; height: 180px; object-fit: contain; }
+.run-image-lightbox { position: fixed; z-index: 1300; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(9, 16, 29, .88); }
+.run-image-lightbox > div { width: min(1200px, 96vw); max-height: 94vh; display: grid; gap: .6rem; justify-items: end; }
+.run-image-lightbox img { width: 100%; max-height: calc(94vh - 4rem); object-fit: contain; border-radius: 8px; background: #fff; }
+@media (max-width: 650px) { .run-test-data dl > div { grid-template-columns: 1fr; } }

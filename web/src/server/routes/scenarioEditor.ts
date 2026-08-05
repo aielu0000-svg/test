@@ -374,6 +374,7 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
     );
     const source = sourceRows[0];
     if (!source) throw notFound();
+    const runScope = (request.query as Record<string, unknown>).scope === "run";
     const id = randomUUID();
     const directory = path.join(config.evidenceStoragePath, "view-images", safeSegment(projectId), safeSegment(id));
     const temporaryPath = path.join(directory, "uploading");
@@ -395,7 +396,7 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
       const info = await stat(storedPath);
       await db.execute(
         "INSERT INTO test_case_view_images (id, project_id, test_case_id, original_filename, stored_path, content_type, byte_size, sha256, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, projectId, source.test_case_id, `${source.original_filename}.edited.png`, storedPath, verified.contentType, info.size, digest, actor.id],
+        [id, projectId, runScope ? null : source.test_case_id, `${source.original_filename}.edited.png`, storedPath, verified.contentType, info.size, digest, actor.id],
       );
       await writeAudit(db, request, actor, { action: "test_case_view_image_derived", entityType: "test_case_view_image", entityId: id, projectId, before: { sourceId }, after: { byteSize: info.size, sha256: digest } });
       return { id, url: `/api/test-case-images/${id}/content`, byteSize: info.size, sha256: digest };

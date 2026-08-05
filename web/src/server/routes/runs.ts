@@ -182,9 +182,28 @@ async function makeSnapshot(
       "SELECT DISTINCT sc.test_case_id FROM scenario_cases sc JOIN scenarios s ON s.id = sc.scenario_id WHERE sc.scenario_id IN (?) AND s.project_id = ? AND s.deleted_at IS NULL",
       [scenarioIds, projectId],
     ) : [];
-  const standaloneCaseIds = withoutScenarioCases(caseIds, scenarioCaseRows.map((row) => String(row.test_case_id)));
+  const scenarioCaseIds = scenarioCaseRows.map((row) => String(row.test_case_id));
+  const standaloneCaseIds = withoutScenarioCases(caseIds, scenarioCaseIds);
   for (const [position, caseId] of standaloneCaseIds.entries()) await copyCase(connection, projectId, runId, null, caseId, revisionNo, position);
-  await copyLinkedDataSets(connection, projectId, runId, revisionNo, dataSetIds);
+  const linkedDataSetIds: string[] = [];
+  if (scenarioIds.length) {
+    const rows = await connection.query<Array<{ data_set_id: string }>>(
+      `SELECT DISTINCT l.data_set_id FROM data_links l JOIN data_sets d ON d.id = l.data_set_id
+        WHERE d.project_id = ? AND d.deleted_at IS NULL AND l.entity_type = 'scenario' AND l.entity_id IN (?)`,
+      [projectId, scenarioIds],
+    );
+    linkedDataSetIds.push(...rows.map((row) => String(row.data_set_id)));
+  }
+  const effectiveCaseIds = [...new Set([...scenarioCaseIds, ...standaloneCaseIds])];
+  if (effectiveCaseIds.length) {
+    const rows = await connection.query<Array<{ data_set_id: string }>>(
+      `SELECT DISTINCT l.data_set_id FROM data_links l JOIN data_sets d ON d.id = l.data_set_id
+        WHERE d.project_id = ? AND d.deleted_at IS NULL AND l.entity_type = 'case' AND l.entity_id IN (?)`,
+      [projectId, effectiveCaseIds],
+    );
+    linkedDataSetIds.push(...rows.map((row) => String(row.data_set_id)));
+  }
+  await copyLinkedDataSets(connection, projectId, runId, revisionNo, [...new Set([...dataSetIds, ...linkedDataSetIds])]);
 }
 
 async function validateAssignee(db: Database, projectId: string, assigneeId: string | null): Promise<void> {
@@ -238,7 +257,7 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
     const projectId = projectIdFrom(request);
     await authenticatedProject(request, db, config, projectId, false);
     const run = await loadRun(db, routeParam(request), projectId, (request.query as Record<string, unknown>).includeDeleted === "true");
-    const [scenarios, cases, dataSets, revisions, counts, steps] = await Promise.all([
+    const [scenarios, cases, dataSets, revisions, counts, steps, dataItems] = await Promise.all([
       db.query<Record<string, unknown>>("SELECT * FROM run_scenario_snapshots WHERE test_run_id = ? ORDER BY position, created_at", [run.id]),
       db.query<Record<string, unknown>>("SELECT * FROM run_case_snapshots WHERE test_run_id = ? ORDER BY run_scenario_snapshot_id, position, created_at", [run.id]),
       db.query<Record<string, unknown>>("SELECT id, revision_no, source_data_set_id, name, scope, description, apply_reason FROM run_data_set_snapshots WHERE test_run_id = ? ORDER BY revision_no, name", [run.id]),
@@ -248,6 +267,7 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
         WHERE c.test_run_id = ? AND c.excluded_at IS NULL AND (s.id IS NULL OR s.excluded_at IS NULL)
         GROUP BY c.status`, [run.id]),
       db.query<Record<string, unknown>>("SELECT run_case_snapshot_id, step_no, action_text, expected_result FROM run_step_snapshots WHERE run_case_snapshot_id IN (SELECT id FROM run_case_snapshots WHERE test_run_id = ?) ORDER BY run_case_snapshot_id, step_no", [run.id]),
+      db.query<Record<string, unknown>>("SELECT run_data_set_snapshot_id, item_no, label, value_text, memo FROM run_data_item_snapshots WHERE run_data_set_snapshot_id IN (SELECT id FROM run_data_set_snapshots WHERE test_run_id = ?) ORDER BY run_data_set_snapshot_id, item_no", [run.id]),
     ]);
     const totals = Object.fromEntries(counts.map((item) => [item.status, Number(item.count)])) as Record<ResultStatus, number>;
 
@@ -260,7 +280,10 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
         postCompletionUpdatedBy: run.post_completion_updated_by, scenarioIds: storedIds(run.draft_scenario_ids_json),
         caseIds: storedIds(run.draft_case_ids_json), dataSetIds: storedIds(run.draft_data_set_ids_json),
       },
-      scenarios, cases: cases.map((item) => ({ ...item, steps: steps.filter((step) => step.run_case_snapshot_id === item.id).map((step) => ({ stepNo: Number(step.step_no), action: step.action_text, expected: step.expected_result })) })), dataSets, revisions,
+      scenarios,
+      cases: cases.map((item) => ({ ...item, steps: steps.filter((step) => step.run_case_snapshot_id === item.id).map((step) => ({ stepNo: Number(step.step_no), action: step.action_text, expected: step.expected_result })) })),
+      dataSets: dataSets.map((item) => ({ ...item, items: dataItems.filter((dataItem) => dataItem.run_data_set_snapshot_id === item.id).map((dataItem) => ({ itemNo: Number(dataItem.item_no), label: dataItem.label, value: dataItem.value_text ?? "", memo: dataItem.memo ?? "" })) })),
+      revisions,
       stats: { total: Object.values(totals).reduce((sum, value) => sum + value, 0), byStatus: totals, passRate: calculatePassRate(totals) },
     };
   });
@@ -503,6 +526,48 @@ ${rerunNote}` : rerunNote;
     };
   });
 
+  app.post("/api/run-cases/:id/view-image", async (request) => {
+    const input = objectBody(request);
+    const projectId = projectIdFrom(request, input);
+    const actor = await authenticatedProject(request, db, config, projectId, true);
+    const id = routeParam(request);
+    const parentStatus = await ensureSnapshotProject(db, "run_case_snapshots", id, projectId);
+    const version = versionValue(input.version);
+    const sourceUrl = stringValue(input.sourceUrl, "sourceUrl", 1000, true);
+    const newUrl = stringValue(input.newUrl, "newUrl", 1000, true);
+    const imageId = (value: string) => value.match(/^\/api\/test-case-images\/([0-9a-f-]{36})\/content$/i)?.[1] ?? "";
+    const sourceImageId = imageId(sourceUrl); const newImageId = imageId(newUrl);
+    if (!sourceImageId || !newImageId) throw badRequest("見る場所画像URLが不正です。");
+    const images = await db.query<{ id: string }>(
+      "SELECT id FROM test_case_view_images WHERE project_id = ? AND cleanup_status = 'active' AND id IN (?, ?)",
+      [projectId, sourceImageId, newImageId],
+    );
+    if (images.length !== 2) throw badRequest("編集元または編集後の画像が見つかりません。");
+    const rows = await db.query<{ view_images_json: string | null }>("SELECT view_images_json FROM run_case_snapshots WHERE id = ? LIMIT 1", [id]);
+    const current = (() => { try { const value = JSON.parse(rows[0]?.view_images_json ?? "[]"); return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []; } catch { return []; } })();
+    if (!current.includes(sourceUrl)) throw badRequest("編集元画像は現在の実行スナップショットに含まれていません。");
+    const next = current.map((value) => value === sourceUrl ? newUrl : value);
+    await db.withTransaction(async (connection) => {
+      const result = await connection.query(
+        "UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.view_images_json = ?, c.version = c.version + 1 WHERE c.id = ? AND c.version = ? AND c.excluded_at IS NULL AND r.project_id = ? AND r.deleted_at IS NULL",
+        [JSON.stringify(next), id, version, projectId],
+      );
+      if (Number(result.affectedRows) !== 1) throw conflict();
+      if (parentStatus === "completed") {
+        await connection.query(
+          "UPDATE test_runs r JOIN run_case_snapshots c ON c.test_run_id = r.id SET r.post_completion_updated_at = UTC_TIMESTAMP(6), r.post_completion_updated_by = ?, r.updated_at = UTC_TIMESTAMP(6), r.version = r.version + 1 WHERE c.id = ? AND r.status = 'completed'",
+          [actor.id, id],
+        );
+      }
+    });
+    await writeAudit(db, request, actor, { action: "run_case_view_image_updated", entityType: "run_case_snapshot", entityId: id, projectId, before: { sourceUrl }, after: { newUrl } });
+    const updatedRows = await db.query<{ version: number; view_images_json: string }>("SELECT version, view_images_json FROM run_case_snapshots WHERE id = ? LIMIT 1", [id]);
+    const runRows = await db.query<Pick<RunRow, "id" | "version" | "post_completion_updated_at" | "post_completion_updated_by">>(
+      "SELECT r.id, r.version, r.post_completion_updated_at, r.post_completion_updated_by FROM test_runs r JOIN run_case_snapshots c ON c.test_run_id = r.id WHERE c.id = ? LIMIT 1", [id],
+    );
+    return { ok: true, runCase: { id, version: Number(updatedRows[0]?.version), view_images_json: updatedRows[0]?.view_images_json }, run: runRows[0] ? { id: runRows[0].id, version: Number(runRows[0].version), postCompletionUpdatedAt: runRows[0].post_completion_updated_at, postCompletionUpdatedBy: runRows[0].post_completion_updated_by } : null };
+  });
+
   app.patch("/api/run-scenarios/:id", async (request) => {
     const input = objectBody(request);
     const projectId = projectIdFrom(request, input);
@@ -545,4 +610,3 @@ ${rerunNote}` : rerunNote;
     return { ok: true };
   });
 }
-

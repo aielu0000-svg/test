@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { localDateTimeValue, requiresActualResult, toUtcIso, type SaveState } from "./autosave.js";
 import { EvidenceImageEditor } from "./EvidenceImageEditor.js";
+import { ViewImageEditor } from "./ViewImageEditor.js";
 import { mergeRunUpdateEntity, mergeVersionedEntity } from "./runUpdateMerge.js";
 import { countRunStatuses, nextPendingCaseIndex } from "./runWorkflow.js";
 import "./operations.css";
@@ -20,6 +21,7 @@ export interface RunCase {
   id: string; title: string; status: "not_run" | "in_progress" | "pass" | "fail" | "blocked" | "skip";
   actual_result: string | null; notes: string | null; assignee_id: string | null; executed_at: string | null; version: number;
   view_images_json?: string | null;
+  source_test_case_id?: string | null;
   steps?: Array<{ stepNo: number; action: string; expected: string }>;
   excluded_at: string | null; exclusion_reason?: string | null;
 }
@@ -35,7 +37,7 @@ interface RunDetail {
   };
   cases: RunCase[];
   scenarios: RunScenario[];
-  dataSets: Array<{ id: string; name: string; revision_no: number; scope: string }>;
+  dataSets: Array<{ id: string; name: string; revision_no: number; scope: string; items: Array<{ itemNo: number; label: string; value: string; memo: string }> }>;
   revisions: Array<{ revision_no: number; change_reason: string; created_at: string }>;
   stats: { total: number; byStatus: Record<string, number>; passRate: number | null };
 }
@@ -345,8 +347,8 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
         <fieldset><legend>対象テスト</legend><SelectionLists cases={cases} scenarios={scenarios} dataSets={dataSets} selectedCases={selectedCases} selectedScenarios={selectedScenarios} selectedDataSets={selectedDataSets} setCases={setSelectedCases} setScenarios={setSelectedScenarios} setDataSets={setSelectedDataSets} /></fieldset>
         {canEdit && <div className="button-row"><button type="button" onClick={() => void patchRun().catch((cause) => setError(cause instanceof Error ? cause.message : "保存に失敗しました。"))}>準備内容を保存</button><button type="button" className="primary" disabled={!selectedCases.length && !selectedScenarios.length} onClick={() => void changeRunStatus("in_progress")}>実行を開始</button><button type="button" className="danger" onClick={() => void deleteRun()}>削除</button></div>}
       </div>}
-      {detail && detail.run.status === "in_progress" && <FocusedRunPanel projectId={projectId} runId={detail.run.id} runStatus={detail.run.status} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} onComplete={() => changeRunStatus("completed")} />}
-      {detail && detail.run.status === "completed" && <CompletedRunPanel projectId={projectId} runId={detail.run.id} cases={activeCases} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} postCompletionUpdatedAt={detail.run.postCompletionUpdatedAt} postCompletionUpdatedBy={detail.run.postCompletionUpdatedBy} failureCount={activeCases.filter((item) => item.status === "fail" || item.status === "blocked").length} onCreateFailureRerun={createFailureRerun} />}
+      {detail && detail.run.status === "in_progress" && <FocusedRunPanel projectId={projectId} runId={detail.run.id} runStatus={detail.run.status} cases={activeCases} dataSets={detail.dataSets} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} onComplete={() => changeRunStatus("completed")} />}
+      {detail && detail.run.status === "completed" && <CompletedRunPanel projectId={projectId} runId={detail.run.id} cases={activeCases} dataSets={detail.dataSets} canEdit={canEdit} assignees={assignees} onSave={saveCase} onRunUpdated={mergeRunUpdate} onConflict={reloadAfterConflict} postCompletionUpdatedAt={detail.run.postCompletionUpdatedAt} postCompletionUpdatedBy={detail.run.postCompletionUpdatedBy} failureCount={activeCases.filter((item) => item.status === "fail" || item.status === "blocked").length} onCreateFailureRerun={createFailureRerun} />}
       {detail && <details className="run-advanced"><summary>実行の詳細・改訂履歴</summary><p>環境: {detail.run.environmentName || "未設定"} / ビルド: {detail.run.buildName || "未設定"} / 改訂{detail.run.currentRevision}</p>{detail.revisions.length > 0 && <ul>{detail.revisions.map((item) => <li key={item.revision_no}>#{item.revision_no} {item.change_reason}</li>)}</ul>}</details>}
       {error && <p className="error-message" role="alert">{error}</p>}
     </section>
@@ -362,8 +364,8 @@ function CompletedRunPanel({ postCompletionUpdatedAt, postCompletionUpdatedBy, f
   </div>;
 }
 
-function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignees, onSave, onRunUpdated, onConflict, onComplete }: {
-  projectId: string; runId: string; runStatus: RunSummary["status"]; cases: RunCase[]; canEdit: boolean; assignees: Assignee[];
+function FocusedRunPanel({ projectId, runId, runStatus, cases, dataSets, canEdit, assignees, onSave, onRunUpdated, onConflict, onComplete }: {
+  projectId: string; runId: string; runStatus: RunSummary["status"]; cases: RunCase[]; dataSets: RunDetail["dataSets"]; canEdit: boolean; assignees: Assignee[];
   onSave: (item: RunCase, values: { status: RunCase["status"]; actualResult: string; notes: string; executedAt: string | null; assigneeId: string }) => Promise<RunCase>;
   onRunUpdated: (update: RunUpdate | null | undefined) => void;
   onConflict: () => Promise<void>;
@@ -384,6 +386,8 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
   const [isEditing, setIsEditing] = useState(false);
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const [completionReviewOpen, setCompletionReviewOpen] = useState(false);
+  const [largeImage, setLargeImage] = useState<string | null>(null);
+  const [editingViewImage, setEditingViewImage] = useState<string | null>(null);
   const editRevision = useRef(0);
   const lastSubmittedRevision = useRef(0);
   const lastResolvedRevision = useRef(0);
@@ -424,6 +428,9 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
   const statusCounts = countRunStatuses(cases);
   const completedCount = statusCounts.pass + statusCounts.fail + statusCounts.blocked + statusCounts.skip;
   const incompleteCount = statusCounts.not_run + statusCounts.in_progress;
+  const sourceCaseId = item.source_test_case_id ?? "";
+  const commonData = dataSets.flatMap((dataSet) => dataSet.items.filter((entry) => !entry.memo.startsWith("__case__:")).map((entry) => ({ dataSet: dataSet.name, ...entry })));
+  const caseData = dataSets.flatMap((dataSet) => dataSet.items.filter((entry) => entry.memo === `__case__:${sourceCaseId}`).map((entry) => ({ dataSet: dataSet.name, ...entry })));
   const serverConflictValues: ConflictValues = {
     status: item.status,
     actualResult: item.actual_result ?? "",
@@ -522,11 +529,12 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
     <section className="focused-run-case">
       <div className="case-top"><div><p className="eyebrow">確認項目 {index + 1} / {cases.length}</p><h2>{item.title}</h2></div><span className={`save-state ${saveState}`}>{saveLabels[saveState] || (dirty ? "未保存" : "")}</span></div>
       {!!item.steps?.length && <div className="run-instructions">{item.steps.map((step) => <div key={step.stepNo}><strong>操作 {step.stepNo}</strong><p>{step.action}</p><strong>期待結果</strong><p>{step.expected}</p></div>)}</div>}
+      {(caseData.length > 0 || commonData.length > 0) && <section className="run-test-data"><div className="section-heading"><div><h3>テストデータ</h3><p className="muted">実行開始時点の内容です。</p></div></div>{caseData.length > 0 && <div><h4>この確認項目</h4><dl>{caseData.map((entry, dataIndex) => <div key={`${entry.dataSet}-${entry.itemNo}-${dataIndex}`}><dt>{entry.label || entry.dataSet}</dt><dd>{entry.value || "（空）"}</dd></div>)}</dl></div>}{commonData.length > 0 && <details open><summary>共通データ {commonData.length}件</summary><dl>{commonData.map((entry, dataIndex) => <div key={`${entry.dataSet}-${entry.itemNo}-${dataIndex}`}><dt>{entry.label}<small>{entry.dataSet}</small></dt><dd>{entry.value || "（空）"}</dd></div>)}</dl></details>}</section>}
       <fieldset className="run-result-status"><legend>結果</legend><div>{(["not_run", "pass", "fail", "blocked", "skip"] as RunCase["status"][]).map((value) => <button type="button" disabled={!canEdit} className={status === value ? "selected" : ""} key={value} onClick={() => edit(setStatus, value)}>{resultLabels[value]}</button>)}</div></fieldset>
       <label>実績結果{requiresActualResult(status) && "（必須）"}<textarea disabled={!canEdit} aria-invalid={requiresActualResult(status) && !actualResult.trim()} value={actualResult} onChange={(event) => edit(setActualResult, event.target.value)} /></label>
       <label>備考<textarea disabled={!canEdit} value={notes} onChange={(event) => edit(setNotes, event.target.value)} /></label>
       <div className="field-grid"><label>担当者<AssigneeSelect disabled={!canEdit || runStatus === "completed"} value={assigneeId} assignees={assignees} onChange={(value) => edit(setAssigneeId, value)} /></label><label>実行日時<input disabled={!canEdit || runStatus === "completed"} type="datetime-local" value={executedAt} onChange={(event) => edit(setExecutedAt, event.target.value)} /></label></div>
-      {!!runCaseImages(item).length && <section className="run-reference-images"><h3>見る場所の画像</h3><div>{runCaseImages(item).map((source, imageIndex) => <img key={imageIndex} src={source} alt={`参考画像 ${imageIndex + 1}`} />)}</div></section>}
+      {!!runCaseImages(item).length && <section className="run-reference-images"><h3>見る場所の画像</h3><p className="muted">画像を選択すると拡大表示します。</p><div>{runCaseImages(item).map((source, imageIndex) => <figure key={imageIndex}><button type="button" className="run-reference-preview" onClick={() => setLargeImage(source)}><img src={source} alt={`参考画像 ${imageIndex + 1}`} /></button>{canEdit && <button type="button" className="small" onClick={() => setEditingViewImage(source)}>この実行用に編集</button>}</figure>)}</div></section>}
       {error && <p className="error-message" role="alert">{error}</p>}
       {conflictValues && <section className="conflict-input" aria-label="競合の復旧">
         <h3>競合の復旧</h3>
@@ -545,8 +553,10 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, canEdit, assignee
       </section>}
       <EvidencePanelV2 projectId={projectId} canEdit={canEdit} runCases={[item]} runId={runId} onRunUpdated={onRunUpdated} onUploadingChange={setEvidenceUploading} />
       {runStatus === "in_progress" && index === cases.length - 1 && incompleteCount > 0 && <p className="muted">完了まで残り {incompleteCount} 件です。未実行・実行中の確認項目を保存してください。</p>}
-      <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent("stay")}>保存</button><button type="button" className="primary" disabled={saveState === "saving"} onClick={() => void saveCurrent("nextPending")}>保存して次の未実行へ →</button></>}{runStatus === "in_progress" && <button type="button" disabled={dirty || saveState === "saving" || evidenceUploading} onClick={() => void completeRun()}>完了内容を確認</button>}</div></div>
+      <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent("stay")}>保存</button><button type="button" className="primary" disabled={saveState === "saving" || incompleteCount === 0} onClick={() => void saveCurrent("nextPending")}>保存して次の未実行へ →</button></>}{runStatus === "in_progress" && <button type="button" disabled={dirty || saveState === "saving" || evidenceUploading} onClick={() => void completeRun()}>完了内容を確認</button>}</div></div>
     </section>
+    {largeImage && <div className="run-image-lightbox" role="dialog" aria-modal="true" aria-label="見る場所画像の拡大表示" onClick={(event) => { if (event.target === event.currentTarget) setLargeImage(null); }}><div><button type="button" onClick={() => setLargeImage(null)}>閉じる</button><img src={largeImage} alt="見る場所の拡大画像" /></div></div>}
+    {editingViewImage && <ViewImageEditor projectId={projectId} sourceUrl={editingViewImage} scope="run" onClose={() => setEditingViewImage(null)} onSaved={async (newUrl) => { const result = await api<{ run?: RunUpdate | null }>(`/api/run-cases/${item.id}/view-image`, { method: "POST", body: JSON.stringify({ projectId, version: item.version, sourceUrl: editingViewImage, newUrl }) }); onRunUpdated(result.run); setEditingViewImage(null); await onConflict(); }} />}
     {completionReviewOpen && <div className="run-completion-backdrop" role="dialog" aria-modal="true" aria-label="完了前チェック"><section className="panel run-completion-dialog"><div className="section-heading"><div><p className="eyebrow">FINAL CHECK</p><h2>完了前チェック</h2></div><button type="button" onClick={() => setCompletionReviewOpen(false)}>閉じる</button></div><div className="run-completion-counts"><button type="button" onClick={() => moveToStatus(["pass"])}><span>合格</span><strong>{statusCounts.pass}</strong></button><button type="button" onClick={() => moveToStatus(["fail"])}><span>不合格</span><strong>{statusCounts.fail}</strong></button><button type="button" onClick={() => moveToStatus(["blocked"])}><span>ブロック</span><strong>{statusCounts.blocked}</strong></button><button type="button" onClick={() => moveToStatus(["skip"])}><span>スキップ</span><strong>{statusCounts.skip}</strong></button><button type="button" onClick={() => moveToStatus(["not_run", "in_progress"])}><span>未実行・実行中</span><strong>{incompleteCount}</strong></button></div>{incompleteCount > 0 ? <p className="warning-message">未実行または実行中の確認項目が残っています。件数カードから対象へ移動し、結果を保存してください。</p> : <p className="success-message">全確認項目の結果が保存されています。</p>}<div className="button-row"><button type="button" onClick={() => setCompletionReviewOpen(false)}>実行へ戻る</button><button type="button" className="primary" disabled={incompleteCount > 0} onClick={() => { setCompletionReviewOpen(false); void onComplete(); }}>テストを完了</button></div></section></div>}
   </div>;
 }
