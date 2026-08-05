@@ -1,0 +1,40 @@
+name: Apply Review 10
+
+on:
+  push:
+    branches:
+      - agent/folder-explorer-p2
+    paths:
+      - .github/workflows/apply-review10.yaml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply patch
+        run: |
+          cat .github/review10.patch.* | base64 -d | gzip -d > /tmp/review10.patch
+          git apply --index --whitespace=error-all /tmp/review10.patch
+          rm -f .github/review10.patch.* .github/workflows/apply-review10.yaml .github/workflows/source-snapshot.yaml
+          git add -A
+          git diff --cached --check
+          sh -n web/ops/*.sh
+      - name: Verify web
+        working-directory: web
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Fix Review 10 integrity issues"
+          git push origin HEAD:agent/folder-explorer-p2
