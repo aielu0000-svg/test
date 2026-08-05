@@ -103,7 +103,8 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
   await execution.getByRole("button", { name: "この実行用に編集" }).click();
   const editor = page.getByRole("dialog", { name: "見る場所画像編集" });
   await expect(editor).toBeVisible();
-  await expect(editor.locator("canvas")).toHaveJSProperty("width", 1);
+  await expect(editor.locator("canvas")).toHaveJSProperty("width", 32);
+  await expect(editor.locator("canvas")).toHaveJSProperty("height", 24);
   await editor.getByRole("button", { name: "編集後の画像を保存" }).click();
   await expect(editor).toHaveCount(0);
   await execution.locator(".run-reference-preview").click();
