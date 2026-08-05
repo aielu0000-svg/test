@@ -184,6 +184,7 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     requestIdHeader: false,
     genReqId: () => randomUUID(),
     bodyLimit: 25 * 1024 * 1024,
+    trustProxy: config.trustProxy,
   });
   await app.register(cookie);
   if (fs.existsSync(config.staticDir)) {
