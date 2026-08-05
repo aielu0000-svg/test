@@ -54,6 +54,6 @@ test("業務導線から完了確認と不合格再実行まで進められる",
   await expect(page.getByText(/この実行は完了済みです/)).toBeVisible();
   await page.getByRole("button", { name: "不合格・ブロック1件で再実行を作成" }).click();
   await expect(page.getByRole("heading", { name: `${runName} 再実行`, exact: true })).toBeVisible();
-  await expect(page.getByLabel(caseOne)).toBeChecked();
-  await expect(page.getByLabel(caseTwo)).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: caseOne, exact: true })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: caseTwo, exact: true })).not.toBeChecked();
 });
