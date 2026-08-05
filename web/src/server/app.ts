@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
@@ -545,6 +545,36 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     return { ok: true };
   });
 
+  app.delete("/api/projects/:id", async (request) => {
+    const actor = await requireUser(request, db, config);
+    requireRole(actor, "admin");
+    const id = routeId(request);
+    const access = await projectAccess(db, actor, id);
+    const input = body(request);
+    const version = versionFrom(input.version);
+    const confirmationName = typeof input.confirmationName === "string" ? input.confirmationName.trim() : "";
+    const reason = text(input.reason);
+    if (access.project.status !== "archived") throw badRequest("プロジェクトを削除する前にアーカイブしてください。");
+    if (confirmationName !== access.project.name) throw badRequest("確認用プロジェクト名が一致しません。");
+    if (!reason) throw badRequest("削除理由を入力してください。");
+    const result = await db.execute(
+      `UPDATE projects SET deleted_at = UTC_TIMESTAMP(6), version = version + 1, updated_at = UTC_TIMESTAMP(6)
+       WHERE id = ? AND version = ? AND status = 'archived' AND deleted_at IS NULL`,
+      [id, version],
+    );
+    if (Number(result.affectedRows) !== 1) throw conflict();
+    await db.execute("DELETE FROM project_assignments WHERE project_id = ?", [id]);
+    await writeAudit(db, request, actor, {
+      action: "project_deleted",
+      entityType: "project",
+      entityId: id,
+      projectId: id,
+      before: { name: access.project.name, status: access.project.status },
+      after: { deleted: true, reason },
+    });
+    return { ok: true };
+  });
+
   app.post("/api/projects/:id/assignments", async (request) => {
     const actor = await requireUser(request, db, config);
     if (!canManageAssignments(actor.role)) throw forbidden();
@@ -680,4 +710,3 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
   }
   return app;
 }
-

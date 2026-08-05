@@ -41,6 +41,8 @@ export const api = {
     request<{ ok: true }>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify({ version, name, description }) }),
   archiveProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/archive`, { method: "POST", body: JSON.stringify({ version }) }),
   restoreProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/restore`, { method: "POST", body: JSON.stringify({ version }) }),
+  deleteProject: (id: string, version: number, confirmationName: string, reason: string) =>
+    request<{ ok: true }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) }),
   projectAssignments: (id: string) => request<{ assignments: Array<{ id: string; username: string; displayName: string | null; role: string; enabled: boolean }> }>(`/api/projects/${id}/assignments`),
   assignUser: (projectId: string, userId: string) => request<{ ok: true }>(`/api/projects/${projectId}/assignments`, { method: "POST", body: JSON.stringify({ userId }) }),
   unassignUser: (projectId: string, userId: string) => request<{ ok: true }>(`/api/projects/${projectId}/assignments/${userId}`, { method: "DELETE" }),
@@ -48,4 +50,9 @@ export const api = {
   bulkUnassignUsers: (userIds: string[], projectIds: string[]) => request<{ ok: true; requested: number; changed: number; skipped: number }>("/api/project-assignments/bulk", { method: "DELETE", body: JSON.stringify({ userIds, projectIds }) }),
   users: () => request<{ users: Array<{ id: string; username: string; displayName: string | null; role: string; enabled: boolean; version: number; projects: Array<{ id: string; name: string; status: "active" | "archived" }> }> }>("/api/users"),
   createUser: (input: { username: string; password: string; confirmation: string; role: string; displayName: string }) => request<{ id: string }>("/api/users", { method: "POST", body: JSON.stringify(input) }),
+  updateUser: (id: string, input: { version: number; username: string; displayName: string; role: string; enabled: boolean }) =>
+    request<{ ok: true }>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  resetUserPassword: (id: string, password: string, confirmation: string) =>
+    request<{ ok: true }>(`/api/users/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password, confirmation }) }),
+  unlockUser: (id: string) => request<{ ok: true }>(`/api/users/${id}/unlock`, { method: "POST" }),
 };
