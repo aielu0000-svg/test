@@ -1,0 +1,27 @@
+name: Source snapshot
+
+on:
+  push:
+    branches:
+      - agent/folder-explorer-p2
+    paths:
+      - .github/workflows/source-snapshot.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Archive source
+        run: |
+          tar --exclude=.git --exclude=node_modules --exclude=dist-web --exclude=test-results --exclude=playwright-report -czf source-snapshot.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot-${{ github.run_id }}
+          path: source-snapshot.tar.gz
+          retention-days: 1
