@@ -21,7 +21,12 @@
 - 既存MariaDBボリュームの認証修復を使うDocker統合試験
   - 修復スクリプトの構文、新規Compose設定、空パスワード拒否はCI検証済み。無パスワードで初期化した使い捨てボリュームを修復し、無パスワード接続拒否まで確認する試験は追加の堅牢化候補とする。
 
+- 実OpenShiftクラスターでの配備確認
+  - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
+
 ## Completed verification
+
+- OpenShiftコンテナ・運用基盤（ISSUE-20260805-002）: GitHub Actions run `30976592066`でKustomize生成、任意UID・read-only root filesystem起動、Unit/API 43件、MariaDB統合2件、Chromium E2E 16件を含む全工程成功。
 
 - 業務導線改善（ISSUE-20260805-001）: GitHub Actions run `30973373586`でUnit/API 42件、MariaDB統合2件、Chromium E2E 16件を含む全工程成功。
 

@@ -22,6 +22,7 @@
 | ISSUE-20260804-007 | 2026-08-04 | Security | P1 | Verified | Docker MariaDB認証 | ローカルDocker用の維持されたCompose設定がなく、アプリ設定は`DB_PASSWORD`未設定時に空文字を使用した。またMariaDB初期化環境変数は作成済みボリュームへ再適用されない。 | MariaDBとアプリへ同じ非空パスワードを渡すCompose、localhost限定ポート、認証付きhealthcheck、空パスワード拒否、既存ボリューム修復コマンド、`.env.example`と手順書を追加した。 | GitHub Actions run 30853941396でCompose検証、修復スクリプト構文検証、依存監査、Unit/API 40件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。 | User Report 2026-08-04 |
 
 | ISSUE-20260805-001 | 2026-08-05 | Usability | P2 | Verified | 業務導線 | テスト設計から実行作成、作業再開、未実行移動、完了前確認、不合格・ブロック再実行の導線が分断され、業務上のクリックと見落としが多かった。 | 保存と実行作成を一操作へ統合し、ダッシュボードから実行へ直接復帰、次の未実行への保存移動、状態別完了前チェック、失敗項目だけの再実行draft作成を追加した。 | GitHub Actions run 30973373586で依存監査0件、TypeCheck、Unit/API 42件（2件skip）、MariaDB統合2件、Build、Web起動、Chromium E2E 16件が成功。 | User Request 2026-08-05 |
+| ISSUE-20260805-002 | 2026-08-05 | Operation / Security | P1 | Verified | OpenShift deployment | 既存のコンテナとOpenShift定義は任意UID、読み取り専用root filesystem、内部ビルド、Route経由のプロキシ、永続化、バックアップを一体で検証していなかった。 | 任意UID対応のマルチステージイメージ、BuildConfig/ImageStream、MariaDB StatefulSet、Route、PVC、NetworkPolicy、Secret運用、バックアップ・保持CronJob、graceful shutdownを追加した。 | GitHub Actions run 30976592066でKustomize生成、任意UID・read-only root filesystem起動、Unit/API 43件、MariaDB統合2件、Chromium E2E 16件を含む全工程成功。実OpenShiftクラスターへの適用は接続情報がないため未実施。 | User Request 2026-08-05 |
 
 ## Review 9
 
