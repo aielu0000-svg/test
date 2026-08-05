@@ -6,7 +6,7 @@ export interface AppConfig {
   nodeEnv: string;
   cookieName: string;
   cookieSecure: boolean;
-  trustProxy: boolean;
+  trustProxy?: boolean;
   sessionTtlSeconds: number;
   evidenceStoragePath: string;
   migrationDir: string;
