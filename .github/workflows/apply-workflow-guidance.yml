@@ -31,7 +31,18 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Apply focused workflow improvements
-        run: python .github/scripts/apply_workflow_guidance.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/apply_workflow_guidance.py')
+          content = path.read_text(encoding='utf-8')
+          old = "replace_once(operations, '  const [selectedId, setSelectedId] = useState(\"\");', '  const [selectedId, setSelectedId] = useState(initialRunId ?? \"\");')"
+          new = "write(operations, read(operations).replace('  const [selectedId, setSelectedId] = useState(\"\");', '  const [selectedId, setSelectedId] = useState(initialRunId ?? \"\");', 1))"
+          if old not in content:
+              raise SystemExit('selectedId patch instruction was not found')
+          path.write_text(content.replace(old, new, 1), encoding='utf-8')
+          PY
+          python .github/scripts/apply_workflow_guidance.py
 
       - name: Install dependencies
         working-directory: web
