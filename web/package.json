@@ -9,6 +9,7 @@
     "build:api": "tsc -p tsconfig.server.json",
     "start": "node ../dist-web/server/server/server.js",
     "test": "vitest run --config vitest.config.ts",
+    "db:migrate": "tsx src/tools/migrate-database.ts",
     "migrate:sqlite": "tsx src/tools/sqlite-export-v2.ts",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
     "test:e2e": "playwright test",
@@ -28,7 +29,7 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
-    "remark-gfm": "^4.0.1",
+    "remark-gfm": "^4.1.0",
     "sanitize-html": "^2.17.5",
     "sharp": "^0.35.3"
   },
