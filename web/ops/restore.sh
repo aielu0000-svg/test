@@ -93,6 +93,11 @@ register_catalog() {
   fi
   mysql -e "INSERT INTO backup_catalog (backup_id, status, manifest_json, created_at, completed_at, created_by) VALUES ('${catalog_id}', 'succeeded', '${manifest_sql}', STR_TO_DATE('${catalog_id}', '%Y%m%dT%H%i%sZ'), STR_TO_DATE('${catalog_id}', '%Y%m%dT%H%i%sZ'), ${created_by_sql}) ON DUPLICATE KEY UPDATE status='succeeded', manifest_json=VALUES(manifest_json), created_by=VALUES(created_by)"
 }
+
+# The restored dump reflects the catalog as it existed before the source
+# generation was registered and can contain rows for generations already removed
+# by retention. Rebuild it from the two directories retained for rollback.
+mysql -e "DELETE FROM backup_catalog"
 register_catalog "${backup_id}"
 register_catalog "${pre_restore_backup}"
 
