@@ -622,6 +622,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
     return new Promise((resolve, reject) => {
       const request = new XMLHttpRequest();
       request.open("POST", `/api/evidence?projectId=${encodeURIComponent(projectId)}&testRunId=${encodeURIComponent(runId)}&runCaseSnapshotId=${encodeURIComponent(caseId)}`);
+      request.setRequestHeader("X-The-Test-Request", "1");
       request.withCredentials = true;
       request.upload.onprogress = (event) => {
         if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
@@ -691,7 +692,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
   }
   return <section className="panel">
     <h2>証跡</h2>
-    <p className="muted">ファイルはストリームで保存します。通常のJSONリクエスト上限は25 MiB（26,214,400 bytes）です。証跡アップロードはmultipartストリームで処理し、アプリ固有の1ファイル上限は設けていません。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより制限される場合があります。編集時も元版を保持します。</p>
+    <p className="muted">ファイルはストリームで保存します。通常のJSONリクエスト上限は25 MiB（26,214,400 bytes）です。証跡アップロードはmultipartストリームで処理し、1要求につき1ファイル、最大100 MiBまでです。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより、さらに小さい上限が適用される場合があります。編集時も元版を保持します。</p>
     {canEdit && <div className="evidence-entry"><form className="field-grid evidence-form" onSubmit={upload}>{runCases.length === 1 ? <p>関連する確認項目: <strong>{runCases[0].title}</strong></p> : <label>関連するテストケース<select name="runCaseSnapshotId" required value={activeCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>{runCases.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>}<label>ファイル<input name="file" type="file" required disabled={uploading || !activeCaseId} /></label><label>説明<input name="description" disabled={uploading || !activeCaseId} /></label><button className="primary" disabled={uploading || !activeCaseId}>{uploading ? "アップロード中…" : "ファイルを追加"}</button></form><button type="button" disabled={uploading || !activeCaseId} onClick={() => void pasteFromClipboard()}>クリップボードから貼り付け</button></div>}
     {uploadProgress !== null && <div className="evidence-progress" aria-live="polite"><progress max={100} value={uploadProgress} /><span>{uploadProgress}%</span></div>}
     <div className="evidence-grid">{evidence.map((item) => <article key={item.id}><a href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{item.original_filename}</strong></a><small>{formatByteSize(item.byte_size)} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button onClick={() => setEditing(item)}>画像編集</button>}<button className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>
