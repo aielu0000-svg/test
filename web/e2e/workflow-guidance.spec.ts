@@ -14,11 +14,13 @@ test("業務導線から完了確認と不合格再実行まで進められる",
   const runName = `導線実行 ${suffix}`;
 
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
+  await page.getByRole("tab", { name: "基本情報", exact: true }).click();
   await page.getByLabel("テスト名").fill(testName);
+  await page.getByRole("tab", { name: /確認項目/ }).click();
   await page.getByLabel("確認項目名 1").fill(caseOne);
   await page.getByLabel("詳細操作 1", { exact: true }).fill("不合格対象を操作する");
   await page.getByLabel("詳細期待結果 1", { exact: true }).fill("期待した結果になる");
-  await page.getByRole("button", { name: "＋ 新しい確認項目" }).click();
+  await page.getByRole("button", { name: "＋ 確認項目", exact: true }).click();
   await page.getByLabel("確認項目名 2").fill(caseTwo);
   await page.getByLabel("詳細操作 1", { exact: true }).fill("合格対象を操作する");
   await page.getByLabel("詳細期待結果 1", { exact: true }).fill("正常に表示される");
