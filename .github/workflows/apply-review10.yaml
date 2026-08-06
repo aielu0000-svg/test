@@ -25,6 +25,17 @@ jobs:
           git add -A
           git diff --cached --check
           sh -n web/ops/*.sh
+      - name: Package patched source
+        if: always()
+        run: |
+          tar --exclude=.git --exclude=node_modules --exclude=web/node_modules -czf /tmp/review10-patched-source.tar.gz .
+      - name: Upload patched source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review10-patched-source-${{ github.run_id }}
+          path: /tmp/review10-patched-source.tar.gz
+          if-no-files-found: error
       - name: Verify web
         working-directory: web
         run: |
