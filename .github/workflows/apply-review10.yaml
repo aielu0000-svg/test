@@ -1,4 +1,5 @@
 name: Apply Review 10
+# Trigger after adding the six Review 10 source files.
 
 on:
   push:
