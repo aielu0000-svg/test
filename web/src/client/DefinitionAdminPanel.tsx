@@ -24,10 +24,13 @@ interface DataDetail {
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("X-The-Test-Request", "1");
+  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
     ...init,
+    headers,
   });
   const body = await response.json().catch(() => ({})) as { error?: { message?: string } };
   if (!response.ok) throw new Error(body.error?.message ?? "通信に失敗しました。");

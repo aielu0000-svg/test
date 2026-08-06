@@ -30,3 +30,23 @@
 - 実装前検証: TypeCheck成功、Unit/API 26成功・MariaDB統合1件skip、実MariaDB統合成功、Build成功、Playwrightは認証情報未設定で明示的失敗。
 - 対応状況: ISSUE_LEDGERのReview 9 current stateを正とする。
 - 外部read-onlyレビュー: Codex CLIで2回試行したが、判定前にタイムアウトした。ユーザー指示により再試行を中止し、ok判定は未取得。
+## Review 10
+
+- 実施日: 2026-08-06
+- 入力ソース: 現行PR headの全体静的レビュー、確定仕様v1.0.0/v1.1.0、ユーザーの50項目判定
+- 対象: Webクライアント、API、MariaDB Migration、証跡・画像、import、保持、バックアップ・復元、OpenShift、試験、運用文書
+- 対応方針: REV-031〜033のみ現行仕様として受容し、その他はユーザー指定の仕様変更を含め修正する。
+
+| 範囲 | 判定 | 対応 |
+|---|---|---|
+| REV-001〜009 | 修正 | ローカル隠蔽と404成功扱いを廃止し、復元なしの完全削除、任意理由、監査保持、永続確認試験へ変更。 |
+| REV-010〜017 | 修正 | request transaction、rollback補償、削除状態確認、画像派生元、file cleanup queue、参照保持型purgeへ変更。 |
+| REV-018〜023 | 修正・仕様変更 | 更新停止付き整合バックアップ、manifest/checksum、02:00、正常2世代、220GiB、手動バックアップ・復元を追加。 |
+| REV-024〜030 | 修正 | completed最終4状態、not_run日時解除、破損JSON検知、一括snapshot、最後の管理者保護、ログイン上限を追加。 |
+| REV-031〜033 | 仕様 | アーカイブ編集可、未割当参照可、4文字パスワード方針を維持。 |
+| REV-034〜041 | 修正 | 送信元検証・セキュリティヘッダー、import claim、権限先行upload、Migration checksum/status/lockを追加。 |
+| REV-042〜048 | 修正 | 文字化け、UI state、誤テスト、台帳、busy制御、監査原子性を修正。 |
+| REV-049〜050 | 仕様変更 | multipartを1ファイル100MiBへ制限し、同名有効プロジェクトを拒否。 |
+
+- 事前静的検証: TypeScript構文、Shell構文、YAML parse、差分空白検査に成功。
+- 独立CI: 実MariaDB・Chromiumを含むGitHub Actions実行待ち。

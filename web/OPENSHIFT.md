@@ -11,7 +11,7 @@
 - Evidence, MariaDB and backup PVCs
 - Startup, readiness and liveness probes
 - NetworkPolicies for Route-to-Web and application-to-MariaDB traffic
-- Daily backup and retention CronJobs
+- Daily backup, queued manual operation worker, and retention CronJobs
 
 The deployment uses one Web replica and `Recreate` strategy because schema migration runs during application startup. Evidence and backup storage use `ReadWriteMany`; select a storage class that supports RWX or patch the claims for the cluster storage design.
 
@@ -74,10 +74,10 @@ oc get storageclass
 Set `storageClassName` and required sizes in `openshift.yaml` and `openshift-operations.yaml` when the default class does not provide the required access mode. The default requests are:
 
 - Evidence: 100 GiB, RWX
-- Backup: 150 GiB, RWX
+- Backup: 220 GiB, RWX
 - MariaDB: 20 GiB, RWO
 
-The backup CronJob retains the latest three completed backup directories. The retention job uses the checked-in purge script and SQL.
+The backup CronJob runs at 02:00 Asia/Tokyo and retains two completed backup directories. The operation worker processes administrator-requested backups and restores. The retention job commits database deletion first and removes files through the retryable cleanup queue.
 
 ## External MariaDB
 
@@ -91,6 +91,7 @@ oc logs deployment/the-test-web
 oc logs statefulset/mariadb
 oc get cronjob
 oc create job --from=cronjob/the-test-daily-backup backup-manual-$(date +%s)
+oc logs cronjob/the-test-operation-worker
 oc get route the-test-web -o jsonpath='https://{.spec.host}{"\n"}'
 ```
 

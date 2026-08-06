@@ -206,6 +206,7 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
           [versionId, evidenceId, originalFilename, storedPath, thumbnailPath, contentType, info.size, digest, actor.id],
         );
       });
+      db.afterRollback?.(() => rm(directory, { recursive: true, force: true }));
       const run = await markEvidencePostCompletionUpdate(db, evidenceId, actor.id);
       await writeAudit(db, request, actor, { action: "evidence_created", entityType: "evidence", entityId: evidenceId, projectId, after: { originalFilename, byteSize: info.size, sha256: digest, runCaseSnapshotId } });
       return { id: evidenceId, version: 1, originalFilename, byteSize: info.size, sha256: digest, run };
@@ -236,7 +237,7 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
     const actor = await requireUser(request, db, config);
     const item = await evidenceVersion(db, routeParam(request));
     await requireProjectRead(db, actor, String(item.project_id));
-    if (!item.thumbnail_path) throw notFound();
+    if (item.deleted_at || !item.thumbnail_path) throw notFound();
     return reply.header("Content-Type", "image/jpeg").header("X-Content-Type-Options", "nosniff").send(createReadStream(String(item.thumbnail_path)));
   });
 
@@ -282,6 +283,10 @@ export async function registerEvidenceRoutes(app: FastifyInstance, db: Database,
       if (thumbnailPath) await rm(thumbnailPath, { force: true }).catch(() => undefined);
       throw error;
     }
+    db.afterRollback?.(async () => {
+      await rm(destination, { force: true }).catch(() => undefined);
+      if (thumbnailPath) await rm(thumbnailPath, { force: true }).catch(() => undefined);
+    });
     const run = await markEvidencePostCompletionUpdate(db, id, actor.id);
     await writeAudit(db, request, actor, { action: "evidence_image_version_created", entityType: "evidence", entityId: id, projectId, after: { nextVersion, rotate, flip, flop, sha256: digest } });
     return { id, version: nextVersion, sha256: digest, run };

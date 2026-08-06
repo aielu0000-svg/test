@@ -417,9 +417,12 @@ export async function registerExportRoutes(app: FastifyInstance, db: Database, c
     if (new Date(preview.expires_at).getTime() < Date.now()) throw badRequest("プレビューの有効期限が切れています。");
     const payload = JSON.parse(preview.payload_json) as Record<string, unknown>;
     const outcome = await db.withTransaction(async (connection) => {
-      const result = await importFormalPayload(connection, preview.project_id, actor.id, payload);
-      await connection.query("UPDATE import_previews SET confirmed_at = UTC_TIMESTAMP(6) WHERE id = ? AND confirmed_at IS NULL", [routeParam(request)]);
-      return result;
+      const claimed = await connection.query(
+        "UPDATE import_previews SET confirmed_at = UTC_TIMESTAMP(6) WHERE id = ? AND confirmed_at IS NULL",
+        [routeParam(request)],
+      );
+      if (Number(claimed.affectedRows) !== 1) throw badRequest("確定済みです。");
+      return importFormalPayload(connection, preview.project_id, actor.id, payload);
     });
     await writeAudit(db, request, actor, { action: "formal_json_imported", entityType: "import_preview", entityId: routeParam(request), projectId: preview.project_id, after: outcome });
     return outcome;

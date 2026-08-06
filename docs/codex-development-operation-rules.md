@@ -427,6 +427,8 @@ Migration履歴だけでなく実スキーマを検証してください。
 ```text
 SPEC.md
 the-test-web-confirmed-spec-v1.0.0.md
+the-test-web-confirmed-spec-v1.1.0.md
+the-test-web-confirmed-spec-v1.2.0.md
 PROGRESS.md
 改善点.md
 SECURITY_ASSESSMENT.md

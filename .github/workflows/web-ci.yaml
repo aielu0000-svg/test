@@ -135,6 +135,35 @@ jobs:
           src/server/mariaDb.integration.test.ts
           src/server/migrationCollation.integration.test.ts
 
+      - name: Backup, restore, and retention integration
+        run: |
+          set -euo pipefail
+          sh -n ops/backup.sh ops/restore.sh ops/operations-worker.sh ops/purge-v2.sh
+          rm -rf .ci/backup-evidence .ci/backups
+          mkdir -p .ci/backup-evidence .ci/backups
+          printf 'backup-evidence\n' > .ci/backup-evidence/probe.txt
+          export BACKUP_STORAGE_PATH="$PWD/.ci/backups"
+          export BACKUP_EVIDENCE_PATH="$PWD/.ci/backup-evidence"
+          export OPERATIONS_DIR="$PWD/ops"
+          export APP_VERSION="ci-${GITHUB_SHA}"
+          ops/backup.sh >/dev/null
+          ops/backup.sh >/dev/null
+          ops/backup.sh >/dev/null
+          test "$(find .ci/backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l)" -eq 2
+          target_backup="$(find .ci/backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort | head -n 1)"
+          test -n "$target_backup"
+          (cd ".ci/backups/$target_backup" && sha256sum -c SHA256SUMS)
+          grep -q '"status": "succeeded"' ".ci/backups/$target_backup/manifest.json"
+          printf 'changed-after-backup\n' > .ci/backup-evidence/probe.txt
+          mariadb --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" \
+            -e "INSERT INTO system_state (state_key, state_value) VALUES ('restore_probe','present') ON DUPLICATE KEY UPDATE state_value='present'"
+          ops/restore.sh "$target_backup" >/dev/null
+          grep -qx 'backup-evidence' .ci/backup-evidence/probe.txt
+          test "$(find .ci/backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l)" -eq 2
+          test "$(mariadb --batch --skip-column-names --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" -e "SELECT COUNT(*) FROM backup_catalog")" -eq 2
+          test "$(mariadb --batch --skip-column-names --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" -e "SELECT COUNT(*) FROM system_state WHERE state_key='restore_probe'")" -eq 0
+          mariadb --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" < ops/purge-v2.sql
+
       - name: Build
         run: npm run build
 

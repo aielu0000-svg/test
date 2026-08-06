@@ -4,7 +4,7 @@ import type { PoolConnection } from "mariadb";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../db.js";
 import { writeAudit } from "../audit.js";
-import { badRequest, conflict, notFound } from "../errors.js";
+import { ApiError, badRequest, conflict, notFound } from "../errors.js";
 import { calculatePassRate, completionBlocker, isRunMutable, requiresActualResult, withoutScenarioCases } from "../runDomain.js";
 import {
   authenticatedProject, objectBody, pagination, projectIdFrom, routeParam,
@@ -56,14 +56,18 @@ function optionalDate(value: unknown, field: string): string | null {
   return new Date(value).toISOString().slice(0, 23).replace("T", " ");
 }
 
-function storedIds(value: string | null): string[] {
+function storedIds(value: string | null, field = "stored ids"): string[] {
   if (!value) return [];
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new ApiError(500, "CORRUPT_STORED_JSON", `${field}の保存データが破損しています。`, { cause: String(error) });
   }
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+    throw new ApiError(500, "CORRUPT_STORED_JSON", `${field}の保存形式が不正です。`);
+  }
+  return [...new Set(parsed)];
 }
 
 async function loadRun(db: Database, id: string, projectId: string, includeDeleted = false): Promise<RunRow> {
@@ -75,97 +79,42 @@ async function loadRun(db: Database, id: string, projectId: string, includeDelet
   return rows[0];
 }
 
-async function copyCase(
+async function insertRows(
   connection: PoolConnection,
-  projectId: string,
-  runId: string,
-  scenarioSnapshotId: string | null,
-  caseId: string,
-  revisionNo: number,
-  position: number,
-): Promise<string> {
-  const rows = await connection.query<Array<Record<string, unknown>>>(
-    "SELECT id, title, objective, preconditions, view_location, view_images_json, priority, updated_at FROM test_cases WHERE id = ? AND project_id = ? AND deleted_at IS NULL LIMIT 1",
-    [caseId, projectId],
-  );
-  const source = rows[0];
-  if (!source) throw badRequest(`テストケース ${caseId} が見つかりません。`);
-  const snapshotId = randomUUID();
-  await connection.query(
-    `INSERT INTO run_case_snapshots
-       (id, test_run_id, run_scenario_snapshot_id, revision_no, source_test_case_id, source_updated_at,
-        title, objective, preconditions, view_location, view_images_json, priority, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [snapshotId, runId, scenarioSnapshotId, revisionNo, source.id, source.updated_at, source.title,
-      source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, position],
-  );
-  const steps = await connection.query<Array<Record<string, unknown>>>(
-    "SELECT id, step_no, action_text, expected_result FROM test_steps WHERE test_case_id = ? AND deleted_at IS NULL ORDER BY step_no",
-    [caseId],
-  );
-  for (const step of steps) {
+  table: string,
+  columns: string[],
+  rows: unknown[][],
+): Promise<void> {
+  const chunkSize = 250;
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const chunk = rows.slice(offset, offset + chunkSize);
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => `(${columns.map(() => "?").join(",")})`).join(",");
     await connection.query(
-      "INSERT INTO run_step_snapshots (id, run_case_snapshot_id, source_test_step_id, step_no, action_text, expected_result) VALUES (?, ?, ?, ?, ?, ?)",
-      [randomUUID(), snapshotId, step.id, step.step_no, step.action_text, step.expected_result],
+      `INSERT INTO ${table} (${columns.join(",")}) VALUES ${placeholders}`,
+      chunk.flat(),
     );
   }
-  return snapshotId;
 }
 
-async function copyScenario(
-  connection: PoolConnection,
-  projectId: string,
-  runId: string,
-  scenarioId: string,
-  revisionNo: number,
-  position: number,
-): Promise<string> {
-  const rows = await connection.query<Array<Record<string, unknown>>>(
-    "SELECT id, title, objective, preconditions, updated_at FROM scenarios WHERE id = ? AND project_id = ? AND deleted_at IS NULL LIMIT 1",
-    [scenarioId, projectId],
-  );
-  const source = rows[0];
-  if (!source) throw badRequest(`シナリオ ${scenarioId} が見つかりません。`);
-  const snapshotId = randomUUID();
-  await connection.query(
-    `INSERT INTO run_scenario_snapshots
-       (id, test_run_id, revision_no, source_scenario_id, source_updated_at, title, objective, preconditions, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [snapshotId, runId, revisionNo, source.id, source.updated_at, source.title, source.objective, source.preconditions, position],
-  );
-  const caseRows = await connection.query<Array<{ test_case_id: string }>>(
-    "SELECT test_case_id FROM scenario_cases WHERE scenario_id = ? ORDER BY sort_order",
-    [scenarioId],
-  );
-  for (const [casePosition, item] of caseRows.entries()) {
-    await copyCase(connection, projectId, runId, snapshotId, item.test_case_id, revisionNo, casePosition);
-  }
-  return snapshotId;
-}
+type SourceCase = {
+  id: string;
+  title: string;
+  objective: string | null;
+  preconditions: string | null;
+  view_location: string | null;
+  view_images_json: string | null;
+  priority: string;
+  updated_at: Date | string;
+};
 
-async function copyLinkedDataSets(connection: PoolConnection, projectId: string, runId: string, revisionNo: number, sourceIds: string[]): Promise<void> {
-  for (const sourceId of sourceIds) {
-    const rows = await connection.query<Array<Record<string, unknown>>>(
-      "SELECT id, name, scope, description, updated_at FROM data_sets WHERE id = ? AND project_id = ? AND deleted_at IS NULL LIMIT 1", [sourceId, projectId],
-    );
-    const source = rows[0];
-    if (!source) throw badRequest(`データセット ${sourceId} が見つかりません。`);
-    const snapshotId = randomUUID();
-    await connection.query(
-      "INSERT INTO run_data_set_snapshots (id, test_run_id, revision_no, source_data_set_id, source_updated_at, name, scope, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [snapshotId, runId, revisionNo, source.id, source.updated_at, source.name, source.scope, source.description],
-    );
-    const items = await connection.query<Array<Record<string, unknown>>>(
-      "SELECT sort_order AS item_no, label, item_value AS value_text, memo FROM data_items WHERE data_set_id = ? ORDER BY sort_order", [sourceId],
-    );
-    for (const item of items) {
-      await connection.query(
-        "INSERT INTO run_data_item_snapshots (id, run_data_set_snapshot_id, item_no, label, value_text, memo) VALUES (?, ?, ?, ?, ?, ?)",
-        [randomUUID(), snapshotId, item.item_no, item.label, item.value_text, item.memo],
-      );
-    }
-  }
-}
+type SourceStep = {
+  id: string;
+  test_case_id: string;
+  step_no: number;
+  action_text: string;
+  expected_result: string;
+};
 
 async function makeSnapshot(
   connection: PoolConnection,
@@ -176,15 +125,92 @@ async function makeSnapshot(
   caseIds: string[],
   dataSetIds: string[],
 ): Promise<void> {
-  for (const [position, scenarioId] of scenarioIds.entries()) await copyScenario(connection, projectId, runId, scenarioId, revisionNo, position);
-  const scenarioCaseRows = scenarioIds.length
-    ? await connection.query<Array<{ test_case_id: string }>>(
-      "SELECT DISTINCT sc.test_case_id FROM scenario_cases sc JOIN scenarios s ON s.id = sc.scenario_id WHERE sc.scenario_id IN (?) AND s.project_id = ? AND s.deleted_at IS NULL",
+  const scenarioRows = scenarioIds.length
+    ? await connection.query<Array<{ id: string; title: string; objective: string | null; preconditions: string | null; updated_at: Date | string }>>(
+      "SELECT id, title, objective, preconditions, updated_at FROM scenarios WHERE project_id = ? AND deleted_at IS NULL AND id IN (?)",
+      [projectId, scenarioIds],
+    ) : [];
+  if (scenarioRows.length !== scenarioIds.length) throw badRequest("存在しない、削除済み、または別プロジェクトのテストが含まれています。");
+  const scenarioById = new Map(scenarioRows.map((row) => [row.id, row]));
+  const scenarioLinks = scenarioIds.length
+    ? await connection.query<Array<{ scenario_id: string; test_case_id: string; sort_order: number }>>(
+      `SELECT sc.scenario_id, sc.test_case_id, sc.sort_order
+         FROM scenario_cases sc
+         JOIN test_cases c ON c.id = sc.test_case_id
+        WHERE sc.scenario_id IN (?) AND c.project_id = ? AND c.deleted_at IS NULL
+        ORDER BY sc.scenario_id, sc.sort_order`,
       [scenarioIds, projectId],
     ) : [];
-  const scenarioCaseIds = scenarioCaseRows.map((row) => String(row.test_case_id));
+  const linksByScenario = new Map<string, Array<{ test_case_id: string; sort_order: number }>>();
+  for (const link of scenarioLinks) {
+    const list = linksByScenario.get(link.scenario_id) ?? [];
+    list.push({ test_case_id: link.test_case_id, sort_order: Number(link.sort_order) });
+    linksByScenario.set(link.scenario_id, list);
+  }
+  const scenarioCaseIds = [...new Set(scenarioLinks.map((row) => row.test_case_id))];
   const standaloneCaseIds = withoutScenarioCases(caseIds, scenarioCaseIds);
-  for (const [position, caseId] of standaloneCaseIds.entries()) await copyCase(connection, projectId, runId, null, caseId, revisionNo, position);
+  const sourceCaseIds = [...new Set([...scenarioCaseIds, ...standaloneCaseIds])];
+  const sourceCases = sourceCaseIds.length
+    ? await connection.query<Array<SourceCase>>(
+      "SELECT id, title, objective, preconditions, view_location, view_images_json, priority, updated_at FROM test_cases WHERE project_id = ? AND deleted_at IS NULL AND id IN (?)",
+      [projectId, sourceCaseIds],
+    ) : [];
+  if (sourceCases.length !== sourceCaseIds.length) throw badRequest("存在しない、削除済み、または別プロジェクトの確認項目が含まれています。");
+  const caseById = new Map(sourceCases.map((row) => [row.id, row]));
+  const sourceSteps = sourceCaseIds.length
+    ? await connection.query<Array<SourceStep>>(
+      "SELECT id, test_case_id, step_no, action_text, expected_result FROM test_steps WHERE test_case_id IN (?) AND deleted_at IS NULL ORDER BY test_case_id, step_no",
+      [sourceCaseIds],
+    ) : [];
+  const stepsByCase = new Map<string, SourceStep[]>();
+  for (const step of sourceSteps) stepsByCase.set(step.test_case_id, [...(stepsByCase.get(step.test_case_id) ?? []), step]);
+
+  const scenarioSnapshotBySource = new Map<string, string>();
+  const scenarioSnapshotRows = scenarioIds.map((scenarioId, position) => {
+    const source = scenarioById.get(scenarioId)!;
+    const snapshotId = randomUUID();
+    scenarioSnapshotBySource.set(scenarioId, snapshotId);
+    return [snapshotId, runId, revisionNo, source.id, source.updated_at, source.title, source.objective, source.preconditions, position];
+  });
+  await insertRows(connection, "run_scenario_snapshots", [
+    "id", "test_run_id", "revision_no", "source_scenario_id", "source_updated_at", "title", "objective", "preconditions", "position",
+  ], scenarioSnapshotRows);
+
+  const caseSnapshotRows: unknown[][] = [];
+  const caseSnapshotSteps: Array<{ snapshotId: string; sourceCaseId: string }> = [];
+  for (const scenarioId of scenarioIds) {
+    const scenarioSnapshotId = scenarioSnapshotBySource.get(scenarioId)!;
+    for (const [position, link] of (linksByScenario.get(scenarioId) ?? []).entries()) {
+      const source = caseById.get(link.test_case_id)!;
+      const snapshotId = randomUUID();
+      caseSnapshotRows.push([
+        snapshotId, runId, scenarioSnapshotId, revisionNo, source.id, source.updated_at,
+        source.title, source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, position,
+      ]);
+      caseSnapshotSteps.push({ snapshotId, sourceCaseId: source.id });
+    }
+  }
+  for (const [position, caseId] of standaloneCaseIds.entries()) {
+    const source = caseById.get(caseId)!;
+    const snapshotId = randomUUID();
+    caseSnapshotRows.push([
+      snapshotId, runId, null, revisionNo, source.id, source.updated_at,
+      source.title, source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, position,
+    ]);
+    caseSnapshotSteps.push({ snapshotId, sourceCaseId: source.id });
+  }
+  await insertRows(connection, "run_case_snapshots", [
+    "id", "test_run_id", "run_scenario_snapshot_id", "revision_no", "source_test_case_id", "source_updated_at",
+    "title", "objective", "preconditions", "view_location", "view_images_json", "priority", "position",
+  ], caseSnapshotRows);
+  const stepSnapshotRows = caseSnapshotSteps.flatMap(({ snapshotId, sourceCaseId }) =>
+    (stepsByCase.get(sourceCaseId) ?? []).map((step) => [
+      randomUUID(), snapshotId, step.id, step.step_no, step.action_text, step.expected_result,
+    ]));
+  await insertRows(connection, "run_step_snapshots", [
+    "id", "run_case_snapshot_id", "source_test_step_id", "step_no", "action_text", "expected_result",
+  ], stepSnapshotRows);
+
   const linkedDataSetIds: string[] = [];
   if (scenarioIds.length) {
     const rows = await connection.query<Array<{ data_set_id: string }>>(
@@ -192,18 +218,40 @@ async function makeSnapshot(
         WHERE d.project_id = ? AND d.deleted_at IS NULL AND l.entity_type = 'scenario' AND l.entity_id IN (?)`,
       [projectId, scenarioIds],
     );
-    linkedDataSetIds.push(...rows.map((row) => String(row.data_set_id)));
+    linkedDataSetIds.push(...rows.map((row) => row.data_set_id));
   }
-  const effectiveCaseIds = [...new Set([...scenarioCaseIds, ...standaloneCaseIds])];
-  if (effectiveCaseIds.length) {
+  if (sourceCaseIds.length) {
     const rows = await connection.query<Array<{ data_set_id: string }>>(
       `SELECT DISTINCT l.data_set_id FROM data_links l JOIN data_sets d ON d.id = l.data_set_id
         WHERE d.project_id = ? AND d.deleted_at IS NULL AND l.entity_type = 'case' AND l.entity_id IN (?)`,
-      [projectId, effectiveCaseIds],
+      [projectId, sourceCaseIds],
     );
-    linkedDataSetIds.push(...rows.map((row) => String(row.data_set_id)));
+    linkedDataSetIds.push(...rows.map((row) => row.data_set_id));
   }
-  await copyLinkedDataSets(connection, projectId, runId, revisionNo, [...new Set([...dataSetIds, ...linkedDataSetIds])]);
+  const effectiveDataSetIds = [...new Set([...dataSetIds, ...linkedDataSetIds])];
+  if (!effectiveDataSetIds.length) return;
+  const sourceDataSets = await connection.query<Array<{ id: string; name: string; scope: string; description: string | null; updated_at: Date | string }>>(
+    "SELECT id, name, scope, description, updated_at FROM data_sets WHERE project_id = ? AND deleted_at IS NULL AND id IN (?)",
+    [projectId, effectiveDataSetIds],
+  );
+  if (sourceDataSets.length !== effectiveDataSetIds.length) throw badRequest("存在しない、削除済み、または別プロジェクトのデータセットが含まれています。");
+  const dataItems = await connection.query<Array<{ data_set_id: string; sort_order: number; label: string; item_value: string | null; memo: string | null }>>(
+    "SELECT data_set_id, sort_order, label, item_value, memo FROM data_items WHERE data_set_id IN (?) ORDER BY data_set_id, sort_order",
+    [effectiveDataSetIds],
+  );
+  const dataSnapshotBySource = new Map<string, string>();
+  await insertRows(connection, "run_data_set_snapshots", [
+    "id", "test_run_id", "revision_no", "source_data_set_id", "source_updated_at", "name", "scope", "description",
+  ], sourceDataSets.map((source) => {
+    const id = randomUUID();
+    dataSnapshotBySource.set(source.id, id);
+    return [id, runId, revisionNo, source.id, source.updated_at, source.name, source.scope, source.description];
+  }));
+  await insertRows(connection, "run_data_item_snapshots", [
+    "id", "run_data_set_snapshot_id", "item_no", "label", "value_text", "memo",
+  ], dataItems.map((item) => [
+    randomUUID(), dataSnapshotBySource.get(item.data_set_id)!, item.sort_order, item.label, item.item_value, item.memo,
+  ]));
 }
 
 async function validateAssignee(db: Database, projectId: string, assigneeId: string | null): Promise<void> {
@@ -270,6 +318,16 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
       db.query<Record<string, unknown>>("SELECT run_data_set_snapshot_id, item_no, label, value_text, memo FROM run_data_item_snapshots WHERE run_data_set_snapshot_id IN (SELECT id FROM run_data_set_snapshots WHERE test_run_id = ?) ORDER BY run_data_set_snapshot_id, item_no", [run.id]),
     ]);
     const totals = Object.fromEntries(counts.map((item) => [item.status, Number(item.count)])) as Record<ResultStatus, number>;
+    const stepsByCase = new Map<string, Array<Record<string, unknown>>>();
+    for (const step of steps) {
+      const key = String(step.run_case_snapshot_id);
+      stepsByCase.set(key, [...(stepsByCase.get(key) ?? []), step]);
+    }
+    const itemsByDataSet = new Map<string, Array<Record<string, unknown>>>();
+    for (const item of dataItems) {
+      const key = String(item.run_data_set_snapshot_id);
+      itemsByDataSet.set(key, [...(itemsByDataSet.get(key) ?? []), item]);
+    }
 
     return {
       run: {
@@ -277,12 +335,12 @@ export async function registerRunRoutes(app: FastifyInstance, db: Database, conf
         assigneeId: run.assignee_id, memo: run.memo, status: run.status, version: Number(run.version),
         currentRevision: Number(run.current_revision), plannedStartAt: run.planned_start_at, plannedEndAt: run.planned_end_at,
         startedAt: run.started_at, completedAt: run.completed_at, postCompletionUpdatedAt: run.post_completion_updated_at,
-        postCompletionUpdatedBy: run.post_completion_updated_by, scenarioIds: storedIds(run.draft_scenario_ids_json),
-        caseIds: storedIds(run.draft_case_ids_json), dataSetIds: storedIds(run.draft_data_set_ids_json),
+        postCompletionUpdatedBy: run.post_completion_updated_by, scenarioIds: storedIds(run.draft_scenario_ids_json, "draft_scenario_ids_json"),
+        caseIds: storedIds(run.draft_case_ids_json, "draft_case_ids_json"), dataSetIds: storedIds(run.draft_data_set_ids_json, "draft_data_set_ids_json"),
       },
       scenarios,
-      cases: cases.map((item) => ({ ...item, steps: steps.filter((step) => step.run_case_snapshot_id === item.id).map((step) => ({ stepNo: Number(step.step_no), action: step.action_text, expected: step.expected_result })) })),
-      dataSets: dataSets.map((item) => ({ ...item, items: dataItems.filter((dataItem) => dataItem.run_data_set_snapshot_id === item.id).map((dataItem) => ({ itemNo: Number(dataItem.item_no), label: dataItem.label, value: dataItem.value_text ?? "", memo: dataItem.memo ?? "" })) })),
+      cases: cases.map((item) => ({ ...item, steps: (stepsByCase.get(String(item.id)) ?? []).map((step) => ({ stepNo: Number(step.step_no), action: step.action_text, expected: step.expected_result })) })),
+      dataSets: dataSets.map((item) => ({ ...item, items: (itemsByDataSet.get(String(item.id)) ?? []).map((dataItem) => ({ itemNo: Number(dataItem.item_no), label: dataItem.label, value: dataItem.value_text ?? "", memo: dataItem.memo ?? "" })) })),
       revisions,
       stats: { total: Object.values(totals).reduce((sum, value) => sum + value, 0), byStatus: totals, passRate: calculatePassRate(totals) },
     };
@@ -364,11 +422,11 @@ ${rerunNote}` : rerunNote;
     await validateAssignee(db, projectId, assigneeId);
     const starting = before.status === "draft" && nextStatus === "in_progress";
     const completing = nextStatus === "completed";
-    const scenarioIds = input.scenarioIds === undefined ? storedIds(before.draft_scenario_ids_json) : stringArray(input.scenarioIds, "scenarioIds", 100);
-    const caseIds = input.caseIds === undefined ? storedIds(before.draft_case_ids_json) : stringArray(input.caseIds, "caseIds", 100);
-    const dataSetIds = input.dataSetIds === undefined ? storedIds(before.draft_data_set_ids_json) : stringArray(input.dataSetIds, "dataSetIds", 100);
+    const scenarioIds = input.scenarioIds === undefined ? storedIds(before.draft_scenario_ids_json, "draft_scenario_ids_json") : stringArray(input.scenarioIds, "scenarioIds", 100);
+    const caseIds = input.caseIds === undefined ? storedIds(before.draft_case_ids_json, "draft_case_ids_json") : stringArray(input.caseIds, "caseIds", 100);
+    const dataSetIds = input.dataSetIds === undefined ? storedIds(before.draft_data_set_ids_json, "draft_data_set_ids_json") : stringArray(input.dataSetIds, "dataSetIds", 100);
     if (starting && !scenarioIds.length && !caseIds.length) {
-      await writeAudit(db, request, actor, { action: "run_start_rejected", entityType: "test_run", entityId: id, projectId, success: false, errorCode: "RUN_SELECTION_REQUIRED", before, after: { scenarioIds, caseIds } });
+      await writeAudit(db, request, actor, { action: "run_start_rejected", entityType: "test_run", entityId: id, projectId, success: false, errorCode: "RUN_SELECTION_REQUIRED", before, after: { scenarioIds, caseIds } }, { independent: true });
       throw badRequest("実行を開始するにはテストまたは確認項目を1件以上選択してください。");
     }
     await db.withTransaction(async (connection) => {
@@ -447,6 +505,9 @@ ${rerunNote}` : rerunNote;
       throw badRequest("完了後に編集できるのは結果・実績結果・備考・証跡のみです。担当者と実行日時は変更できません。");
     }
     const status = resultStatus(input.status);
+    if (parentStatus === "completed" && (status === "not_run" || status === "in_progress")) {
+      throw badRequest("完了済み実行の結果はpass、fail、blocked、skipのいずれかに限られます。");
+    }
     const actualResult = stringValue(input.actualResult, "actualResult", 100_000);
     if (requiresActualResult(status) && !actualResult) throw badRequest("fail、blocked、skipではactual_resultが必須です。");
     const notes = stringValue(input.notes, "notes", 100_000);
@@ -462,9 +523,9 @@ ${rerunNote}` : rerunNote;
           [status, actualResult || null, notes || null, id, version, projectId],
         )
         : await connection.query(
-          `UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.status = ?, c.actual_result = ?, c.notes = ?, c.assignee_id = ?, c.executed_at = COALESCE(?, CASE WHEN ? <> 'not_run' THEN UTC_TIMESTAMP(6) ELSE c.executed_at END), c.version = c.version + 1
+          `UPDATE run_case_snapshots c JOIN test_runs r ON r.id = c.test_run_id SET c.status = ?, c.actual_result = ?, c.notes = ?, c.assignee_id = ?, c.executed_at = CASE WHEN ? = 'not_run' THEN NULL ELSE COALESCE(?, c.executed_at, UTC_TIMESTAMP(6)) END, c.version = c.version + 1
            WHERE c.id = ? AND c.version = ? AND c.excluded_at IS NULL AND r.project_id = ? AND r.deleted_at IS NULL`,
-          [status, actualResult || null, notes || null, assigneeId, executedAt, status, id, version, projectId],
+          [status, actualResult || null, notes || null, assigneeId, status, executedAt, id, version, projectId],
         );
       if (Number(result.affectedRows) !== 1) throw conflict();
       await connection.query(
@@ -538,13 +599,23 @@ ${rerunNote}` : rerunNote;
     const imageId = (value: string) => value.match(/^\/api\/test-case-images\/([0-9a-f-]{36})\/content$/i)?.[1] ?? "";
     const sourceImageId = imageId(sourceUrl); const newImageId = imageId(newUrl);
     if (!sourceImageId || !newImageId) throw badRequest("見る場所画像URLが不正です。");
-    const images = await db.query<{ id: string }>(
-      "SELECT id FROM test_case_view_images WHERE project_id = ? AND cleanup_status = 'active' AND id IN (?, ?)",
+    const images = await db.query<{ id: string; source_image_id: string | null }>(
+      "SELECT id, source_image_id FROM test_case_view_images WHERE project_id = ? AND cleanup_status = 'active' AND id IN (?, ?)",
       [projectId, sourceImageId, newImageId],
     );
     if (images.length !== 2) throw badRequest("編集元または編集後の画像が見つかりません。");
+    const replacement = images.find((item) => item.id === newImageId);
+    if (replacement?.source_image_id !== sourceImageId) throw badRequest("編集後画像は現在の画像から作成されたものではありません。");
     const rows = await db.query<{ view_images_json: string | null }>("SELECT view_images_json FROM run_case_snapshots WHERE id = ? LIMIT 1", [id]);
-    const current = (() => { try { const value = JSON.parse(rows[0]?.view_images_json ?? "[]"); return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []; } catch { return []; } })();
+    const current = (() => {
+      try {
+        const value: unknown = JSON.parse(rows[0]?.view_images_json ?? "[]");
+        if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error("not a string array");
+        return value as string[];
+      } catch (error) {
+        throw new ApiError(500, "CORRUPT_STORED_JSON", "実行画像の保存データが破損しています。", { cause: String(error) });
+      }
+    })();
     if (!current.includes(sourceUrl)) throw badRequest("編集元画像は現在の実行スナップショットに含まれていません。");
     const next = current.map((value) => value === sourceUrl ? newUrl : value);
     await db.withTransaction(async (connection) => {

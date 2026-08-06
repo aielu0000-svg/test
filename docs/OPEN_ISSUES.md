@@ -2,7 +2,7 @@
 
 ## Product issues
 
-現在、Review 9、フォルダ・テスト設計、管理画面、実行データ・画像、選択式エクスポート、OpenShift配備に属する既知の未解決製品不具合はない。
+Review 10で検出した製品不具合は修正実装済みで、独立CIによる検証待ち。対象はISSUE-20260806-001〜004。検証完了までは未解決扱いとする。
 
 ## Additional hardening candidates
 

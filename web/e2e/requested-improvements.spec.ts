@@ -5,7 +5,7 @@ import { archiveProject, assertE2EConfiguration, createProject, login, unique } 
 
 test.beforeEach(() => assertE2EConfiguration());
 
-test("ユーザー作成をモーダルで開き、アーカイブ済みプロジェクトを確認付きで削除できる", async ({ page }) => {
+test("ユーザー作成をモーダルで開き、アーカイブ済みプロジェクトを確認付きで完全削除できる", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "ユーザー管理", exact: true }).click();
   await expect(page.getByRole("heading", { name: "ユーザー管理", exact: true })).toBeVisible();
@@ -21,13 +21,19 @@ test("ユーザー作成をモーダルで開き、アーカイブ済みプロ�
   await createProject(page, projectName);
   await archiveProject(page, projectName);
   const project = page.locator("article.project-card").filter({ has: page.getByRole("heading", { name: projectName, exact: true }) });
-  await project.getByRole("button", { name: "削除", exact: true }).click();
+  await project.getByRole("button", { name: "完全削除", exact: true }).click();
   const deleteDialog = page.getByRole("dialog", { name: "プロジェクト削除" });
   await expect(deleteDialog.getByRole("button", { name: "削除する" })).toBeDisabled();
   await deleteDialog.getByLabel(new RegExp(`確認のため.*${projectName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)).fill(projectName);
-  await deleteDialog.getByLabel("削除理由").fill("E2Eで論理削除を確認");
-  await deleteDialog.getByRole("button", { name: "削除する" }).click();
+  await deleteDialog.getByRole("button", { name: "完全削除する" }).click();
   await expect(project).toHaveCount(0);
+  const projectList = await page.request.get("/api/projects");
+  expect(projectList.ok()).toBeTruthy();
+  const projectPayload = await projectList.json() as { projects: Array<{ id: string; name: string }> };
+  expect(projectPayload.projects.some((item) => item.name === projectName)).toBe(false);
+  await page.reload();
+  await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
+  await expect(page.getByRole("heading", { name: projectName, exact: true })).toHaveCount(0);
 });
 
 test("選択フォルダへ新規テストを配置し、複数手順を一覧で確認できる", async ({ page }) => {

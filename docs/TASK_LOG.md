@@ -788,3 +788,31 @@ GitHub Actions run `30997068195`:
 
 - 依頼された管理、テスト設計、実行、エクスポートの各導線を実装し、実MariaDB・実Chromiumで一連確認した。
 - PR #2はDraft・未マージのまま維持した。
+
+## TASK-20260806-001: Review 10全体修正
+
+- 開始日時: 2026-08-06 02:01 JST
+- 対応課題: ISSUE-20260806-001〜004
+- 担当: ChatGPT
+- 状態: Ready for Verification
+
+### 発生事象
+
+- 別チャットで追加されたプロジェクト削除処理が、DELETE 404を成功扱いし、ブラウザ内だけでカードを非表示にしていた。
+- 全体レビューで削除、監査、ファイル、保持、バックアップ、実行状態、認証、import、Migration、UI試験を横断する50項目を抽出した。
+
+### 実施内容
+
+- ユーザー判定に従いREV-031〜033を仕様として維持し、それ以外を指定された仕様変更込みで修正した。
+- プロジェクト削除を復元なしの完全削除に変更し、監査保持、任意理由、DB/API一意名称、再読込・API・DBを確認する回帰試験へ置換した。
+- 変更要求単位のDB transaction、同一transaction監査、rollback時ファイル補償、再試行可能なfile cleanup queueを追加した。
+- バックアップ・復元・保持処理、管理者運用画面、completed結果制約、最後の管理者保護、import競合、Migration checksum/lock、JSON破損検知、snapshot一括処理を修正した。
+- 確定仕様v1.2.0と運用文書、OpenShift定義、独立CI工程を更新した。
+
+### 現時点の検証
+
+- TypeScript/TSX全ファイルのtranspile構文検査: 成功
+- `sh -n web/ops/*.sh`: 成功
+- workflow/OpenShift/Kustomization YAML parse: 成功
+- `git diff --check`: 成功
+- Node依存のローカル導入は実行環境の内部npm mirror欠落により完了できなかったため、GitHub Actionsの独立CIを正とする。

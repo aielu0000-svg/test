@@ -10,7 +10,7 @@ import sharp, { type Metadata } from "sharp";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../db.js";
 import { writeAudit } from "../audit.js";
-import { badRequest, conflict, notFound } from "../errors.js";
+import { ApiError, badRequest, conflict, notFound } from "../errors.js";
 import { cleanupDetachedViewImages, cleanupExpiredPendingViewImages } from "../viewImageLifecycle.js";
 import {
   authenticatedProject, objectBody, projectIdFrom, routeParam, stringArray,
@@ -187,10 +187,13 @@ async function saveCase(connection: PoolConnection, projectId: string, actorId: 
     [id, projectId],
   );
   const detachedImageIds = oldImageRows.flatMap((row) => {
-    try {
-      const images = JSON.parse(row.view_images_json ?? "[]");
-      return Array.isArray(images) ? images.flatMap((image) => typeof image === "string" ? image.match(VIEW_IMAGE_URL)?.[1] ?? [] : []) : [];
-    } catch { return []; }
+    let images: unknown;
+    try { images = JSON.parse(row.view_images_json ?? "[]"); }
+    catch (error) { throw new ApiError(500, "CORRUPT_STORED_JSON", "見る場所画像の保存データが破損しています。", { cause: String(error) }); }
+    if (!Array.isArray(images) || images.some((image) => typeof image !== "string")) {
+      throw new ApiError(500, "CORRUPT_STORED_JSON", "見る場所画像の保存形式が不正です。");
+    }
+    return images.flatMap((image) => image.match(VIEW_IMAGE_URL)?.[1] ?? []);
   });
   if (item.id) {
     const result = await connection.query(
@@ -290,10 +293,13 @@ async function loadEditor(db: Database, projectId: string, scenarioId: string) {
       id: item.id, version: Number(item.version), title: item.title, objective: item.objective ?? "",
       preconditions: item.preconditions ?? "", viewLocation: item.view_location ?? "",
       images: (() => {
-        try {
-          const value = JSON.parse(String(item.view_images_json ?? "[]"));
-          return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-        } catch { return []; }
+        let value: unknown;
+        try { value = JSON.parse(String(item.view_images_json ?? "[]")); }
+        catch (error) { throw new ApiError(500, "CORRUPT_STORED_JSON", "見る場所画像の保存データが破損しています。", { cause: String(error) }); }
+        if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+          throw new ApiError(500, "CORRUPT_STORED_JSON", "見る場所画像の保存形式が不正です。");
+        }
+        return value as string[];
       })(),
       priority: item.priority,
       tags: tags.map((row) => row.tag), folderIds: folders.map((row) => row.folder_id),
@@ -356,6 +362,7 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
         "INSERT INTO test_case_view_images (id, project_id, original_filename, stored_path, content_type, byte_size, sha256, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [id, projectId, filename, storedPath, verified.contentType, info.size, digest, actor.id],
       );
+      db.afterRollback?.(() => rm(directory, { recursive: true, force: true }));
       await writeAudit(db, request, actor, { action: "test_case_view_image_uploaded", entityType: "test_case_view_image", entityId: id, projectId, after: { filename, byteSize: info.size, sha256: digest } });
       return { id, url: `/api/test-case-images/${id}/content`, byteSize: info.size, sha256: digest };
     } catch (error) {
@@ -395,9 +402,10 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
       await rename(temporaryPath, storedPath);
       const info = await stat(storedPath);
       await db.execute(
-        "INSERT INTO test_case_view_images (id, project_id, test_case_id, original_filename, stored_path, content_type, byte_size, sha256, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, projectId, runScope ? null : source.test_case_id, `${source.original_filename}.edited.png`, storedPath, verified.contentType, info.size, digest, actor.id],
+        "INSERT INTO test_case_view_images (id, project_id, test_case_id, source_image_id, original_filename, stored_path, content_type, byte_size, sha256, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, projectId, runScope ? null : source.test_case_id, sourceId, `${source.original_filename}.edited.png`, storedPath, verified.contentType, info.size, digest, actor.id],
       );
+      db.afterRollback?.(() => rm(directory, { recursive: true, force: true }));
       await writeAudit(db, request, actor, { action: "test_case_view_image_derived", entityType: "test_case_view_image", entityId: id, projectId, before: { sourceId }, after: { byteSize: info.size, sha256: digest } });
       return { id, url: `/api/test-case-images/${id}/content`, byteSize: info.size, sha256: digest };
     } catch (error) {
@@ -408,7 +416,7 @@ export async function registerScenarioEditorRoutes(app: FastifyInstance, db: Dat
 
   app.get("/api/test-case-images/:id/content", async (request, reply) => {
     const rows = await db.query<{ project_id: string; stored_path: string; content_type: string; byte_size: number }>(
-      "SELECT project_id, stored_path, content_type, byte_size FROM test_case_view_images WHERE id = ? LIMIT 1",
+      "SELECT project_id, stored_path, content_type, byte_size FROM test_case_view_images WHERE id = ? AND cleanup_status = 'active' LIMIT 1",
       [routeParam(request)],
     );
     const image = rows[0];

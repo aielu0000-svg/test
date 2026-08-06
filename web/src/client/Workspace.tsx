@@ -86,8 +86,7 @@ export function Workspace({ project, user, initialRunId, onBack, onLogout }: { p
     event.preventDefault();
     setError("");
     const form = new FormData(event.currentTarget);
-    form.set("projectId", project.id);
-    try { setPreview(await request<ExcelPreview>("/api/imports/excel/preview", { method: "POST", body: form })); }
+    try { setPreview(await request<ExcelPreview>(`/api/imports/excel/preview?projectId=${encodeURIComponent(project.id)}`, { method: "POST", body: form })); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Excel検証に失敗しました。"); }
   }
   async function confirmExcel() {

@@ -37,10 +37,13 @@ class UiRequestError extends Error {
   constructor(message: string, public readonly requestId?: string) { super(message); }
 }
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("X-The-Test-Request", "1");
+  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: init.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...(init.headers ?? {}) },
     ...init,
+    headers,
   });
   const payload = await response.json().catch(() => ({})) as { error?: { message?: string; requestId?: string } };
   if (!response.ok) {

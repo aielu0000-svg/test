@@ -110,6 +110,7 @@ export async function registerEvidenceDerivedRoutes(app: FastifyInstance, db: Da
           [randomUUID(), evidenceId, nextVersion, `edited-${path.basename(String(current.original_filename))}.png`, destination, thumbnailPath, info.size, digest, JSON.stringify({ operation: "canvas-edit" }), actor.id],
         );
       });
+      db.afterRollback?.(() => removeGeneratedFiles([destination, thumbnailPath], evidenceId));
       const run = await markEvidencePostCompletionUpdate(db, evidenceId, actor.id);
       await writeAudit(db, request, actor, {
         action: "evidence_image_version_created",

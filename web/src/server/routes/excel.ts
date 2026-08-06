@@ -122,21 +122,22 @@ export async function registerExcelRoutes(app: FastifyInstance, db: Database, co
 
   app.post("/api/imports/excel/preview", async (request) => {
     const actor = await requireUser(request, db, config);
-    let projectId = "";
+    const projectId = stringValue((request.query as Record<string, unknown>).projectId, "projectId", 100, true);
+    await requireProjectEdit(db, actor, projectId);
     let uploadPath = "";
     let originalFilename = "";
+    let received = false;
     try {
       for await (const part of request.parts()) {
-        if (part.type === "field" && part.fieldname === "projectId") projectId = String(part.value);
         if (part.type === "file") {
+          if (received) throw badRequest("1回の検証につきExcelファイルは1件です。");
+          received = true;
           originalFilename = part.filename;
           if (!originalFilename.toLowerCase().endsWith(".xlsx")) throw badRequest(".xlsxファイルを指定してください。");
           uploadPath = path.join(os.tmpdir(), `the-test-import-${randomUUID()}.xlsx`);
           await pipeline(part.file, createWriteStream(uploadPath, { flags: "wx" }));
         }
       }
-      projectId = stringValue(projectId, "projectId", 100, true);
-      await requireProjectEdit(db, actor, projectId);
       if (!uploadPath) throw badRequest("Excelファイルがありません。");
       const parsed = await parseCasesWorkbook(uploadPath);
       const scenarioCount = parsed.scenarios.length;

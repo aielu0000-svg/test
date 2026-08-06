@@ -10,10 +10,16 @@ import { registerEvidenceRoutes } from "./evidence.js";
 import { registerEvidenceDerivedRoutes } from "./evidenceDerived.js";
 import { registerExportRoutes } from "./exports.js";
 import { registerScenarioEditorRoutes } from "./scenarioEditor.js";
+import { registerOperationRoutes } from "./operations.js";
 
 export async function registerFeatureRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
   await app.register(multipart, {
-    limits: { fileSize: Number.POSITIVE_INFINITY, files: Number.POSITIVE_INFINITY, fields: Number.POSITIVE_INFINITY },
+    limits: {
+      fileSize: 100 * 1024 * 1024,
+      files: 1,
+      fields: 1000,
+      parts: 1001,
+    },
   });
   await registerCaseRoutes(app, db, config);
   await registerDefinitionRoutes(app, db, config);
@@ -23,6 +29,7 @@ export async function registerFeatureRoutes(app: FastifyInstance, db: Database, 
   await registerEvidenceRoutes(app, db, config);
   await registerEvidenceDerivedRoutes(app, db, config);
   await registerExportRoutes(app, db, config);
+  await registerOperationRoutes(app, db, config);
 }
 
 

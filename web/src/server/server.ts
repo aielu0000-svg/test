@@ -7,18 +7,19 @@ import { runMigrations } from "./migrate.js";
 import { ensureInitialAdmin } from "./auth.js";
 import { validateSchema } from "./schemaValidation.js";
 import { cleanupExpiredPendingViewImages } from "./viewImageLifecycle.js";
+import { processFileCleanupQueue } from "./fileCleanup.js";
 
 async function main(): Promise<void> {
   let db: ReturnType<typeof createDatabase> | undefined;
   let app: FastifyInstance | undefined;
-  let viewImageCleanupTimer: NodeJS.Timeout | undefined;
+  let maintenanceTimer: NodeJS.Timeout | undefined;
   let shuttingDown = false;
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.info(JSON.stringify({ level: "info", message: "server_shutdown_started", signal }));
-    if (viewImageCleanupTimer) clearInterval(viewImageCleanupTimer);
+    if (maintenanceTimer) clearInterval(maintenanceTimer);
 
     const forceExitTimer = setTimeout(() => {
       console.error(JSON.stringify({ level: "error", message: "server_shutdown_timed_out", signal }));
@@ -49,10 +50,12 @@ async function main(): Promise<void> {
     await runMigrations(db, config.migrationDir);
     await validateSchema(db, config.db.database);
     await cleanupExpiredPendingViewImages(db, config);
-    viewImageCleanupTimer = setInterval(() => {
+    await processFileCleanupQueue(db, config.evidenceStoragePath);
+    maintenanceTimer = setInterval(() => {
       void cleanupExpiredPendingViewImages(db!, config).catch((error) => console.error(JSON.stringify({ level: "error", message: "view_image_pending_cleanup_failed", error: String(error) })));
+      void processFileCleanupQueue(db!, config.evidenceStoragePath).catch((error) => console.error(JSON.stringify({ level: "error", message: "file_cleanup_queue_failed", error: String(error) })));
     }, 60 * 60 * 1000);
-    viewImageCleanupTimer.unref();
+    maintenanceTimer.unref();
     await ensureInitialAdmin(db, config);
     app = await buildApp({ db, config });
     await app.listen({ port: config.port, host: config.host });

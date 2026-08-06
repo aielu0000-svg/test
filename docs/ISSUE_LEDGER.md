@@ -63,3 +63,25 @@
 - 完了済み実行の証跡表示と依存監査はrun `30848395288`で独立検証した。
 - Docker MariaDB認証はrun `30853941396`でCompose設定、修復スクリプト構文、空パスワード拒否、MariaDB接続と全回帰を検証した。
 - 作成済みの無パスワードボリュームは初期化環境変数だけでは変更されないため、データを保持したまま`npm run db:password`を一度実行する必要がある。
+
+## Review 10（2026-08-06）
+
+| ID | 登録日 | 種別 | 優先度 | 状態 | 対象 | 原因 | 対応結果 | 検証 | 関連レビュー |
+|---|---|---|---|---|---|---|---|---|---|
+| ISSUE-20260806-001 | 2026-08-06 | Data integrity / Bug | P0 | Ready for Verification | プロジェクト完全削除・名称 | クライアントがDELETEの404を成功扱いし、ブラウザメモリだけで対象を隠していた。削除の意味と永続状態も不一致だった。 | サーバーを唯一の正とし、アーカイブ済みプロジェクトを管理者が完全削除する単一トランザクションへ変更した。理由は任意、復元なし、監査は保持する。同名の有効プロジェクトをAPIとDBで拒否する。 | TypeScript構文、Shell、YAML、差分検査済み。独立CI待ち。 | Review 10 REV-001〜009, REV-042〜045, REV-050 |
+| ISSUE-20260806-002 | 2026-08-06 | Data integrity / Security | P0 | Ready for Verification | 更新・監査・ファイル整合性 | 業務更新と監査が別commitで、ファイル生成後の監査失敗時にDB行だけ残る経路があった。 | 変更APIをrequest transactionへ統合し、監査を同一接続へ含めた。生成ファイルはrollback補償、物理削除は再試行可能なfile cleanup queueへ移した。画像取得状態と派生元を検証する。 | TypeScript構文、Shell、YAML、差分検査済み。監査失敗rollbackをMariaDB統合試験へ追加。独立CI待ち。 | Review 10 REV-010〜017, REV-034〜035, REV-048〜049 |
+| ISSUE-20260806-003 | 2026-08-06 | Operation / Recovery | P0 | Ready for Verification | バックアップ・復元・保持処理 | DBと証跡を更新中に別時点で保存し、manifest・手動復元・失敗回収・保持容量が不足していた。保持処理はファイルを先に削除していた。 | 更新停止と進行中要求待機、DB・証跡同世代、manifest/checksum、02:00日次・正常2世代・220GiB、管理者要求API/UI、復元前バックアップ、DB先行の再試行可能保持処理を実装した。 | Shell/YAML構文検査済み。実MariaDBで3世代作成・2世代保持・復元・保持SQLを行うCI工程を追加。独立CI待ち。 | Review 10 REV-016〜023 |
+| ISSUE-20260806-004 | 2026-08-06 | Data integrity / Maintainability | P1 | Ready for Verification | 実行・認証・インポート・Migration | completed結果の状態矛盾、最後の管理者喪失、import二重確定、Migration部分適用・改変・競合、JSON破損黙殺、N+1処理があった。 | completedを最終4状態へ限定、not_run日時解除、最後の管理者保護、import先行claim、権限先行・1ファイル100MiB、Migration checksum/status/lock、破損JSON明示失敗、snapshot一括処理を追加した。 | TypeScript構文、Shell、YAML、差分検査済み。MariaDB統合・全回帰CI待ち。 | Review 10 REV-024〜030, REV-036〜041, REV-046〜047 |
+
+### Review 10仕様判定
+
+- `REV-031` アーカイブ済みプロジェクトの編集可否は現行仕様を維持する。
+- `REV-032` 未割当ユーザーの参照・エクスポート可は現行仕様を維持する。
+- `REV-033` パスワード4文字以上・種類制約なし・前後空白除去は現行仕様を維持する。
+- `REV-005` プロジェクト完全削除の理由は任意とする。
+- `REV-007` プロジェクトは完全削除後に復元しない。
+- `REV-020` 日次バックアップ時刻はCronJobに合わせて02:00とする。
+- `REV-021` 正常バックアップは2世代保持とする。
+- `REV-024` completedのケース結果はpass/fail/blocked/skipだけに限定する。
+- `REV-049` multipartは1ファイル100MiB、最大1000 field/1001 partとする。
+- `REV-050` 同名の有効プロジェクトを許可しない。

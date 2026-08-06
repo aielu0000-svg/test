@@ -44,48 +44,37 @@ describe("request content type", () => {
     expect(new Headers(init?.headers).has("Content-Type")).toBe(false);
   });
 
-  it("disables browser caching for API requests", async () => {
+  it("disables browser caching and marks same-origin application requests", async () => {
     const fetchMock = installFetchMock();
 
     await request("/api/projects");
 
     expect(fetchMock.mock.calls[0]?.[1]?.cache).toBe("no-store");
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("X-The-Test-Request")).toBe("1");
   });
 });
 
 describe("project deletion", () => {
-  it("treats a missing project as already deleted", async () => {
+  it("does not hide a missing DELETE endpoint or missing project", async () => {
     installFetchMock({
       status: 404,
       payload: { error: { code: "NOT_FOUND", message: "対象データが見つかりません。", requestId: "request-1" } },
     });
 
-    await expect(api.deleteProject("project-1", 2, "削除対象", "不要になったため")).resolves.toEqual({ ok: true });
+    await expect(api.deleteProject("project-1", 2, "削除対象", "")).rejects.toMatchObject({ status: 404 });
   });
 
-  it("removes an already deleted project even when a stale list response still contains it", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        error: { code: "NOT_FOUND", message: "対象データが見つかりません。", requestId: "request-2" },
-      }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        projects: [{ id: "project-stale", name: "削除済み", status: "archived", version: 2 }],
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
-    vi.stubGlobal("fetch", fetchMock);
+  it("uses the server response as the only project-list state", async () => {
+    installFetchMock({
+      payload: { projects: [{ id: "project-1", name: "サーバー上のプロジェクト", status: "archived", version: 2 }] },
+    });
 
-    await api.deleteProject("project-stale", 2, "削除済み", "不要になったため");
-    const result = await api.projects();
-
-    expect(result.projects).toEqual([]);
+    await expect(api.projects()).resolves.toEqual({
+      projects: [{ id: "project-1", name: "サーバー上のプロジェクト", status: "archived", version: 2 }],
+    });
   });
 
-  it("does not hide other deletion errors", async () => {
+  it("does not hide optimistic-lock errors", async () => {
     installFetchMock({
       status: 409,
       payload: { error: { code: "OPTIMISTIC_LOCK_CONFLICT", message: "最新内容を確認してください。" } },

@@ -11,6 +11,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (typeof init.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+  headers.set("X-The-Test-Request", "1");
   const response = await fetch(path, {
     credentials: "same-origin",
     ...init,
@@ -26,22 +27,13 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return payload as T;
 }
 
-const locallyDeletedProjectIds = new Set<string>();
-
-async function projects(): Promise<{ projects: ProjectSummary[] }> {
-  const result = await request<{ projects: ProjectSummary[] }>("/api/projects");
-  return {
-    projects: result.projects.filter((project) => !locallyDeletedProjectIds.has(project.id)),
-  };
-}
-
 export const api = {
   me: () => request<{ user: AuthUser }>("/api/auth/me"),
   login: (username: string, password: string) => request<{ user: AuthUser }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST", keepalive: true }),
   changePassword: (currentPassword: string, newPassword: string, confirmation: string) =>
     request<{ user: AuthUser }>("/api/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword, confirmation }) }),
-  projects,
+  projects: () => request<{ projects: ProjectSummary[] }>("/api/projects"),
   dashboard: () => request<{
     metrics: { testCases: number; scenarios: number; runningTests: number; passRate: number | null };
     recentRuns: Array<{ id: string; name: string; status: string; updatedAt: string | null; projectId: string; projectName: string }>;
@@ -51,19 +43,8 @@ export const api = {
     request<{ ok: true }>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify({ version, name, description }) }),
   archiveProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/archive`, { method: "POST", body: JSON.stringify({ version }) }),
   restoreProject: (id: string, version: number) => request<{ ok: true }>(`/api/projects/${id}/restore`, { method: "POST", body: JSON.stringify({ version }) }),
-  deleteProject: async (id: string, version: number, confirmationName: string, reason: string) => {
-    try {
-      const result = await request<{ ok: true }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) });
-      locallyDeletedProjectIds.add(id);
-      return result;
-    } catch (error) {
-      if (error instanceof RequestError && error.status === 404) {
-        locallyDeletedProjectIds.add(id);
-        return { ok: true as const };
-      }
-      throw error;
-    }
-  },
+  deleteProject: (id: string, version: number, confirmationName: string, reason: string) =>
+    request<{ ok: true; queuedFiles: number }>(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ version, confirmationName, reason }) }),
   projectAssignments: (id: string) => request<{ assignments: Array<{ id: string; username: string; displayName: string | null; role: string; enabled: boolean }> }>(`/api/projects/${id}/assignments`),
   assignUser: (projectId: string, userId: string) => request<{ ok: true }>(`/api/projects/${projectId}/assignments`, { method: "POST", body: JSON.stringify({ userId }) }),
   unassignUser: (projectId: string, userId: string) => request<{ ok: true }>(`/api/projects/${projectId}/assignments/${userId}`, { method: "DELETE" }),
@@ -76,4 +57,8 @@ export const api = {
   resetUserPassword: (id: string, password: string, confirmation: string) =>
     request<{ ok: true }>(`/api/users/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password, confirmation }) }),
   unlockUser: (id: string) => request<{ ok: true }>(`/api/users/${id}/unlock`, { method: "POST" }),
+  backups: () => request<{ backups: Array<{ backupId: string; status: string; manifest: Record<string, unknown> | null; createdAt: string; completedAt: string | null; createdBy: string | null }> }>("/api/admin/backups"),
+  operationRequests: () => request<{ operations: Array<{ id: string; operationType: "backup" | "restore"; backupId: string | null; status: string; output: Record<string, unknown> | null; errorMessage: string | null; requestedAt: string; startedAt: string | null; completedAt: string | null }> }>("/api/admin/operation-requests"),
+  requestBackup: () => request<{ id: string; status: "pending" }>("/api/admin/backups", { method: "POST" }),
+  requestRestore: (backupId: string, confirmation: string) => request<{ id: string; status: "pending" }>("/api/admin/restores", { method: "POST", body: JSON.stringify({ backupId, confirmation }) }),
 };

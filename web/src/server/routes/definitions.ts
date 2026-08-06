@@ -271,7 +271,7 @@ export async function registerDefinitionRoutes(app: FastifyInstance, db: Databas
     const actor = await authenticatedProject(request, db, config, projectId, true);
     const source = await scenarioDetail(db, routeParam(request), projectId);
     const id = randomUUID();
-    const title = stringValue(input.title ?? String(source.title) + " ????", "title", 500, true);
+    const title = stringValue(input.title ?? String(source.title) + " のコピー", "title", 500, true);
     await db.withTransaction(async (connection) => {
       await connection.query(
         "INSERT INTO scenarios (id, project_id, title, objective, preconditions, created_by) VALUES (?, ?, ?, ?, ?, ?)",
