@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./operations.css";
 import { request } from "./api.js";
 
+// Run Markdown deliberately stays self-contained so saved files remain reviewable without adjacent assets.
 interface ExportRunOption { id: string; name: string; status: "draft" | "in_progress" | "completed"; updatedAt: string }
 type ExportFormat = "json" | "xlsx" | "csv" | "md";
 
