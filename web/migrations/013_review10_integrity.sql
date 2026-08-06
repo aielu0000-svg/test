@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS file_cleanup_queue (
   status ENUM('pending', 'failed') NOT NULL DEFAULT 'pending',
   attempts INT NOT NULL DEFAULT 0,
   last_error LONGTEXT NULL,
-  created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
-  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6) ON UPDATE UTC_TIMESTAMP(6),
-  UNIQUE KEY uq_file_cleanup_path (stored_path),
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_file_cleanup_path (stored_path(700)),
   KEY ix_file_cleanup_status (status, updated_at, created_at)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS file_cleanup_queue (
 CREATE TABLE IF NOT EXISTS system_state (
   state_key VARCHAR(100) NOT NULL PRIMARY KEY,
   state_value VARCHAR(1000) NOT NULL,
-  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6) ON UPDATE UTC_TIMESTAMP(6)
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS operation_requests (
   backup_id VARCHAR(100) NULL,
   status ENUM('pending', 'running', 'succeeded', 'failed') NOT NULL DEFAULT 'pending',
   requested_by CHAR(36) NOT NULL,
-  requested_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+  requested_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   started_at DATETIME(6) NULL,
   completed_at DATETIME(6) NULL,
   output_json LONGTEXT NULL,
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS operation_requests (
 
 CREATE TABLE IF NOT EXISTS active_write_requests (
   id CHAR(36) NOT NULL PRIMARY KEY,
-  started_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+  started_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_active_write_started (started_at)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS backup_catalog (
   backup_id VARCHAR(100) NOT NULL PRIMARY KEY,
   status ENUM('running', 'succeeded', 'failed') NOT NULL DEFAULT 'running',
   manifest_json LONGTEXT NULL,
-  created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   completed_at DATETIME(6) NULL,
   created_by CHAR(36) NULL,
   KEY ix_backup_catalog_created (created_at)
