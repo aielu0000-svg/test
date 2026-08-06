@@ -48,13 +48,26 @@ test("選択フォルダへ新規テストを配置し、複数手順を一覧�
   expect(folderId).toBeTruthy();
   await folder.click();
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
+  await page.getByRole("tab", { name: "基本情報", exact: true }).click();
   await expect(page.locator("label").filter({ hasText: /^フォルダ/ }).locator("select").first()).toHaveValue(folderId!);
 
   const testName = unique("フォルダ内テスト");
   const caseName = unique("複数手順ケース");
   await page.getByLabel("テスト名").fill(testName);
+  await page.getByRole("tab", { name: /確認項目/ }).click();
   await page.getByLabel("確認項目名 1").fill(caseName);
-  await page.getByLabel("詳細操作 1", { exact: true }).fill("画面を開く");
+  const operation = page.getByLabel("詳細操作 1", { exact: true });
+  const initialSize = await operation.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  await operation.fill("画面を開く\n入力内容が長い場合も横幅を変えずに折り返して表示する");
+  const expandedSize = await operation.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  expect(expandedSize.height).toBeGreaterThan(initialSize.height);
+  expect(Math.abs(expandedSize.width - initialSize.width)).toBeLessThan(1);
   await page.getByLabel("詳細期待結果 1", { exact: true }).fill("画面が表示される");
   await page.getByRole("button", { name: "＋ 操作手順" }).click();
   await page.getByLabel("詳細操作 2", { exact: true }).fill("保存する");
@@ -82,19 +95,23 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
   const validPng = await sharp({ create: { width: 32, height: 24, channels: 4, background: { r: 38, g: 105, b: 189, alpha: 1 } } }).png().toBuffer();
 
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
+  await page.getByRole("tab", { name: "基本情報", exact: true }).click();
   await page.getByLabel("テスト名").fill(testName);
+  await page.getByRole("tab", { name: /確認項目/ }).click();
   await page.getByLabel("確認項目名 1").fill(caseName);
   await page.getByLabel("詳細操作 1", { exact: true }).fill("対象を確認する");
   await page.getByLabel("詳細期待結果 1", { exact: true }).fill("値が一致する");
   await page.getByLabel("テストデータ 1").fill("ケース固有値 123");
+  await page.locator(".design-image-actions input[type=file]").setInputFiles({ name: "view.png", mimeType: "image/png", buffer: validPng });
+  await expect(page.locator(".design-image-grid img")).toBeVisible();
+
+  await page.getByRole("tab", { name: "共通データ", exact: true }).click();
   const common = page.locator("details.design-common-data");
   await common.getByText("テスト共通データを設定する（任意）").click();
   await common.getByLabel("名前", { exact: true }).fill("E2E共通データ");
   await common.getByRole("button", { name: "＋ データ項目" }).click();
   await common.getByLabel("共通データ名 1").fill("共通キー");
   await common.getByLabel("共通データ値 1").fill("共通値 ABC");
-  await page.locator(".design-image-actions input[type=file]").setInputFiles({ name: "view.png", mimeType: "image/png", buffer: validPng });
-  await expect(page.locator(".design-image-grid img")).toBeVisible();
   await page.getByRole("button", { name: "保存して実行を作成" }).click();
 
   await page.getByLabel("実行名").fill(runName);
