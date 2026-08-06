@@ -49,12 +49,14 @@ export async function createTestDesign(page: Page, caseCount = 1): Promise<{ tes
   const testName = `E2E テスト ${suffix}`;
   const caseNames = Array.from({ length: caseCount }, (_, index) => `E2E 確認項目 ${index + 1} ${suffix}`);
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
+  await page.getByRole("tab", { name: "基本情報", exact: true }).click();
   await page.getByLabel("テスト名").fill(testName);
+  await page.getByRole("tab", { name: /確認項目/ }).click();
   await page.getByLabel("確認項目名 1").fill(caseNames[0]!);
   await page.getByLabel("詳細操作 1", { exact: true }).fill("対象画面を開く");
   await page.getByLabel("詳細期待結果 1", { exact: true }).fill("対象画面が表示される");
   for (let index = 1; index < caseCount; index += 1) {
-    await page.getByRole("button", { name: "＋ 新しい確認項目" }).click();
+    await page.getByRole("button", { name: "＋ 確認項目", exact: true }).click();
     await page.getByLabel(`確認項目名 ${index + 1}`).fill(caseNames[index]!);
     await page.getByLabel("詳細操作 1", { exact: true }).fill(`操作 ${index + 1}`);
     await page.getByLabel("詳細期待結果 1", { exact: true }).fill(`期待結果 ${index + 1}`);
