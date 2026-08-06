@@ -1,5 +1,5 @@
 name: Apply Review 10
-# Trigger after updating the transaction-aware API test double.
+# app.test.ts already contains the patch result plus the transaction-aware test fix.
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
       - name: Apply patch
         run: |
           cat .github/review10.patch.* | base64 -d | gzip -d > /tmp/review10.patch
-          git apply --index --whitespace=error-all /tmp/review10.patch
+          git apply --index --whitespace=error-all --exclude=web/src/server/app.test.ts /tmp/review10.patch
           rm -f .github/review10.patch.* .github/workflows/apply-review10.yaml .github/workflows/source-snapshot.yaml
           git add -A
           git diff --cached --check
