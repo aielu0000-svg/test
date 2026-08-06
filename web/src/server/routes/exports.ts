@@ -12,6 +12,7 @@ import { badRequest, notFound } from "../errors.js";
 import { importFormalPayload } from "../formalImport.js";
 import { objectBody, projectIdFrom, routeParam, stringValue } from "./routeUtils.js";
 import { normalizeDatabaseRecord } from "../jsonNormalization.js";
+import { buildRunMarkdown } from "../runMarkdown.js";
 
 export const EXPORT_SCHEMA_VERSION = "1.0.0";
 
@@ -380,6 +381,18 @@ export async function registerExportRoutes(app: FastifyInstance, db: Database, c
     const disposition = `attachment; filename="the-test-run.xlsx"; filename*=UTF-8''${encodeURIComponent(exported.filename)}`;
     return reply.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
       .header("Content-Disposition", disposition).send(exported.buffer);
+  });
+
+  app.get("/api/test-runs/:id/export.md", async (request, reply) => {
+    const actor = await requireUser(request, db, config);
+    const projectId = projectIdFrom(request);
+    await requireProjectRead(db, actor, projectId);
+    const runId = routeParam(request);
+    const exported = await buildRunMarkdown(db, projectId, runId);
+    await writeAudit(db, request, actor, { action: "test_run_markdown_exported", entityType: "test_run", entityId: runId, projectId });
+    const disposition = `attachment; filename="the-test-run.md"; filename*=UTF-8''${encodeURIComponent(exported.filename)}`;
+    return reply.header("Content-Type", "text/markdown; charset=utf-8")
+      .header("Content-Disposition", disposition).send(exported.markdown);
   });
 
   app.post("/api/imports/json/preview", async (request) => {

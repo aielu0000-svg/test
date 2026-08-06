@@ -171,6 +171,32 @@ paths:
     delete:
       tags: [runs]
       responses: { '200': { description: Soft deleted } }
+  /api/test-runs/{id}/export.xlsx:
+    get:
+      tags: [exports]
+      description: 実行概要、結果、テストデータ、証跡をExcelで出力する。
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/projectId' }
+      responses:
+        '200':
+          description: Excel workbook
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+  /api/test-runs/{id}/export.md:
+    get:
+      tags: [exports]
+      description: 単一Markdownへ実行概要、結果別目次、シナリオ別結果、画像証跡と説明を出力する。テストデータと証跡メタデータは含めない。
+      parameters:
+        - { $ref: '#/components/parameters/id' }
+        - { $ref: '#/components/parameters/projectId' }
+      responses:
+        '200':
+          description: 内部リンクとData URI画像を含む単一Markdown文書
+          content:
+            text/markdown:
+              schema: { type: string }
   /api/test-runs/{id}/revisions:
     post:
       tags: [runs]

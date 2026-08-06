@@ -91,3 +91,10 @@
 | ID | 登録日 | 種別 | 優先度 | 状態 | 対象 | 原因 | 対応結果 | 検証 | 関連レビュー |
 |---|---|---|---|---|---|---|---|---|---|
 | ISSUE-20260806-005 | 2026-08-06 | TechnicalDebt / Maintainability | P2 | Verified | リポジトリ構成 | 旧レビュー資料、生成済み証跡、未参照コンポーネント、重複OpenAPI、作業名を含む現行ファイルが同居し、正本と実行対象を判別しにくかった。 | 生成物と履歴資料を削除し、仕様・セキュリティ資料を`docs/`へ集約した。未参照コードと重複ファイルを削除し、現行UIと移行CLIの主要ファイル名を責務名へ統一した。Electron版はWindows CIの現行対象のため維持した。 | 静的参照検査に成功。GitHub Actions run `31067948455`で通常Web CI全工程が成功。Artifact `web-ci-31067948455-1`（ID `8954562403`）。 | User Request 2026-08-06 |
+
+## ISSUE-20260806-006 テスト実行Markdown出力
+
+- Status: Implemented
+- Request: 単一Markdown、内部目次、画像と説明のみの証跡、客先提示を優先した可読性。
+- Resolution: `/api/test-runs/{id}/export.md`を追加し、結果区分・シナリオ・確認項目へ固定アンカーで移動可能にした。画像はData URI埋め込みとし、テストデータと証跡メタデータは出力しない。
+- Verification: Unit test、TypeCheck、Production Build、Web CIで確認する。
