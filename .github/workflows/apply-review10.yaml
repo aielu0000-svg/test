@@ -1,5 +1,5 @@
 name: Apply Review 10
-# Trigger after adding the missing files and fixing the cleanup callback type.
+# Trigger after updating the transaction-aware API test double.
 
 on:
   push:
