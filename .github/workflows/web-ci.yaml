@@ -135,6 +135,9 @@ jobs:
           src/server/mariaDb.integration.test.ts
           src/server/migrationCollation.integration.test.ts
 
+      - name: Recreate migrated database for backup integration
+        run: npm run db:migrate
+
       - name: Backup, restore, and retention integration
         run: |
           set -euo pipefail
