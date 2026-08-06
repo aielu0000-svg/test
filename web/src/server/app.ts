@@ -260,6 +260,11 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     await app.register(fastifyStatic, { root: config.staticDir, wildcard: true });
   }
 
+  app.addHook("onRequest", (_request, _reply, done) => {
+    if (db.runWithRequestContext) db.runWithRequestContext(done);
+    else done();
+  });
+
   app.addHook("preHandler", async (request) => {
     verifyBrowserWriteRequest(request);
     if (!mutatesApi(request) || request.url.startsWith("/api/auth/login") || request.url.startsWith("/api/auth/logout")) return;

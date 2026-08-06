@@ -15,9 +15,14 @@ type RequestTransaction = {
   afterRollback: TransactionCallback[];
 };
 
+type RequestContext = {
+  transaction?: RequestTransaction;
+};
+
 export interface Database extends QueryExecutor {
   withTransaction<T>(work: (connection: PoolConnection) => Promise<T>): Promise<T>;
   withConnection?<T>(work: (connection: PoolConnection) => Promise<T>): Promise<T>;
+  runWithRequestContext?(work: () => void): void;
   beginRequestTransaction?(): Promise<void>;
   commitRequestTransaction?(): Promise<void>;
   rollbackRequestTransaction?(): Promise<void>;
@@ -40,10 +45,10 @@ export function createDatabase(config: AppConfig): Database {
     timezone: "Z",
     multipleStatements: false,
   });
-  const requestTransactions = new AsyncLocalStorage<RequestTransaction>();
+  const requestContexts = new AsyncLocalStorage<RequestContext>();
 
   function activeTransaction(): RequestTransaction | undefined {
-    const transaction = requestTransactions.getStore();
+    const transaction = requestContexts.getStore()?.transaction;
     return transaction && !transaction.completed ? transaction : undefined;
   }
 
@@ -76,12 +81,15 @@ export function createDatabase(config: AppConfig): Database {
       return result as { affectedRows: number; insertId?: number | string };
     },
     withConnection,
+    runWithRequestContext(work) {
+      requestContexts.run({}, work);
+    },
     async withTransaction<T>(work: (connection: PoolConnection) => Promise<T>) {
       const current = activeTransaction();
       if (current) return work(current.connection);
       return withConnection(async (connection) => {
         const transaction: RequestTransaction = { connection, completed: false, afterCommit: [], afterRollback: [] };
-        return requestTransactions.run(transaction, async () => {
+        return requestContexts.run({ transaction }, async () => {
           try {
             await connection.beginTransaction();
             const result = await work(connection);
@@ -108,6 +116,8 @@ export function createDatabase(config: AppConfig): Database {
     },
     async beginRequestTransaction() {
       if (activeTransaction()) return;
+      const context = requestContexts.getStore();
+      if (!context) throw new Error("Request database context is not initialized.");
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
@@ -115,9 +125,10 @@ export function createDatabase(config: AppConfig): Database {
         connection.release();
         throw error;
       }
-      requestTransactions.enterWith({ connection, completed: false, afterCommit: [], afterRollback: [] });
+      context.transaction = { connection, completed: false, afterCommit: [], afterRollback: [] };
     },
     async commitRequestTransaction() {
+      const context = requestContexts.getStore();
       const transaction = activeTransaction();
       if (!transaction) return;
       transaction.completed = true;
@@ -133,6 +144,7 @@ export function createDatabase(config: AppConfig): Database {
         throw error;
       } finally {
         transaction.connection.release();
+        if (context?.transaction === transaction) context.transaction = undefined;
       }
       for (const work of transaction.afterCommit) {
         try {
@@ -143,6 +155,7 @@ export function createDatabase(config: AppConfig): Database {
       }
     },
     async rollbackRequestTransaction() {
+      const context = requestContexts.getStore();
       const transaction = activeTransaction();
       if (!transaction) return;
       transaction.completed = true;
@@ -150,6 +163,7 @@ export function createDatabase(config: AppConfig): Database {
         await transaction.connection.rollback();
       } finally {
         transaction.connection.release();
+        if (context?.transaction === transaction) context.transaction = undefined;
       }
       for (const work of transaction.afterRollback) {
         try { await work(); } catch (error) {
