@@ -129,7 +129,7 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
 
   await page.getByRole("button", { name: "Excelから追加・エクスポート" }).click();
   await page.getByRole("radio", { name: /テスト実行/ }).check();
-  await page.getByLabel("テスト実行").selectOption({ label: `${runName}（実行中）` });
+  await page.locator(".export-options label").filter({ hasText: /^テスト実行/ }).locator("select").selectOption({ label: `${runName}（実行中）` });
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: "選択した内容をダウンロード" }).click();
   const download = await downloadPromise;
