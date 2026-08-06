@@ -1,17 +1,23 @@
 START TRANSACTION;
 
-CREATE TEMPORARY TABLE purge_projects (id CHAR(36) PRIMARY KEY);
+CREATE TEMPORARY TABLE purge_projects (
+  id CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PRIMARY KEY
+) ENGINE=InnoDB;
 INSERT INTO purge_projects (id)
 SELECT id FROM projects
 WHERE deleted_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 90 DAY);
 
-CREATE TEMPORARY TABLE purge_runs (id CHAR(36) PRIMARY KEY);
+CREATE TEMPORARY TABLE purge_runs (
+  id CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PRIMARY KEY
+) ENGINE=InnoDB;
 INSERT INTO purge_runs (id)
 SELECT id FROM test_runs
 WHERE deleted_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 30 DAY)
    OR project_id IN (SELECT id FROM purge_projects);
 
-CREATE TEMPORARY TABLE purge_cases (id CHAR(36) PRIMARY KEY);
+CREATE TEMPORARY TABLE purge_cases (
+  id CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci PRIMARY KEY
+) ENGINE=InnoDB;
 INSERT INTO purge_cases (id)
 SELECT id FROM test_cases
 WHERE deleted_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 30 DAY)
