@@ -1,5 +1,5 @@
 name: Apply Review 10
-# Trigger after adding the six Review 10 source files.
+# Trigger after adding the missing files and fixing the cleanup callback type.
 
 on:
   push:
