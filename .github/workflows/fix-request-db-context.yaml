@@ -1,0 +1,139 @@
+name: Fix Request DB Context
+
+on:
+  push:
+    branches:
+      - agent/folder-explorer-p2
+    paths:
+      - .github/workflows/fix-request-db-context.yaml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: the_test_ci
+          MARIADB_USER: the_test
+          MARIADB_PASSWORD: ci-db-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      HOST: 127.0.0.1
+      PORT: 3000
+      COOKIE_SECURE: "false"
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: the_test_ci
+      DB_USER: the_test
+      DB_PASSWORD: ci-db-password
+      DB_ROOT_HOST: 127.0.0.1
+      DB_ROOT_PORT: 3306
+      DB_ROOT_USER: root
+      DB_ROOT_PASSWORD: ci-root-password
+      DB_INTEGRATION_TEST: "1"
+      INITIAL_ADMIN_USERNAME: ci-e2e-admin
+      INITIAL_ADMIN_PASSWORD: ci-e2e-password
+      EVIDENCE_STORAGE_PATH: ${{ github.workspace }}/web/.ci/evidence
+      VIEW_IMAGE_PENDING_TTL_SECONDS: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/folder-explorer-p2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Patch request transaction context
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          db_path = Path("web/src/server/db.ts")
+          db = db_path.read_text()
+          replacements = [
+              (
+                  "type RequestTransaction = {\n  connection: PoolConnection;\n  completed: boolean;\n  afterCommit: TransactionCallback[];\n  afterRollback: TransactionCallback[];\n};\n",
+                  "type RequestTransaction = {\n  connection: PoolConnection;\n  completed: boolean;\n  afterCommit: TransactionCallback[];\n  afterRollback: TransactionCallback[];\n};\n\ntype RequestContext = {\n  transaction?: RequestTransaction;\n};\n",
+              ),
+              (
+                  "  withConnection?<T>(work: (connection: PoolConnection) => Promise<T>): Promise<T>;\n",
+                  "  withConnection?<T>(work: (connection: PoolConnection) => Promise<T>): Promise<T>;\n  runWithRequestContext?(work: () => void): void;\n",
+              ),
+              (
+                  "  const requestTransactions = new AsyncLocalStorage<RequestTransaction>();\n\n  function activeTransaction(): RequestTransaction | undefined {\n    const transaction = requestTransactions.getStore();\n    return transaction && !transaction.completed ? transaction : undefined;\n  }\n",
+                  "  const requestContexts = new AsyncLocalStorage<RequestContext>();\n\n  function activeTransaction(): RequestTransaction | undefined {\n    const transaction = requestContexts.getStore()?.transaction;\n    return transaction && !transaction.completed ? transaction : undefined;\n  }\n",
+              ),
+              (
+                  "    withConnection,\n    async withTransaction<T>(work: (connection: PoolConnection) => Promise<T>) {",
+                  "    withConnection,\n    runWithRequestContext(work) {\n      requestContexts.run({}, work);\n    },\n    async withTransaction<T>(work: (connection: PoolConnection) => Promise<T>) {",
+              ),
+              (
+                  "        return requestTransactions.run(transaction, async () => {",
+                  "        return requestContexts.run({ transaction }, async () => {",
+              ),
+              (
+                  "    async beginRequestTransaction() {\n      if (activeTransaction()) return;\n      const connection = await pool.getConnection();\n      try {\n        await connection.beginTransaction();\n      } catch (error) {\n        connection.release();\n        throw error;\n      }\n      requestTransactions.enterWith({ connection, completed: false, afterCommit: [], afterRollback: [] });\n    },\n",
+                  "    async beginRequestTransaction() {\n      if (activeTransaction()) return;\n      const context = requestContexts.getStore();\n      if (!context) throw new Error(\"Request database context is not initialized.\");\n      const connection = await pool.getConnection();\n      try {\n        await connection.beginTransaction();\n      } catch (error) {\n        connection.release();\n        throw error;\n      }\n      context.transaction = { connection, completed: false, afterCommit: [], afterRollback: [] };\n    },\n",
+              ),
+              (
+                  "    async commitRequestTransaction() {\n      const transaction = activeTransaction();",
+                  "    async commitRequestTransaction() {\n      const context = requestContexts.getStore();\n      const transaction = activeTransaction();",
+              ),
+              (
+                  "      } finally {\n        transaction.connection.release();\n      }\n      for (const work of transaction.afterCommit) {",
+                  "      } finally {\n        transaction.connection.release();\n        if (context?.transaction === transaction) context.transaction = undefined;\n      }\n      for (const work of transaction.afterCommit) {",
+              ),
+              (
+                  "    async rollbackRequestTransaction() {\n      const transaction = activeTransaction();",
+                  "    async rollbackRequestTransaction() {\n      const context = requestContexts.getStore();\n      const transaction = activeTransaction();",
+              ),
+              (
+                  "      } finally {\n        transaction.connection.release();\n      }\n      for (const work of transaction.afterRollback) {",
+                  "      } finally {\n        transaction.connection.release();\n        if (context?.transaction === transaction) context.transaction = undefined;\n      }\n      for (const work of transaction.afterRollback) {",
+              ),
+          ]
+          for old, new in replacements:
+              if old not in db:
+                  raise SystemExit(f"db.ts patch marker missing: {old[:80]!r}")
+              db = db.replace(old, new, 1)
+          db_path.write_text(db)
+
+          app_path = Path("web/src/server/app.ts")
+          app = app_path.read_text()
+          old = "  if (fs.existsSync(config.staticDir)) {\n    await app.register(fastifyStatic, { root: config.staticDir, wildcard: true });\n  }\n\n  app.addHook(\"preHandler\", async (request) => {"
+          new = "  if (fs.existsSync(config.staticDir)) {\n    await app.register(fastifyStatic, { root: config.staticDir, wildcard: true });\n  }\n\n  app.addHook(\"onRequest\", (_request, _reply, done) => {\n    if (db.runWithRequestContext) db.runWithRequestContext(done);\n    else done();\n  });\n\n  app.addHook(\"preHandler\", async (request) => {"
+          if old not in app:
+              raise SystemExit("app.ts request-context patch marker missing")
+          app_path.write_text(app.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+      - name: Verify request transaction repair
+        working-directory: web
+        run: |
+          mkdir -p .ci/evidence
+          npm run typecheck
+          npm test -- src/server/mariaDb.integration.test.ts src/server/migrationCollation.integration.test.ts
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add web/src/server/db.ts web/src/server/app.ts
+          git commit -m "Isolate request database transactions"
+          git push origin HEAD:agent/folder-explorer-p2
