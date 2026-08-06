@@ -1,0 +1,122 @@
+name: Fix Evidence Upload CSRF
+
+on:
+  push:
+    branches:
+      - agent/folder-explorer-p2
+    paths:
+      - .github/workflows/fix-evidence-upload-csrf.yaml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: the_test_ci
+          MARIADB_USER: the_test
+          MARIADB_PASSWORD: ci-db-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      HOST: 127.0.0.1
+      PORT: "3000"
+      COOKIE_SECURE: "false"
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_NAME: the_test_ci
+      DB_USER: the_test
+      DB_PASSWORD: ci-db-password
+      INITIAL_ADMIN_USERNAME: ci-e2e-admin
+      INITIAL_ADMIN_PASSWORD: ci-e2e-password
+      E2E_USERNAME: ci-e2e-admin
+      E2E_PASSWORD: ci-e2e-password
+      E2E_BASE_URL: http://127.0.0.1:3000
+      EVIDENCE_STORAGE_PATH: ${{ github.workspace }}/web/.ci/evidence
+      VIEW_IMAGE_PENDING_TTL_SECONDS: "60"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/folder-explorer-p2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Patch upload request and help text
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("web/src/client/OperationsWorkspaceV2.tsx")
+          source = path.read_text()
+          old = '''      request.open("POST", `/api/evidence?projectId=${encodeURIComponent(projectId)}&testRunId=${encodeURIComponent(runId)}&runCaseSnapshotId=${encodeURIComponent(caseId)}`);
+      request.withCredentials = true;
+'''
+          new = '''      request.open("POST", `/api/evidence?projectId=${encodeURIComponent(projectId)}&testRunId=${encodeURIComponent(runId)}&runCaseSnapshotId=${encodeURIComponent(caseId)}`);
+      request.setRequestHeader("X-The-Test-Request", "1");
+      request.withCredentials = true;
+'''
+          if source.count(old) != 1:
+              raise SystemExit(f"upload request marker count was {source.count(old)}")
+          source = source.replace(old, new, 1)
+
+          old_text = "証跡アップロードはmultipartストリームで処理し、アプリ固有の1ファイル上限は設けていません。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより制限される場合があります。"
+          new_text = "証跡アップロードはmultipartストリームで処理し、1要求につき1ファイル、最大100 MiBまでです。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより、さらに小さい上限が適用される場合があります。"
+          if source.count(old_text) != 1:
+              raise SystemExit(f"help text marker count was {source.count(old_text)}")
+          path.write_text(source.replace(old_text, new_text, 1))
+          PY
+          git diff --check
+          grep -n 'setRequestHeader("X-The-Test-Request", "1")' web/src/client/OperationsWorkspaceV2.tsx
+          grep -n '最大100 MiB' web/src/client/OperationsWorkspaceV2.tsx
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+      - name: Install Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Verify and start app
+        working-directory: web
+        run: |
+          mkdir -p .ci/evidence .ci/artifacts
+          npm run typecheck
+          npm run db:migrate
+          nohup npm run dev > .ci/artifacts/server.log 2>&1 &
+          echo $! > .ci/server.pid
+          for attempt in $(seq 1 60); do
+            curl --fail --silent http://127.0.0.1:3000/readyz >/dev/null && exit 0
+            sleep 1
+          done
+          cat .ci/artifacts/server.log
+          exit 1
+      - name: Complete initial password setup
+        working-directory: web
+        run: bash scripts/ci/bootstrap-e2e-user.sh
+      - name: Run evidence E2E tests
+        working-directory: web
+        run: >-
+          npx playwright test
+          e2e/evidence.spec.ts
+          e2e/post-completion-edit.spec.ts
+          e2e/requested-improvements.spec.ts
+          --workers=1 --forbid-only --reporter=line
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add web/src/client/OperationsWorkspaceV2.tsx
+          git commit -m "Send CSRF header with evidence uploads"
+          git push origin HEAD:agent/folder-explorer-p2
