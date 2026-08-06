@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { PoolConnection } from "mariadb";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import type { AppConfig } from "./config.js";
@@ -12,7 +13,7 @@ function fakeDatabase(): Database {
   return {
     async query<T>() { return [] as T[]; },
     async execute() { return { affectedRows: 0 }; },
-    async withTransaction<T>(work) { return work({} as never); },
+    async withTransaction<T>(work: (connection: PoolConnection) => Promise<T>) { return work({} as PoolConnection); },
     async ping() { return undefined; },
     async close() { return undefined; },
   };
