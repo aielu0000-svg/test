@@ -57,4 +57,4 @@
 - 入力ソース: 現行ブランチの全ファイル一覧、import参照、package scripts、Docker/OpenShift/CI定義
 - 総評: Electron版とWeb版は双方が現行CI対象であり維持する。履歴資料、生成物、未参照実装、重複契約ファイルは削除対象と判定した。
 - 対応課題: ISSUE-20260806-005
-- 状態: 通常Web CIによる独立検証待ち。
+- 状態: GitHub Actions run `31067948455`で独立検証済み。Artifact `web-ci-31067948455-1`（ID `8954562403`）。

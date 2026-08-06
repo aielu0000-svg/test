@@ -858,7 +858,8 @@ GitHub Actions run `31062560323`:
 - 対応課題: ISSUE-20260806-005
 - 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`
 - 担当: ChatGPT
-- 状態: Ready for Verification
+- 完了日時: 2026-08-06 12:18 JST
+- 状態: Completed
 
 ### 作業前の状態
 
@@ -880,14 +881,17 @@ GitHub Actions run `31062560323`:
 
 ### 検証
 
-- 静的参照検査: 実施予定
-- TypeCheck: 通常Web CI待ち
-- Unit Test: 通常Web CI待ち
-- Integration Test: 通常Web CI待ち
-- Build: 通常Web CI待ち
-- E2E: 通常Web CI待ち
+- 静的参照検査: 成功（未参照実装、重複契約、旧参照の残存なし）
+- TypeCheck: GitHub Actions run `31067948455`で成功
+- Unit Test: GitHub Actions run `31067948455`で成功
+- Integration Test: GitHub Actions run `31067948455`でMariaDB統合成功
+- Build: GitHub Actions run `31067948455`でProduction BuildとOpenShift互換コンテナBuildが成功
+- E2E: GitHub Actions run `31067948455`でChromium E2E成功
 - DB確認: DB変更なし
 
 ### 結果
 
-- 状態: 通常Web CIによる独立検証待ち。
+- GitHub Actions run `31067948455`で通常Web CI全工程が成功した。
+- Artifact: `web-ci-31067948455-1`（ID `8954562403`）。
+- ISSUE-20260806-005を`Verified`へ変更した。
+- PR #2はDraft・未マージのまま維持した。

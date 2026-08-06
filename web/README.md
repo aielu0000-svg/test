@@ -96,3 +96,7 @@ OpenShift用のコンテナ、BuildConfig、ImageStream、MariaDB StatefulSet、
 ## Review 10独立検証
 
 GitHub Actions run `31062560323`で、TypeCheck、Unit/API 49件、MariaDB統合2件、バックアップ・復元・正常2世代保持、Production Build、OpenShift任意UID・read-only root filesystem起動、Chromium E2E 19件が成功しています。検証成果物はArtifact `web-ci-31062560323-1`（ID `8952679751`）です。
+
+## Repository cleanup verification
+
+GitHub Actions run `31067948455`で、ファイル整理後のTypeCheck、Unit/API、MariaDB統合、バックアップ・復元、Production Build、OpenShift互換起動、Chromium E2Eが成功しています。検証成果物はArtifact `web-ci-31067948455-1`（ID `8954562403`）です。

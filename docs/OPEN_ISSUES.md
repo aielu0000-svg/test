@@ -2,11 +2,7 @@
 
 ## Product issues
 
-Review 10で検出した製品不具合（ISSUE-20260806-001〜004）は修正・独立検証済みです。
-
-- [ ] ISSUE-20260806-005 リポジトリ構成整理
-  - 影響: 実行時の機能変更はない。参照切れやビルド対象漏れがないことを通常Web CIで確認する。
-  - 完了条件: TypeCheck、Unit/API、MariaDB統合、Build、OpenShift互換起動、Chromium E2Eが成功する。
+Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）は修正・独立検証済みで、未解決の製品不具合はありません。
 
 ## Additional hardening candidates
 
@@ -29,6 +25,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）は修正�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- リポジトリ構成整理（ISSUE-20260806-005）: GitHub Actions run `31067948455`でTypeCheck、Unit/API、MariaDB統合、バックアップ・復元、OpenShift互換起動、Chromium E2Eを含む全工程成功。Artifact `web-ci-31067948455-1`（ID `8954562403`）。
 
 - Review 10（ISSUE-20260806-001〜004）: GitHub Actions run `31062560323`でUnit/API 49件、MariaDB統合2件、バックアップ・復元・正常2世代保持、OpenShift任意UID起動、Chromium E2E 19件を含む全工程成功。Artifact ID `8952679751`。
 
