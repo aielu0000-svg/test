@@ -2,7 +2,7 @@
 
 ## Product issues
 
-Review 10で検出した製品不具合は修正実装済みで、独立CIによる検証待ち。対象はISSUE-20260806-001〜004。検証完了までは未解決扱いとする。
+Review 10で検出した製品不具合（ISSUE-20260806-001〜004）は修正・独立検証済みで、未解決の製品不具合はありません。
 
 ## Additional hardening candidates
 
@@ -25,6 +25,8 @@ Review 10で検出した製品不具合は修正実装済みで、独立CIによ
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- Review 10（ISSUE-20260806-001〜004）: GitHub Actions run `31062560323`でUnit/API 49件、MariaDB統合2件、バックアップ・復元・正常2世代保持、OpenShift任意UID起動、Chromium E2E 19件を含む全工程成功。Artifact ID `8952679751`。
 
 - 管理・テスト設計・実行・エクスポート改善（ISSUE-20260805-003〜006）: GitHub Actions run `30997068195`でUnit/API 43件、MariaDB統合2件、OpenShift任意UID起動、Chromium E2E 19件を含む全工程成功。
 

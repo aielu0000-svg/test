@@ -92,3 +92,7 @@ OpenShift用のコンテナ、BuildConfig、ImageStream、MariaDB StatefulSet、
 - 証跡・見る場所画像の削除は再実行可能なファイル削除キューを使います。
 - 適用済みMigrationのchecksum変更を拒否し、起動時にschema構造を検証します。
 - 管理者画面の「バックアップ・復元」から手動バックアップと確認付き復元を要求できます。
+
+## Review 10独立検証
+
+GitHub Actions run `31062560323`で、TypeCheck、Unit/API 49件、MariaDB統合2件、バックアップ・復元・正常2世代保持、Production Build、OpenShift任意UID・read-only root filesystem起動、Chromium E2E 19件が成功しています。検証成果物はArtifact `web-ci-31062560323-1`（ID `8952679751`）です。

@@ -792,27 +792,62 @@ GitHub Actions run `30997068195`:
 ## TASK-20260806-001: Review 10全体修正
 
 - 開始日時: 2026-08-06 02:01 JST
+- 完了日時: 2026-08-06 10:26 JST
 - 対応課題: ISSUE-20260806-001〜004
+- 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`
 - 担当: ChatGPT
-- 状態: Ready for Verification
+- 状態: Completed
 
 ### 発生事象
 
 - 別チャットで追加されたプロジェクト削除処理が、DELETE 404を成功扱いし、ブラウザ内だけでカードを非表示にしていた。
 - 全体レビューで削除、監査、ファイル、保持、バックアップ、実行状態、認証、import、Migration、UI試験を横断する50項目を抽出した。
+- 広範囲パッチの初回反映では新規6ファイルが欠落し、その後もMariaDB Migration、request transaction、バックアップ復元、保持SQL、証跡XHRのCSRFヘッダーで段階的にCI失敗が判明した。
 
 ### 実施内容
 
 - ユーザー判定に従いREV-031〜033を仕様として維持し、それ以外を指定された仕様変更込みで修正した。
 - プロジェクト削除を復元なしの完全削除に変更し、監査保持、任意理由、DB/API一意名称、再読込・API・DBを確認する回帰試験へ置換した。
 - 変更要求単位のDB transaction、同一transaction監査、rollback時ファイル補償、再試行可能なfile cleanup queueを追加した。
+- request単位のAsyncLocalStorage contextを導入し、並行更新でもtransaction接続を正しく解放するようにした。
 - バックアップ・復元・保持処理、管理者運用画面、completed結果制約、最後の管理者保護、import競合、Migration checksum/lock、JSON破損検知、snapshot一括処理を修正した。
-- 確定仕様v1.2.0と運用文書、OpenShift定義、独立CI工程を更新した。
+- DB Migration専用CLIを追加し、3世代作成、正常2世代保持、checksum、DB・証跡同世代復元、復元前バックアップ、保持期限SQLをCIで検証した。
+- 証跡アップロード用XHRへ`X-The-Test-Request: 1`を付与し、画面説明を1要求1ファイル・最大100 MiBへ統一した。
+- 確定仕様v1.2.0、Issue Ledger、Open Issues、運用文書、OpenShift定義、独立CI工程を更新した。
 
-### 現時点の検証
+### 独立検証結果
 
-- TypeScript/TSX全ファイルのtranspile構文検査: 成功
-- `sh -n web/ops/*.sh`: 成功
-- workflow/OpenShift/Kustomization YAML parse: 成功
-- `git diff --check`: 成功
-- Node依存のローカル導入は実行環境の内部npm mirror欠落により完了できなかったため、GitHub Actionsの独立CIを正とする。
+GitHub Actions run `31062560323`:
+
+- Docker Compose展開: 成功
+- OpenShift Kustomize生成: 成功
+- `npm ci` / `npm audit --audit-level=high`: 脆弱性0件
+- TypeCheck: 成功
+- Unit/API: 49件成功、2件skip
+- MariaDB 11.4統合: 2件成功
+  - 異なる既定照合順序でのMigration
+  - 同名プロジェクト並行作成の409拒否
+  - 監査失敗時の業務更新rollback
+  - 最後の有効管理者保護
+  - completedの最終4状態制約
+  - プロジェクト完全削除
+- Migration CLI: 成功
+- バックアップ・復元・保持: 成功
+  - 3世代作成後に正常2世代保持
+  - DB、証跡、manifestのchecksum確認
+  - DBと証跡の同一世代復元
+  - 復元前世代を含む2世代カタログ正規化
+  - 保持期限SQLとファイル回収キュー
+- Production Build: 成功
+- OpenShift互換コンテナBuild: 成功
+- UID `1000780000:0`・read-only root filesystemでreadiness成功
+- Chromium E2E: 19件成功
+  - 完全削除、completed後編集、証跡アップロード、画像・Excel、409復旧を含む
+- DBダンプ、監査ログ、テーブル件数、Playwrightレポート: 保存成功
+- Artifact: `web-ci-31062560323-1`（ID `8952679751`、SHA256 `22eac1a3e49e2fd858b995b8cc9a44397bcdca1a9ed27ca16041436fa5f939d4`）
+
+### 結果
+
+- ISSUE-20260806-001〜004を`Verified`へ変更した。
+- Review 10の仕様判定と修正対象を実装し、実MariaDB、実Chromium、OpenShift相当の任意UIDコンテナで回帰確認した。
+- PR #2はDraft・未マージのまま維持した。
