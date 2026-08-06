@@ -96,3 +96,193 @@ oc get route the-test-web -o jsonpath='https://{.spec.host}{"\n"}'
 ```
 
 The Web container root filesystem is read-only. `/tmp` is an `emptyDir`, and evidence is written only to `/var/lib/the-test/evidence` on the PVC. `TRUST_PROXY=true` is enabled because requests arrive through the OpenShift router; this preserves client-IP-based login rate limiting.
+
+# 日本語
+
+### OpenShiftリソース
+
+以下を追加・更新しました。
+
+* `BuildConfig`
+* `ImageStream`
+* Web `Deployment`
+* Web `Service`
+* HTTPS `Route`
+* MariaDB 10.11 `StatefulSet`
+* MariaDB用ヘッドレス`Service`
+* Web、MariaDB、証跡、バックアップ用PVC
+* `ConfigMap`
+* `Secret`運用
+* `NetworkPolicy`
+* startup、readiness、liveness probe
+* CPU・メモリーrequests／limits
+* 日次バックアップCronJob
+* 保持期限処理CronJob
+* バックアップ最新3世代保持
+
+Routeはedge TLS終端とHTTPからHTTPSへのリダイレクトを設定しています。([Red Hat Documentation][2])
+
+MariaDBはRed Hat RegistryのMariaDB 10.11イメージを使用する構成です。([Red Hat Ecosystem Catalog][3])
+
+### アプリ側対応
+
+OpenShift Router配下で正しく動くよう、次も対応しました。
+
+* `TRUST_PROXY=true`
+* Secure Cookie有効化
+* Router転送ヘッダーによるクライアントIP取得
+* `SIGTERM`／`SIGINT`時にHTTPサーバーとDB接続を終了
+* 起動時Migration
+* Migration競合を避けるためWebは1 replica・`Recreate`戦略
+* ServiceAccount tokenの自動マウントを無効化
+* capabilityをすべてdrop
+* seccomp `RuntimeDefault`
+
+## デプロイ方法
+
+まずブランチを取得します。
+
+```bash
+cd ~/dev/the-test
+git switch agent/folder-explorer-p2
+git pull --ff-only
+```
+
+OpenShiftへログインし、対象プロジェクトを選択します。
+
+```bash
+oc login https://api.example.openshift.com:6443
+oc project <namespace>
+```
+
+Secret値を環境変数へ設定します。
+
+```bash
+export DB_PASSWORD='十分に長いDBパスワード'
+export MARIADB_ROOT_PASSWORD='別の十分に長いrootパスワード'
+export INITIAL_ADMIN_USERNAME='admin'
+export INITIAL_ADMIN_PASSWORD='初期管理者パスワード'
+```
+
+デプロイスクリプトを実行します。
+
+```bash
+bash web/scripts/openshift/deploy.sh
+```
+
+このスクリプトは以下を実行します。
+
+1. OpenShift Secretの作成・更新
+2. `BuildConfig`と`ImageStream`の作成
+3. ローカルソースをOpenShiftへ送ってコンテナをビルド
+4. Kustomizeマニフェストの適用
+5. MariaDBとWebの起動待機
+6. HTTPS RouteのURL表示
+
+Secret値はリポジトリファイルへ保存しません。詳細な手動手順、外部MariaDBを使用する場合の変更方法、運用確認コマンドも記載済みです。
+
+## クラスター側の前提
+
+デプロイ前に次を確認してください。
+
+* `registry.redhat.io/rhel9/mariadb-1011:1`をpullできること
+* 証跡用にRWX対応StorageClassがあること
+* バックアップ用にRWX対応StorageClassがあること
+* MariaDB用にRWO対応StorageClassがあること
+* `BuildConfig`、`ImageStream`、`StatefulSet`、`Route`、`PVC`、`CronJob`、`NetworkPolicy`を作成できる権限があること
+
+既定容量は以下です。
+
+| 用途      |      容量 | Access Mode |
+| ------- | ------: | ----------- |
+| 証跡      | 100 GiB | RWX         |
+| バックアップ  | 150 GiB | RWX         |
+| MariaDB |  20 GiB | RWO         |
+
+クラスターのStorageClassに合わせ、必要に応じて`storageClassName`と容量を変更してください。
+
+### PV作成
+```bash
+cat > the-test-nfs-pv.yaml <<'EOF'
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: test-manage-the-test-evidence
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - vers=3
+    - hard
+    - timeo=600
+    - retrans=2
+    - rsize=1048576
+    - wsize=1048576
+  claimRef:
+    namespace: test-manage
+    name: the-test-evidence
+  nfs:
+    server: 10.224.0.10
+    path: /exports/test-manage/evidence
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: test-manage-the-test-backups
+spec:
+  capacity:
+    storage: 150Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - vers=3
+    - hard
+    - timeo=600
+    - retrans=2
+    - rsize=1048576
+    - wsize=1048576
+  claimRef:
+    namespace: test-manage
+    name: the-test-backups
+  nfs:
+    server: 10.224.0.10
+    path: /exports/test-manage/backups
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: test-manage-mariadb-data
+spec:
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - vers=3
+    - hard
+    - timeo=600
+    - retrans=2
+    - rsize=1048576
+    - wsize=1048576
+  claimRef:
+    namespace: test-manage
+    name: mariadb-data
+  nfs:
+    server: 10.224.0.10
+    path: /exports/test-manage/mariadb
+EOF
+
+oc apply -f the-test-nfs-pv.yaml
+
+```
