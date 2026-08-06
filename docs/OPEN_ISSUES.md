@@ -2,7 +2,11 @@
 
 ## Product issues
 
-Review 10で検出した製品不具合（ISSUE-20260806-001〜004）は修正・独立検証済みで、未解決の製品不具合はありません。
+Review 10で検出した製品不具合（ISSUE-20260806-001〜004）は修正・独立検証済みです。
+
+- [ ] ISSUE-20260806-005 リポジトリ構成整理
+  - 影響: 実行時の機能変更はない。参照切れやビルド対象漏れがないことを通常Web CIで確認する。
+  - 完了条件: TypeCheck、Unit/API、MariaDB統合、Build、OpenShift互換起動、Chromium E2Eが成功する。
 
 ## Additional hardening candidates
 

@@ -49,4 +49,12 @@
 | REV-049〜050 | 仕様変更 | multipartを1ファイル100MiBへ制限し、同名有効プロジェクトを拒否。 |
 
 - 事前静的検証: TypeScript構文、Shell構文、YAML parse、差分空白検査に成功。
-- 独立CI: 実MariaDB・Chromiumを含むGitHub Actions実行待ち。
+- 独立CI: GitHub Actions run `31063129147`で実MariaDB、OpenShift互換コンテナ、Chromium E2Eを含む全工程成功。
+
+## Repository maintenance review
+
+- 実施日: 2026-08-06
+- 入力ソース: 現行ブランチの全ファイル一覧、import参照、package scripts、Docker/OpenShift/CI定義
+- 総評: Electron版とWeb版は双方が現行CI対象であり維持する。履歴資料、生成物、未参照実装、重複契約ファイルは削除対象と判定した。
+- 対応課題: ISSUE-20260806-005
+- 状態: 通常Web CIによる独立検証待ち。

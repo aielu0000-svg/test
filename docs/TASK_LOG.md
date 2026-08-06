@@ -851,3 +851,43 @@ GitHub Actions run `31062560323`:
 - ISSUE-20260806-001〜004を`Verified`へ変更した。
 - Review 10の仕様判定と修正対象を実装し、実MariaDB、実Chromium、OpenShift相当の任意UIDコンテナで回帰確認した。
 - PR #2はDraft・未マージのまま維持した。
+
+## TASK-20260806-002: リポジトリ構成整理
+
+- 開始日時: 2026-08-06 11:41 JST
+- 対応課題: ISSUE-20260806-005
+- 対象: Pull Request #2 / `agent/folder-explorer-p2` → `codex/web-review`
+- 担当: ChatGPT
+- 状態: Ready for Verification
+
+### 作業前の状態
+
+- 旧レビュー依頼、画面試作、スクリーンショット、ローカル証跡がソースと同居していた。
+- 未参照の`DefinitionAdminPanel.tsx`、同一内容のOpenAPI、未使用の保持SQLが残っていた。
+- 現行UIと移行CLIの主要ファイル名に`V2`や作業名が残り、正本が分かりにくかった。
+- Electron版とWeb版の双方が現行CI対象だが、ルートに説明がなく重複実装に見えた。
+
+### 実施内容
+
+- 生成済み証跡、旧レビュー資料、試作資料、スクリーンショット、AI作業メモを削除した。
+- 仕様書とセキュリティ資料を`docs/`へ集約し、参照先を更新した。
+- 未参照コンポーネント、重複OpenAPI、旧保持SQLを削除した。
+- 実行ワークスペース、エクスポートパネル、SQLite移行CLIのファイル名を現在の責務名へ変更した。
+- `web/openapi.yaml`をAPI契約の唯一の正本とした。
+- `.gitignore`へWebの実行データと検証成果物を追加した。
+- ルート`README.md`へ現行の2アプリ構成と責務境界を記載した。
+- Electron版は`build-win.yaml`で現行ビルド対象のため削除しなかった。
+
+### 検証
+
+- 静的参照検査: 実施予定
+- TypeCheck: 通常Web CI待ち
+- Unit Test: 通常Web CI待ち
+- Integration Test: 通常Web CI待ち
+- Build: 通常Web CI待ち
+- E2E: 通常Web CI待ち
+- DB確認: DB変更なし
+
+### 結果
+
+- 状態: 通常Web CIによる独立検証待ち。

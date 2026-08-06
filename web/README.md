@@ -1,6 +1,6 @@
 # ザ・テスト Web版
 
-確定仕様書 `the-test-web-confirmed-spec-v1.0.0.md`、追補`v1.1.0`、`v1.2.0`に基づくWeb基盤です。既存Electron版とは独立したWebワークスペースとして構築しています。
+確定仕様書 `../docs/the-test-web-confirmed-spec-v1.0.0.md`、追補`v1.1.0`、`v1.2.0`に基づくWeb基盤です。既存Electron版とは独立したWebワークスペースとして構築しています。
 
 ## Dockerでローカル起動
 

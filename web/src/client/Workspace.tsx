@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import type { AuthUser, ProjectSummary } from "../shared/types.js";
 import "./workspace.css";
 import { request } from "./api.js";
-import { ExportPanel } from "./OperationsWorkspace.js";
-import { ProceduresPanelV2, RunsPanelV2 } from "./OperationsWorkspaceV2.js";
+import { ExportPanel } from "./ExportPanel.js";
+import { ProceduresPanelV2, RunsPanelV2 } from "./RunWorkspace.js";
 import { RecycleBinPanel } from "./RecycleBinPanel.js";
 import { TestDesignEditor } from "./TestDesignEditor.js";
 

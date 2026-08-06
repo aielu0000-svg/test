@@ -85,3 +85,9 @@
 - `REV-024` completedのケース結果はpass/fail/blocked/skipだけに限定する。
 - `REV-049` multipartは1ファイル100MiB、最大1000 field/1001 partとする。
 - `REV-050` 同名の有効プロジェクトを許可しない。
+
+## Repository structure cleanup（2026-08-06）
+
+| ID | 登録日 | 種別 | 優先度 | 状態 | 対象 | 原因 | 対応結果 | 検証 | 関連レビュー |
+|---|---|---|---|---|---|---|---|---|---|
+| ISSUE-20260806-005 | 2026-08-06 | TechnicalDebt / Maintainability | P2 | Ready for Verification | リポジトリ構成 | 旧レビュー資料、生成済み証跡、未参照コンポーネント、重複OpenAPI、作業名を含む現行ファイルが同居し、正本と実行対象を判別しにくかった。 | 生成物と履歴資料を削除し、仕様・セキュリティ資料を`docs/`へ集約した。未参照コードと重複ファイルを削除し、現行UIと移行CLIの主要ファイル名を責務名へ統一した。Electron版はWindows CIの現行対象のため維持した。 | 静的参照検査と通常Web CI待ち。 | User Request 2026-08-06 |

@@ -10,7 +10,7 @@
     "start": "node ../dist-web/server/server/server.js",
     "test": "vitest run --config vitest.config.ts",
     "db:migrate": "tsx src/tools/migrate-database.ts",
-    "migrate:sqlite": "tsx src/tools/sqlite-export-v2.ts",
+    "migrate:sqlite": "tsx src/tools/sqlite-export.ts",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
     "test:e2e": "playwright test",
     "db:password": "node scripts/configure-local-mariadb-password.mjs"
