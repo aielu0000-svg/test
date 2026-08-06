@@ -1,5 +1,5 @@
 name: Apply Review 10
-# app.test.ts already contains the patch result plus the transaction-aware test fix.
+# app.test.ts contains the patch result and an explicitly typed transaction test double.
 
 on:
   push:
