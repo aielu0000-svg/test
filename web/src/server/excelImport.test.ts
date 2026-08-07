@@ -19,8 +19,10 @@ afterEach(async () => {
 
 describe("Excel test design import", () => {
   it("builds a human-oriented template and infers keys from sequential input", async () => {
+    const filePath = await temporaryFile("template.xlsx");
+    await writeFile(filePath, await buildCasesTemplate());
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(await buildCasesTemplate());
+    await workbook.xlsx.readFile(filePath);
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
     const input = workbook.getWorksheet("入力")!;
     expect(input.getRow(1).values).not.toContain("テストキー");
@@ -32,8 +34,7 @@ describe("Excel test design import", () => {
     input.getRow(3).values = ["", "", "ログインボタンを押す", "ダッシュボードが表示される"];
     const common = workbook.getWorksheet("共通データ")!;
     common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login", "テスト環境", "ログイン共通データ", "ログイン確認で共通利用"];
-    const filePath = await temporaryFile("template.xlsx");
-    await writeFile(filePath, Buffer.from(await workbook.xlsx.writeBuffer()));
+    await workbook.xlsx.writeFile(filePath);
 
     const parsed = await parseCasesWorkbook(filePath);
 
@@ -73,7 +74,7 @@ describe("Excel test design import", () => {
     steps.addRow(["確認項目キー", "手順番号", "操作", "期待結果"]);
     steps.addRow(["C-1", 1, "開く", "表示される"]);
     const filePath = await temporaryFile("keyed.xlsx");
-    await writeFile(filePath, Buffer.from(await workbook.xlsx.writeBuffer()));
+    await workbook.xlsx.writeFile(filePath);
 
     const parsed = await parseCasesWorkbook(filePath);
     expect(parsed.errors).toEqual([]);
@@ -85,7 +86,7 @@ describe("Excel test design import", () => {
     workbook.addWorksheet("Cases").addRow(["ケースキー", "タイトル"]);
     workbook.addWorksheet("Steps").addRow(["ケースキー", "手順番号", "操作", "期待結果"]);
     const filePath = await temporaryFile("legacy.xlsx");
-    await writeFile(filePath, Buffer.from(await workbook.xlsx.writeBuffer()));
+    await workbook.xlsx.writeFile(filePath);
 
     const parsed = await parseCasesWorkbook(filePath);
 
