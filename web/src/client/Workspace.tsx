@@ -115,8 +115,21 @@ export function Workspace({ project, user, initialRunId, onBack, onLogout }: { p
       {tab === "runs" && <RunsPanelV2 projectId={project.id} canEdit={canEdit} cases={cases} scenarios={scenarios} dataSets={dataSets} initialScenarioId={runScenarioId} initialRunId={initialRunId} />}
       {tab === "procedures" && <ProceduresPanelV2 projectId={project.id} canEdit={canEdit} />}
       {tab === "trash" && <RecycleBinPanel projectId={project.id} canEdit={canEdit} onChanged={refresh} />}
-      {tab === "excel" && <section className="panel import-panel"><h2>Excelから追加</h2><ol><li>最新版の公式テンプレートをダウンロードします。</li><li>Scenarios、Cases、Stepsを入力し、必要に応じてCommonDataを入力します。</li><li>アップロードしてテスト数・確認項目数と検証結果を確認し、追加を確定します。</li></ol><p className="muted">旧テンプレートは現在のテスト設計構造に対応していません。取り込み前に最新版を取得してください。</p><div className="button-row"><a className="link-button" href="/api/imports/excel/template" download>公式テンプレート</a></div>{canEdit ? <form className="stack-form upload-form" onSubmit={previewExcel}><label>.xlsxファイル<input type="file" name="file" accept=".xlsx" required /></label><button className="primary">アップロードして検証</button></form> : <p className="muted">追加には編集権限が必要です。</p>}{preview && <div className="preview-result"><h3>検証結果</h3><p>{preview.counts.scenarios}テスト / {preview.counts.cases}確認項目</p>{preview.scenarios.map((scenario) => <p key={scenario.scenarioKey}>{scenario.title}（{scenario.cases.length}確認項目）</p>)}{preview.errors.map((item) => <p className="error-message" key={item}>{item}</p>)}{preview.warnings.map((item) => <p className="warning-message" key={item}>{item}</p>)}<button className="primary" disabled={preview.errors.length > 0} onClick={() => void confirmExcel()}>追加を確定</button></div>}</section>}
-      {tab === "excel" && <ExportPanel projectId={project.id} canEdit={canEdit} />}
+      {tab === "excel" && <div className="transfer-page">
+        <div className="transfer-page-heading"><p className="eyebrow">IMPORT / EXPORT</p><h2>Excelから追加・エクスポート</h2><p className="muted">「追加する」と「外へ出す」を分けています。必要な側だけ上から順に進めてください。</p></div>
+        <div className="transfer-workspace">
+          <section className="panel import-panel transfer-card">
+            <div className="section-heading"><div><p className="eyebrow">追加する</p><h2>Excelからテストを追加</h2><p className="muted">システム用キーを入力する必要はありません。通常は「入力」シートだけで作業できます。</p></div></div>
+            <div className="transfer-steps">
+              <div className="transfer-step"><span className="transfer-step-number">1</span><div><strong>公式テンプレートを取得</strong><p>最新テンプレートには入力順と選択肢が設定されています。</p><a className="link-button primary" href="/api/imports/excel/template" download>公式テンプレートをダウンロード</a></div></div>
+              <div className="transfer-step"><span className="transfer-step-number">2</span><div><strong>「入力」シートへ記入</strong><p>最初はテスト名・確認項目名・操作・期待結果だけで開始できます。同じテストや確認項目の続きは名前を繰り返さず、次の行へそのまま入力します。</p></div></div>
+              <div className="transfer-step"><span className="transfer-step-number">3</span><div><strong>アップロードして内容を確認</strong>{canEdit ? <form className="stack-form upload-form" onSubmit={previewExcel}><label>.xlsxファイル<input type="file" name="file" accept=".xlsx" required /></label><button className="primary">アップロードして検証</button></form> : <p className="muted">追加には編集権限が必要です。</p>}</div></div>
+            </div>
+            {preview && <div className="preview-result"><h3>追加前の確認</h3><p><strong>{preview.counts.scenarios}テスト / {preview.counts.cases}確認項目</strong></p>{preview.scenarios.map((scenario) => <p key={scenario.scenarioKey}>{scenario.title}（{scenario.cases.length}確認項目）</p>)}{preview.errors.map((item) => <p className="error-message" key={item}>{item}</p>)}{preview.warnings.map((item) => <p className="warning-message" key={item}>{item}</p>)}<button className="primary" disabled={preview.errors.length > 0} onClick={() => void confirmExcel()}>この内容を追加</button></div>}
+          </section>
+          <ExportPanel projectId={project.id} />
+        </div>
+      </div>}
     </main>
   </div>;
 }

@@ -1,4 +1,0 @@
-ISSUE-20260807-001: copy view images on duplication; run image zoom; evidence/help and disabled-button UX.
-ISSUE-20260807-002: accessible action hierarchy for test-design buttons.
-ISSUE-20260807-003: human-oriented Excel template and clearer import/export flow; remove formal JSON import from normal UI.
-Status: In Progress. Validation pending latest-head Web CI.

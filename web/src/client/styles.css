@@ -4,8 +4,10 @@ body { margin: 0; min-width: 320px; }
 button, input, textarea { font: inherit; }
 button, .link-button { border: 1px solid #c9d1df; background: white; color: #24324a; border-radius: 8px; padding: .65rem .9rem; cursor: pointer; text-decoration: none; }
 button:hover, .link-button:hover { border-color: #6780af; }
-button:disabled { cursor: wait; opacity: .65; }
+button:disabled { cursor: not-allowed; opacity: 1; color: #8993a2; border-color: #d7dde6; background: #edf0f4; box-shadow: none; filter: saturate(.25); }
+button:disabled:hover { border-color: #d7dde6; }
 .primary { background: #2259b7; border-color: #2259b7; color: white; }
+.primary:disabled { color: #7b8697; border-color: #d0d7e2; background: #d9dfe8; }
 .danger { color: #a53035; }
 .small { padding: .45rem .7rem; font-size: .9rem; }
 .center-page { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }

@@ -56,6 +56,24 @@
 .design-save-state.saved { color: #16835d; }
 .design-save-state.error { color: #c73e3e; }
 
+/* Action hierarchy uses hue, luminance and explicit labels/icons together; color is never the only cue. */
+.test-design-shell .design-action-save { color: #fff; border-color: #0068a8; background: #0068a8; font-weight: 800; }
+.test-design-shell .design-action-run { color: #fff; border-color: #a85a00; background: #a85a00; font-weight: 800; }
+.test-design-shell .design-action-add { color: #fff; border-color: #007a63; background: #007a63; font-weight: 750; }
+.test-design-shell .design-action-copy { color: #4f3d72; border-color: #b8aad1; background: #f5f1fb; }
+.test-design-shell .design-action-mode { color: #334155; border-color: #a8b1bf; background: #f1f4f7; }
+.test-design-shell .design-action-mode[aria-pressed="true"] { color: #fff; border-color: #334155; background: #334155; }
+.test-design-shell .design-action-import { color: #075985; border-color: #7cb9d9; background: #eef8ff; }
+.test-design-shell .design-action-save:hover { border-color: #004f80; background: #005b92; }
+.test-design-shell .design-action-run:hover { border-color: #814600; background: #945000; }
+.test-design-shell .design-action-add:hover { border-color: #005f4d; background: #006b57; }
+.test-design-shell button:disabled,
+.test-design-shell .design-action-save:disabled,
+.test-design-shell .design-action-run:disabled,
+.test-design-shell .design-action-add:disabled,
+.test-design-shell .design-action-copy:disabled,
+.test-design-shell .design-action-import:disabled { color: #8993a2; border-color: #d7dde6; background: #edf0f4; }
+
 .design-tabs {
   display: flex;
   gap: .15rem;

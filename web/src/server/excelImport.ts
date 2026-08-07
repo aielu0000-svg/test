@@ -52,85 +52,40 @@ export interface ExcelImportParseResult {
 type HeaderAliases = Record<string, string>;
 
 const SCENARIO_HEADERS: HeaderAliases = {
-  "テストキー": "ScenarioKey",
-  "シナリオキー": "ScenarioKey",
-  "ScenarioKey": "ScenarioKey",
-  "フォルダパス": "FolderPath",
-  "FolderPath": "FolderPath",
-  "テスト名": "Title",
-  "タイトル": "Title",
-  "Title": "Title",
-  "目的": "Objective",
-  "Objective": "Objective",
-  "テスト全体の前提条件": "Preconditions",
-  "前提条件": "Preconditions",
-  "Preconditions": "Preconditions",
-  "共通データ名": "CommonDataName",
-  "CommonDataName": "CommonDataName",
-  "共通データ説明": "CommonDataDescription",
-  "CommonDataDescription": "CommonDataDescription",
+  "テストキー": "ScenarioKey", "シナリオキー": "ScenarioKey", "ScenarioKey": "ScenarioKey",
+  "フォルダパス": "FolderPath", "FolderPath": "FolderPath", "テスト名": "Title", "タイトル": "Title", "Title": "Title",
+  "目的": "Objective", "Objective": "Objective", "テスト全体の前提条件": "Preconditions", "前提条件": "Preconditions", "Preconditions": "Preconditions",
+  "共通データ名": "CommonDataName", "CommonDataName": "CommonDataName", "共通データ説明": "CommonDataDescription", "CommonDataDescription": "CommonDataDescription",
 };
-
 const CASE_HEADERS: HeaderAliases = {
-  "テストキー": "ScenarioKey",
-  "シナリオキー": "ScenarioKey",
-  "ScenarioKey": "ScenarioKey",
-  "確認項目キー": "CaseKey",
-  "ケースキー": "CaseKey",
-  "ケースID": "CaseKey",
-  "CaseKey": "CaseKey",
-  "所属フォルダパス": "FolderPaths",
-  "フォルダパス": "FolderPaths",
-  "FolderPaths": "FolderPaths",
-  "確認項目名": "Title",
-  "タイトル": "Title",
-  "Title": "Title",
-  "目的": "Objective",
-  "Objective": "Objective",
-  "前提条件": "Preconditions",
-  "Preconditions": "Preconditions",
-  "見る場所": "ViewLocation",
-  "ViewLocation": "ViewLocation",
-  "優先度": "Priority",
-  "Priority": "Priority",
-  "タグ": "Tags",
-  "Tags": "Tags",
-  "テストデータ": "Data",
-  "Data": "Data",
+  "テストキー": "ScenarioKey", "シナリオキー": "ScenarioKey", "ScenarioKey": "ScenarioKey",
+  "確認項目キー": "CaseKey", "ケースキー": "CaseKey", "ケースID": "CaseKey", "CaseKey": "CaseKey",
+  "所属フォルダパス": "FolderPaths", "フォルダパス": "FolderPaths", "FolderPaths": "FolderPaths",
+  "確認項目名": "Title", "タイトル": "Title", "Title": "Title", "目的": "Objective", "Objective": "Objective",
+  "前提条件": "Preconditions", "Preconditions": "Preconditions", "見る場所": "ViewLocation", "ViewLocation": "ViewLocation",
+  "優先度": "Priority", "Priority": "Priority", "タグ": "Tags", "Tags": "Tags", "テストデータ": "Data", "Data": "Data",
 };
-
 const STEP_HEADERS: HeaderAliases = {
-  "確認項目キー": "CaseKey",
-  "ケースキー": "CaseKey",
-  "ケースID": "CaseKey",
-  "CaseKey": "CaseKey",
-  "手順番号": "StepNo",
-  "StepNo": "StepNo",
-  "操作": "Action",
-  "Action": "Action",
-  "期待結果": "Expected",
-  "Expected": "Expected",
+  "確認項目キー": "CaseKey", "ケースキー": "CaseKey", "ケースID": "CaseKey", "CaseKey": "CaseKey",
+  "手順番号": "StepNo", "StepNo": "StepNo", "操作": "Action", "Action": "Action", "期待結果": "Expected", "Expected": "Expected",
 };
-
 const COMMON_DATA_HEADERS: HeaderAliases = {
-  "テストキー": "ScenarioKey",
-  "シナリオキー": "ScenarioKey",
-  "ScenarioKey": "ScenarioKey",
-  "項目番号": "ItemNo",
-  "ItemNo": "ItemNo",
-  "項目名": "Label",
-  "Label": "Label",
-  "値": "Value",
-  "Value": "Value",
-  "メモ": "Memo",
-  "Memo": "Memo",
+  "テストキー": "ScenarioKey", "シナリオキー": "ScenarioKey", "ScenarioKey": "ScenarioKey",
+  "項目番号": "ItemNo", "ItemNo": "ItemNo", "項目名": "Label", "Label": "Label", "値": "Value", "Value": "Value", "メモ": "Memo", "Memo": "Memo",
+};
+const INPUT_HEADERS: HeaderAliases = {
+  "テスト名": "ScenarioTitle", "確認項目名": "CaseTitle", "操作": "Action", "期待結果": "Expected", "優先度": "Priority",
+  "見る場所": "ViewLocation", "テストデータ": "Data", "タグ": "Tags", "テストフォルダ": "ScenarioFolder", "確認項目フォルダ": "CaseFolders",
+  "テストの目的": "ScenarioObjective", "テスト全体の前提条件": "ScenarioPreconditions", "確認項目の目的": "CaseObjective", "確認項目の前提条件": "CasePreconditions",
+};
+const FRIENDLY_COMMON_HEADERS: HeaderAliases = {
+  "テスト名": "ScenarioTitle", "項目名": "Label", "値": "Value", "メモ": "Memo", "データ名（任意）": "CommonDataName", "説明（任意）": "CommonDataDescription",
 };
 
 function cellText(cell: ExcelJS.Cell): string {
   if (cell.type === ExcelJS.ValueType.Formula) throw badRequest(`数式セルは使用できません: ${cell.address}`);
   return cell.text.trim();
 }
-
 function headerMap(sheet: ExcelJS.Worksheet, aliases: HeaderAliases): Map<string, number> {
   const result = new Map<string, number>();
   sheet.getRow(1).eachCell((cell, column) => {
@@ -139,15 +94,16 @@ function headerMap(sheet: ExcelJS.Worksheet, aliases: HeaderAliases): Map<string
   });
   return result;
 }
-
 function getCell(row: ExcelJS.Row, headers: Map<string, number>, name: string): string {
   return cellText(row.getCell(headers.get(name)!));
 }
-
+function optionalCell(row: ExcelJS.Row, headers: Map<string, number>, name: string): string {
+  const column = headers.get(name);
+  return column ? cellText(row.getCell(column)) : "";
+}
 function requireHeaders(sheetName: string, headers: Map<string, number>, names: string[], errors: string[]): void {
   for (const name of names) if (!headers.has(name)) errors.push(`${sheetName}シートに必須列 ${name} がありません。`);
 }
-
 function priority(value: string): ImportPriority | null {
   const normalized = value.toLowerCase();
   if (["高", "high"].includes(normalized)) return "high";
@@ -155,21 +111,36 @@ function priority(value: string): ImportPriority | null {
   if (["低", "low"].includes(normalized)) return "low";
   return null;
 }
-
 function splitTags(value: string): string[] {
   return [...new Set(value.split(/[,、]/).map((item) => item.trim()).filter(Boolean))];
 }
-
 function splitFolderPaths(value: string): string[] {
   return [...new Set(value.split(/[|\n;；]+/).map((item) => item.trim()).filter(Boolean))];
 }
-
 function styleDataSheet(sheet: ExcelJS.Worksheet, widths: number[]): void {
   sheet.views = [{ state: "frozen", ySplit: 1 }];
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: widths.length } };
   sheet.getRow(1).font = { bold: true };
   sheet.getRow(1).alignment = { vertical: "middle", wrapText: true };
   widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+}
+
+function styleFriendlyInput(sheet: ExcelJS.Worksheet): void {
+  sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }];
+  sheet.autoFilter = { from: "A1", to: "N1" };
+  const widths = [30, 30, 45, 45, 12, 26, 30, 22, 24, 26, 34, 34, 34, 34];
+  widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+  const header = sheet.getRow(1);
+  header.height = 34;
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.alignment = { vertical: "middle", wrapText: true };
+  for (let column = 1; column <= 4; column += 1) header.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0068A8" } };
+  for (let column = 5; column <= 14; column += 1) header.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF526579" } };
+  for (let row = 2; row <= 201; row += 1) {
+    const priorityCell = sheet.getCell(`E${row}`);
+    priorityCell.dataValidation = { type: "list", allowBlank: true, formulae: ['"高,中,低"'] };
+    for (let column = 1; column <= 4; column += 1) sheet.getRow(row).getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7FBFF" } };
+  }
 }
 
 export async function buildCasesTemplate(): Promise<Buffer> {
@@ -179,48 +150,160 @@ export async function buildCasesTemplate(): Promise<Buffer> {
 
   const guide = workbook.addWorksheet("使い方");
   guide.addRows([
-    ["THE TEST WEB Excelインポート"],
-    ["Scenarios", "1行を1つのテストとして登録します。テストキーでCasesとCommonDataを関連付けます。"],
-    ["Cases", "1行を1つの確認項目として登録します。所属フォルダを複数指定する場合は | で区切ります。"],
-    ["Steps", "確認項目の操作手順を登録します。確認項目キーと手順番号の組み合わせは重複不可です。"],
-    ["CommonData", "テスト共通データです。不要な場合はデータ行を削除できます。シート自体は残しても削除しても構いません。"],
-    ["フォルダパス", "階層は / で区切ります。例: 機能/ログイン"],
-    ["注意", "列名やシート名は変更しないでください。数式・結合セルは使用できません。"],
+    ["THE TEST WEB Excel入力テンプレート"],
+    ["最短手順", "1. 「入力」シートのA〜D列へ入力 → 2. 保存 → 3. THE TEST WEBへアップロードして確認 → 4. 追加を確定"],
+    ["1行目", "テスト名・確認項目名・操作・期待結果を入力します。優先度などは必要な場合だけ入力します。"],
+    ["同じ確認項目の次の手順", "テスト名と確認項目名を空欄にし、操作・期待結果だけ次の行へ入力します。"],
+    ["同じテストの次の確認項目", "テスト名を空欄にし、確認項目名・操作・期待結果を入力します。"],
+    ["別のテスト", "新しいテスト名を入力した行から自動的に別テストとして扱います。システム用キーは不要です。"],
+    ["共通データ", "必要な場合だけ「共通データ」シートへ入力します。同じテストの2行目以降はテスト名を空欄にできます。"],
+    ["フォルダ", "階層は / で区切ります。確認項目を複数フォルダへ入れる場合は | で区切ります。"],
+    ["注意", "列名とシート名は変更しないでください。数式・結合セルは使用できません。"],
+    ["入力例", "ログイン機能の確認 | 正常ログイン | ユーザー名を入力する | 入力値が表示される\n（次行）空欄 | 空欄 | ログインボタンを押す | ダッシュボードが表示される"],
   ]);
-  guide.getColumn(1).width = 20;
-  guide.getColumn(2).width = 90;
-  guide.getRow(1).font = { bold: true, size: 16 };
+  guide.getColumn(1).width = 24;
+  guide.getColumn(2).width = 100;
+  guide.getRow(1).font = { bold: true, size: 16, color: { argb: "FF17498E" } };
   guide.getRow(1).height = 28;
   guide.eachRow((row) => { row.alignment = { vertical: "top", wrapText: true }; });
 
-  const scenarios = workbook.addWorksheet("Scenarios");
-  scenarios.addRow(["テストキー", "フォルダパス", "テスト名", "目的", "テスト全体の前提条件", "共通データ名", "共通データ説明"]);
-  scenarios.addRow(["SCENARIO-001", "機能/ログイン", "ログイン機能の確認", "利用者が正常にログインできること", "テストユーザーが登録済み", "ログイン共通データ", "ログイン確認で共通利用する値"]);
-  styleDataSheet(scenarios, [20, 24, 32, 38, 38, 28, 38]);
+  const input = workbook.addWorksheet("入力");
+  input.addRow(["テスト名", "確認項目名", "操作", "期待結果", "優先度", "見る場所", "テストデータ", "タグ", "テストフォルダ", "確認項目フォルダ", "テストの目的", "テスト全体の前提条件", "確認項目の目的", "確認項目の前提条件"]);
+  styleFriendlyInput(input);
+  input.getCell("A1").note = "新しいテストの最初の行だけ入力します。同じテストの続きは空欄で構いません。";
+  input.getCell("B1").note = "新しい確認項目の最初の行だけ入力します。同じ確認項目の次の手順では空欄で構いません。";
+  input.getCell("C1").note = "操作手順。1行につき1手順です。";
+  input.getCell("D1").note = "その操作の期待結果です。";
+  input.getCell("E1").note = "空欄の場合は「中」です。";
 
-  const cases = workbook.addWorksheet("Cases");
-  cases.addRow(["テストキー", "確認項目キー", "所属フォルダパス", "確認項目名", "目的", "前提条件", "見る場所", "優先度", "タグ", "テストデータ"]);
-  cases.addRow(["SCENARIO-001", "CASE-001", "機能/ログイン|回帰", "正常ログイン", "正しい認証情報でログインできること", "ログイン画面を表示済み", "ログイン画面", "高", "smoke,login", "ユーザー: test-user"]);
-  styleDataSheet(cases, [20, 20, 28, 30, 38, 38, 28, 14, 24, 30]);
-
-  const steps = workbook.addWorksheet("Steps");
-  steps.addRow(["確認項目キー", "手順番号", "操作", "期待結果"]);
-  steps.addRow(["CASE-001", 1, "ユーザー名とパスワードを入力する", "入力値が表示される"]);
-  steps.addRow(["CASE-001", 2, "ログインボタンを押す", "ダッシュボードが表示される"]);
-  styleDataSheet(steps, [20, 14, 48, 48]);
-
-  const commonData = workbook.addWorksheet("CommonData");
-  commonData.addRow(["テストキー", "項目番号", "項目名", "値", "メモ"]);
-  commonData.addRow(["SCENARIO-001", 1, "共通URL", "https://example.test/login", "テスト環境"]);
-  styleDataSheet(commonData, [20, 14, 28, 42, 32]);
+  const common = workbook.addWorksheet("共通データ");
+  common.addRow(["テスト名", "項目名", "値", "メモ", "データ名（任意）", "説明（任意）"]);
+  styleDataSheet(common, [30, 28, 42, 32, 28, 40]);
+  common.getCell("A1").note = "同じテストの続きは空欄で構いません。";
 
   const value = await workbook.xlsx.writeBuffer();
   return Buffer.from(value);
 }
 
+function parseFriendlyWorkbook(workbook: ExcelJS.Workbook, inputSheet: ExcelJS.Worksheet): ExcelImportParseResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const commonSheet = workbook.getWorksheet("共通データ");
+  for (const sheet of [inputSheet, commonSheet].filter((item): item is ExcelJS.Worksheet => Boolean(item))) {
+    if ((sheet.model.merges?.length ?? 0) > 0) errors.push(`${sheet.name}シートで結合セルは使用できません。`);
+  }
+  const headers = headerMap(inputSheet, INPUT_HEADERS);
+  requireHeaders("入力", headers, ["ScenarioTitle", "CaseTitle", "Action", "Expected"], errors);
+  if (errors.length) return { scenarios: [], errors, warnings };
+
+  const scenarios: ExcelImportScenario[] = [];
+  let currentScenario: ExcelImportScenario | null = null;
+  let currentCase: ExcelImportCase | null = null;
+  let scenarioNo = 0;
+  let caseNo = 0;
+  inputSheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    if (row.hidden) warnings.push(`入力 ${rowNumber}行目は非表示行です。`);
+    try {
+      const scenarioTitle = optionalCell(row, headers, "ScenarioTitle");
+      const caseTitle = optionalCell(row, headers, "CaseTitle");
+      const action = optionalCell(row, headers, "Action");
+      const expected = optionalCell(row, headers, "Expected");
+      const optionalValues = ["Priority", "ViewLocation", "Data", "Tags", "ScenarioFolder", "CaseFolders", "ScenarioObjective", "ScenarioPreconditions", "CaseObjective", "CasePreconditions"].map((name) => optionalCell(row, headers, name));
+      if (![scenarioTitle, caseTitle, action, expected, ...optionalValues].some(Boolean)) return;
+
+      if (scenarioTitle) {
+        scenarioNo += 1;
+        currentScenario = {
+          scenarioKey: `SCENARIO-${String(scenarioNo).padStart(3, "0")}`,
+          folderPath: optionalCell(row, headers, "ScenarioFolder"),
+          title: scenarioTitle,
+          objective: optionalCell(row, headers, "ScenarioObjective"),
+          preconditions: optionalCell(row, headers, "ScenarioPreconditions"),
+          commonDataName: "", commonDataDescription: "", cases: [], commonDataItems: [],
+        };
+        scenarios.push(currentScenario);
+        currentCase = null;
+      }
+      if (!currentScenario) { errors.push(`入力 ${rowNumber}行目: 最初の行にはテスト名を入力してください。`); return; }
+
+      if (caseTitle) {
+        caseNo += 1;
+        const rawPriority = optionalCell(row, headers, "Priority");
+        const parsedPriority = rawPriority ? priority(rawPriority) : "medium";
+        if (!parsedPriority) { errors.push(`入力 ${rowNumber}行目: 優先度は高・中・低のいずれか、または空欄にしてください。`); return; }
+        currentCase = {
+          caseKey: `CASE-${String(caseNo).padStart(3, "0")}`,
+          scenarioKey: currentScenario.scenarioKey,
+          folderPaths: splitFolderPaths(optionalCell(row, headers, "CaseFolders")),
+          title: caseTitle,
+          objective: optionalCell(row, headers, "CaseObjective"),
+          preconditions: optionalCell(row, headers, "CasePreconditions"),
+          viewLocation: optionalCell(row, headers, "ViewLocation"),
+          priority: parsedPriority,
+          tags: splitTags(optionalCell(row, headers, "Tags")),
+          data: optionalCell(row, headers, "Data"),
+          steps: [],
+        };
+        currentScenario.cases.push(currentCase);
+      }
+      if (!currentCase) { errors.push(`入力 ${rowNumber}行目: テストの最初の手順には確認項目名を入力してください。`); return; }
+      if (!action || !expected) { errors.push(`入力 ${rowNumber}行目: 操作と期待結果を入力してください。`); return; }
+      currentCase.steps.push({ stepNo: currentCase.steps.length + 1, action, expected });
+    } catch (error) {
+      errors.push(`入力 ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+  if (!scenarios.length) errors.push("入力シートにテストがありません。");
+
+  if (commonSheet) {
+    const commonHeaders = headerMap(commonSheet, FRIENDLY_COMMON_HEADERS);
+    requireHeaders("共通データ", commonHeaders, ["ScenarioTitle", "Label", "Value", "Memo"], errors);
+    if (errors.length) return { scenarios, errors, warnings };
+    let currentTitle = "";
+    commonSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      if (row.hidden) warnings.push(`共通データ ${rowNumber}行目は非表示行です。`);
+      try {
+        const title = optionalCell(row, commonHeaders, "ScenarioTitle");
+        const label = optionalCell(row, commonHeaders, "Label");
+        const value = optionalCell(row, commonHeaders, "Value");
+        const memo = optionalCell(row, commonHeaders, "Memo");
+        if (![title, label, value, memo].some(Boolean)) return;
+        if (title) currentTitle = title;
+        if (!currentTitle) { errors.push(`共通データ ${rowNumber}行目: 最初の行にはテスト名を入力してください。`); return; }
+        if (!label) { errors.push(`共通データ ${rowNumber}行目: 項目名を入力してください。`); return; }
+        const matches = scenarios.filter((scenario) => scenario.title === currentTitle);
+        if (matches.length !== 1) {
+          errors.push(`共通データ ${rowNumber}行目: テスト名「${currentTitle}」を1件に特定できません。入力シートのテスト名を確認してください。`);
+          return;
+        }
+        const scenario = matches[0]!;
+        if (!scenario.commonDataName) scenario.commonDataName = optionalCell(row, commonHeaders, "CommonDataName");
+        if (!scenario.commonDataDescription) scenario.commonDataDescription = optionalCell(row, commonHeaders, "CommonDataDescription");
+        scenario.commonDataItems.push({ itemNo: scenario.commonDataItems.length + 1, label, value, memo });
+      } catch (error) {
+        errors.push(`共通データ ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  }
+
+  const warnedFolders = new Set<string>();
+  for (const scenario of scenarios) {
+    if (!scenario.cases.length) errors.push(`テスト「${scenario.title}」: 確認項目がありません。`);
+    if (scenario.folderPath) warnedFolders.add(scenario.folderPath);
+    for (const item of scenario.cases) item.folderPaths.forEach((folderPath) => warnedFolders.add(folderPath));
+  }
+  for (const folderPath of warnedFolders) warnings.push(`フォルダ ${folderPath} が存在しない場合は確定時に作成します。`);
+  return { scenarios, errors, warnings };
+}
+
 export async function parseCasesWorkbook(filePath: string): Promise<ExcelImportParseResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.read(createReadStream(filePath));
+  const friendlyInput = workbook.getWorksheet("入力");
+  if (friendlyInput) return parseFriendlyWorkbook(workbook, friendlyInput);
+
   const errors: string[] = [];
   const warnings: string[] = [];
   const scenariosSheet = workbook.getWorksheet("Scenarios");
@@ -266,12 +349,9 @@ export async function parseCasesWorkbook(filePath: string): Promise<ExcelImportP
         preconditions: getCell(row, scenarioHeaders, "Preconditions"),
         commonDataName: getCell(row, scenarioHeaders, "CommonDataName"),
         commonDataDescription: getCell(row, scenarioHeaders, "CommonDataDescription"),
-        cases: [],
-        commonDataItems: [],
+        cases: [], commonDataItems: [],
       });
-    } catch (error) {
-      errors.push(`Scenarios ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    } catch (error) { errors.push(`Scenarios ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`); }
   });
   if (!scenariosByKey.size) errors.push("Scenariosシートにテストがありません。");
 
@@ -293,23 +373,13 @@ export async function parseCasesWorkbook(filePath: string): Promise<ExcelImportP
       const parsedPriority = priority(getCell(row, caseHeaders, "Priority"));
       if (!parsedPriority) { errors.push(`Cases ${rowNumber}行目: 優先度は高・中・低のいずれかです。`); return; }
       const item: ExcelImportCase = {
-        caseKey,
-        scenarioKey,
-        folderPaths: splitFolderPaths(getCell(row, caseHeaders, "FolderPaths")),
-        title,
-        objective: getCell(row, caseHeaders, "Objective"),
-        preconditions: getCell(row, caseHeaders, "Preconditions"),
-        viewLocation: getCell(row, caseHeaders, "ViewLocation"),
-        priority: parsedPriority,
-        tags: splitTags(getCell(row, caseHeaders, "Tags")),
-        data: getCell(row, caseHeaders, "Data"),
-        steps: [],
+        caseKey, scenarioKey, folderPaths: splitFolderPaths(getCell(row, caseHeaders, "FolderPaths")), title,
+        objective: getCell(row, caseHeaders, "Objective"), preconditions: getCell(row, caseHeaders, "Preconditions"),
+        viewLocation: getCell(row, caseHeaders, "ViewLocation"), priority: parsedPriority, tags: splitTags(getCell(row, caseHeaders, "Tags")),
+        data: getCell(row, caseHeaders, "Data"), steps: [],
       };
-      casesByKey.set(caseKey, item);
-      scenario.cases.push(item);
-    } catch (error) {
-      errors.push(`Cases ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`);
-    }
+      casesByKey.set(caseKey, item); scenario.cases.push(item);
+    } catch (error) { errors.push(`Cases ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`); }
   });
 
   const stepNumbers = new Set<string>();
@@ -328,11 +398,8 @@ export async function parseCasesWorkbook(filePath: string): Promise<ExcelImportP
       const unique = `${caseKey}:${stepNo}`;
       if (stepNumbers.has(unique)) { errors.push(`Steps ${rowNumber}行目: 確認項目キー ${caseKey} の手順番号 ${stepNo} が重複しています。`); return; }
       if (!action || !expected) { errors.push(`Steps ${rowNumber}行目: 操作と期待結果は必須です。`); return; }
-      stepNumbers.add(unique);
-      item.steps.push({ stepNo, action, expected });
-    } catch (error) {
-      errors.push(`Steps ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`);
-    }
+      stepNumbers.add(unique); item.steps.push({ stepNo, action, expected });
+    } catch (error) { errors.push(`Steps ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`); }
   });
 
   if (commonDataSheet && commonDataHeaders) {
@@ -352,15 +419,8 @@ export async function parseCasesWorkbook(filePath: string): Promise<ExcelImportP
         const unique = `${scenarioKey}:${itemNo}`;
         if (itemNumbers.has(unique)) { errors.push(`CommonData ${rowNumber}行目: テストキー ${scenarioKey} の項目番号 ${itemNo} が重複しています。`); return; }
         itemNumbers.add(unique);
-        scenario.commonDataItems.push({
-          itemNo,
-          label,
-          value: getCell(row, commonDataHeaders, "Value"),
-          memo: getCell(row, commonDataHeaders, "Memo"),
-        });
-      } catch (error) {
-        errors.push(`CommonData ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`);
-      }
+        scenario.commonDataItems.push({ itemNo, label, value: getCell(row, commonDataHeaders, "Value"), memo: getCell(row, commonDataHeaders, "Memo") });
+      } catch (error) { errors.push(`CommonData ${rowNumber}行目: ${error instanceof Error ? error.message : String(error)}`); }
     });
   }
 

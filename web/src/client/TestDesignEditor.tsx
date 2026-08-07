@@ -222,6 +222,20 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     markDirty();
   }
 
+  async function uploadImageCopy(source: string): Promise<string> {
+    const sourceResponse = await fetch(source, { credentials: "same-origin", cache: "no-store" });
+    if (!sourceResponse.ok) throw new Error("複製元の見る場所画像を読み込めませんでした。");
+    const blob = await sourceResponse.blob();
+    const extension = blob.type === "image/jpeg" ? "jpg" : blob.type === "image/webp" ? "webp" : "png";
+    const form = new FormData();
+    form.append("file", blob, `view-image-copy.${extension}`);
+    const uploaded = await request<{ url: string }>(`/api/test-case-images?projectId=${encodeURIComponent(projectId)}`, { method: "POST", body: form });
+    return uploaded.url;
+  }
+  async function duplicateImageSources(sources: string[]): Promise<string[]> {
+    return Promise.all(sources.map(uploadImageCopy));
+  }
+
   async function copyExisting(caseId: string) {
     try {
       const loaded = await request<{ testCase: Omit<EditorCase, "key" | "data"> }>(`/api/test-cases/${caseId}?projectId=${encodeURIComponent(projectId)}`);
@@ -245,10 +259,33 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     } catch (error) { setMessage(errorText(error, "テスト名を変更できませんでした。")); throw error; }
   }
   async function duplicateScenario(item: DesignScenario) {
+    if (!canEdit || busy || imageUploading) return;
+    setBusy(true); setImageUploading(true); setMessage("");
     try {
-      const result = await request<{ id: string }>(`/api/scenarios/${item.id}/duplicate`, { method: "POST", body: JSON.stringify({ projectId, title: `${item.title} のコピー` }) });
-      await onChanged(); await selectScenario(result.id);
-    } catch (error) { setMessage(errorText(error, "テストを複製できませんでした。")); throw error; }
+      const source = await request<EditorResponse>(`/api/scenario-editor/${item.id}?projectId=${encodeURIComponent(projectId)}`);
+      const duplicatedCases = await Promise.all(source.cases.map(async ({ images: sourceImages = [], clientKey: _clientKey, ...sourceCase }) => {
+        const key = newKey();
+        const copiedImages = await duplicateImageSources(sourceImages);
+        return { ...sourceCase, id: null, version: null, clientKey: key, images: copiedImages };
+      }));
+      const copied = await request<EditorResponse>("/api/scenario-editor/save", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId,
+          scenario: { id: null, version: null, folderId: source.scenario.folderId, title: `${source.scenario.title} のコピー`, objective: source.scenario.objective, preconditions: source.scenario.preconditions },
+          cases: duplicatedCases,
+          commonData: source.commonData ? { ...source.commonData, id: null, version: null } : null,
+        }),
+      });
+      await onChanged();
+      setBusy(false); setImageUploading(false);
+      await selectScenario(copied.scenario.id);
+    } catch (error) {
+      setMessage(errorText(error, "テストを複製できませんでした。"));
+      throw error;
+    } finally {
+      setBusy(false); setImageUploading(false);
+    }
   }
   async function moveExplorerSelection(selection: ExplorerSelection, targetFolderId: string | null) {
     const selectedFolderIds = new Set(selection.folders.map((item) => item.id));
@@ -312,10 +349,23 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     if (selectedRowKey === rows[index].key) setSelectedRowKey(next[Math.max(0, index - 1)]!.key);
     markDirty();
   }
-  function addRow(after = rows.length - 1, source?: EditorCase) {
-    const row = source ? { ...source, key: newKey(), id: null, version: null, steps: source.steps.map((step) => ({ ...step })) } : emptyCase();
+  function addRow(after = rows.length - 1) {
+    const row = emptyCase();
     setRows((current) => [...current.slice(0, after + 1), row, ...current.slice(after + 1)]);
     setSelectedRowKey(row.key); setActiveTab("cases"); markDirty();
+  }
+  async function duplicateRow(index: number, source: EditorCase) {
+    if (!canEdit || imageUploading) return;
+    setImageUploading(true); setMessage("");
+    try {
+      const row: EditorCase = { ...source, key: newKey(), id: null, version: null, steps: source.steps.map((step) => ({ ...step })) };
+      const copiedImages = await duplicateImageSources(images[source.key] ?? []);
+      setRows((current) => [...current.slice(0, index + 1), row, ...current.slice(index + 1)]);
+      setImages((current) => ({ ...current, [row.key]: copiedImages }));
+      setSelectedRowKey(row.key); setActiveTab("cases"); markDirty();
+    } catch (error) {
+      setMessage(errorText(error, "確認項目と見る場所画像を複製できませんでした。"));
+    } finally { setImageUploading(false); }
   }
 
   const stateLabel: Record<SaveState, string> = { clean: "変更なし", dirty: "未保存", saving: "保存中…", saved: savedAt ? `保存済み ${savedAt}` : "保存済み", error: "保存失敗" };
@@ -324,7 +374,7 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     {!canEdit && <div className="readonly-banner" role="status">このプロジェクトは閲覧のみです。編集するには管理者へプロジェクト割り当てを依頼してください。</div>}
     {!selectedScenarioId && scenarios.length === 0 && <section className="design-welcome panel">
       <div><p className="eyebrow">はじめに</p><h2>このプロジェクトで行うこと</h2><p>1. テストを作成する　→　2. テストを実行する　→　3. 結果と証跡を残す</p></div>
-      <div className="button-row"><button type="button" className="primary" disabled={!canEdit} onClick={() => resetEditor()}>＋ 新しいテストを作る</button><button type="button" onClick={onOpenExcel}>Excelから取り込む</button></div>
+      <div className="button-row"><button type="button" className="design-action-add" disabled={!canEdit} onClick={() => resetEditor()}>＋ 新しいテストを作る</button><button type="button" className="design-action-import" onClick={onOpenExcel}>Excelから取り込む</button></div>
     </section>}
     <div className="test-design-grid">
       <aside className={`panel design-browser ${browserOpen ? "mobile-open" : ""}`}>
@@ -338,8 +388,8 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
           <button type="button" className="small design-browser-toggle" aria-expanded={browserOpen} onClick={() => setBrowserOpen((current) => !current)}>テスト一覧</button>
           <div className="design-toolbar-title"><p className="eyebrow">TEST DESIGN</p><h2>{title.trim() || (selectedScenarioId ? "テストを編集" : "新しいテスト")}</h2><span className="muted">{selectedScenarioId ? "保存済みのテストを編集中" : "新しいテストを作成中"}</span></div>
           <span className={`design-save-state ${saveState}`}>{stateLabel[saveState]}</span>
-          <button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => void save(false)} className="primary">テスト全体を保存</button>
-          <button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => { if (selectedScenarioId && !dirty) onRun(selectedScenarioId); else void save(true); }}>{selectedScenarioId && !dirty ? "このテストで実行を作成" : "保存して実行を作成"}</button>
+          <button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => void save(false)} className="design-action-save">保存</button>
+          <button type="button" disabled={!canEdit || busy || imageUploading} onClick={() => { if (selectedScenarioId && !dirty) onRun(selectedScenarioId); else void save(true); }} className="design-action-run">▶ {selectedScenarioId && !dirty ? "このテストで実行を作成" : "保存して実行を作成"}</button>
         </div>
         <div className="design-tabs" role="tablist" aria-label="テスト設計の編集項目">
           <button type="button" role="tab" aria-selected={activeTab === "basic"} className={activeTab === "basic" ? "active" : ""} onClick={() => setActiveTab("basic")}>基本情報</button>
@@ -357,11 +407,11 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
         <section className="design-tab-panel design-cases-panel" role="tabpanel" hidden={activeTab !== "cases"}>
           <div className="design-help">通常は左の確認項目を選び、右側で詳細を編集します。大量入力時だけ「一覧編集」を使用します。</div>
           <div className="design-case-tools">
-            <button type="button" className="primary" disabled={!canEdit} onClick={() => addRow()}>＋ 確認項目</button>
-            <button type="button" disabled={!canEdit || !selectedRow} onClick={() => selectedRow && addRow(selectedIndex, selectedRow)}>複製</button>
-            <button type="button" aria-pressed={bulkMode} onClick={() => setBulkMode((current) => !current)}>{bulkMode ? "詳細編集へ戻る" : "一覧編集"}</button>
-            <details className="design-copy-control"><summary className="link-button">既存からコピー</summary><div className="design-copy-menu">{cases.map((item) => <button type="button" key={item.id} onClick={() => void copyExisting(item.id)}>{item.title}</button>)}{!cases.length && <span className="muted">コピー元はありません。</span>}</div></details>
-            <button type="button" onClick={onOpenExcel}>Excelから取り込む</button>
+            <button type="button" className="design-action-add" disabled={!canEdit} onClick={() => addRow()}>＋ 確認項目</button>
+            <button type="button" className="design-action-copy" disabled={!canEdit || !selectedRow || imageUploading} onClick={() => selectedRow && void duplicateRow(selectedIndex, selectedRow)}>⧉ 複製</button>
+            <button type="button" className="design-action-mode" aria-pressed={bulkMode} onClick={() => setBulkMode((current) => !current)}>{bulkMode ? "詳細編集へ戻る" : "一覧編集"}</button>
+            <details className="design-copy-control"><summary className="link-button design-action-copy">既存からコピー</summary><div className="design-copy-menu">{cases.map((item) => <button type="button" key={item.id} onClick={() => void copyExisting(item.id)}>{item.title}</button>)}{!cases.length && <span className="muted">コピー元はありません。</span>}</div></details>
+            <button type="button" className="design-action-import" onClick={onOpenExcel}>Excelから取り込む</button>
           </div>
           {!bulkMode && selectedRow && <div className="design-case-workspace">
             <nav className="design-case-list" aria-label="確認項目一覧">
@@ -377,19 +427,19 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
                 <label>目的<AutoTextarea disabled={!canEdit} value={selectedRow.objective} onChange={(event) => updateRow(selectedIndex, { objective: event.target.value })} /></label>
                 <label>前提条件<AutoTextarea disabled={!canEdit} value={selectedRow.preconditions} onChange={(event) => updateRow(selectedIndex, { preconditions: event.target.value })} /></label>
                 <label>テストデータ<AutoTextarea disabled={!canEdit} aria-label={`テストデータ ${selectedIndex + 1}`} value={selectedRow.data} onChange={(event) => updateRow(selectedIndex, { data: event.target.value })} /></label>
-                <fieldset className="design-steps-fieldset"><legend>操作手順</legend>{canEdit && <div className="design-fieldset-actions"><button type="button" className="small" onClick={() => updateRow(selectedIndex, { steps: [...selectedRow.steps, { action: "", expected: "" }] })}>＋ 操作手順</button></div>}
+                <fieldset className="design-steps-fieldset"><legend>操作手順</legend>{canEdit && <div className="design-fieldset-actions"><button type="button" className="small design-action-add" onClick={() => updateRow(selectedIndex, { steps: [...selectedRow.steps, { action: "", expected: "" }] })}>＋ 操作手順</button></div>}
                   <div className="design-step-summary" aria-label={`操作手順 ${selectedIndex + 1}`}><strong>{selectedRow.steps.length}手順</strong>{selectedRow.steps.map((step, stepIndex) => <span key={stepIndex}><b>{stepIndex + 1}.</b> {step.action || "（未入力）"}</span>)}</div>
                   <div className="design-step-list">{selectedRow.steps.map((step, stepIndex) => <div className="design-step" key={stepIndex}><div className="design-step-head"><span>{stepIndex + 1}</span><strong>手順 {stepIndex + 1}</strong><button type="button" className="danger small" disabled={!canEdit || selectedRow.steps.length === 1} onClick={() => updateRow(selectedIndex, { steps: selectedRow.steps.filter((_, index) => index !== stepIndex) })}>削除</button></div><div className="design-step-fields"><label>操作<AutoTextarea disabled={!canEdit} aria-label={`詳細操作 ${stepIndex + 1}`} placeholder="操作" value={step.action} onChange={(event) => updateRow(selectedIndex, { steps: selectedRow.steps.map((entry, index) => index === stepIndex ? { ...entry, action: event.target.value } : entry) })} /></label><label>期待結果<AutoTextarea disabled={!canEdit} aria-label={`詳細期待結果 ${stepIndex + 1}`} placeholder="期待結果" value={step.expected} onChange={(event) => updateRow(selectedIndex, { steps: selectedRow.steps.map((entry, index) => index === stepIndex ? { ...entry, expected: event.target.value } : entry) })} /></label></div></div>)}</div>
                 </fieldset>
                 <label>見る場所<AutoTextarea disabled={!canEdit} value={selectedRow.viewLocation} onChange={(event) => updateRow(selectedIndex, { viewLocation: event.target.value })} /></label>
-                <fieldset className="design-images-fieldset"><legend>見る場所の画像</legend><div className="design-image-actions"><label className="link-button">画像を追加<input hidden type="file" accept="image/*" multiple disabled={!canEdit || imageUploading} onChange={(event) => { if (event.target.files) void addImages(event.target.files); event.currentTarget.value = ""; }} /></label><span className="muted">{imageUploading ? "アップロード中…" : "または画像をこの欄へ貼り付け"}</span></div><div className="design-image-grid">{(images[selectedRow.key] ?? []).map((source, imageIndex) => <figure key={imageIndex}><button type="button" className="design-image-preview" onClick={() => setEditingImage({ rowKey: selectedRow.key, source })}><img src={source} alt={`参考画像 ${imageIndex + 1}`} /></button>{canEdit && <div className="button-row"><button type="button" className="small" onClick={() => setEditingImage({ rowKey: selectedRow.key, source })}>編集</button><button type="button" className="danger small" onClick={() => { setImages((current) => ({ ...current, [selectedRow.key]: (current[selectedRow.key] ?? []).filter((_, index) => index !== imageIndex) })); markDirty(); }}>削除</button></div>}</figure>)}</div></fieldset>
+                <fieldset className="design-images-fieldset"><legend>見る場所の画像</legend><div className="design-image-actions"><label className="link-button design-action-add">画像を追加<input hidden type="file" accept="image/*" multiple disabled={!canEdit || imageUploading} onChange={(event) => { if (event.target.files) void addImages(event.target.files); event.currentTarget.value = ""; }} /></label><span className="muted">{imageUploading ? "画像を処理中…" : "または画像をこの欄へ貼り付け"}</span></div><div className="design-image-grid">{(images[selectedRow.key] ?? []).map((source, imageIndex) => <figure key={imageIndex}><button type="button" className="design-image-preview" onClick={() => setEditingImage({ rowKey: selectedRow.key, source })}><img src={source} alt={`参考画像 ${imageIndex + 1}`} /></button>{canEdit && <div className="button-row"><button type="button" className="small" onClick={() => setEditingImage({ rowKey: selectedRow.key, source })}>編集</button><button type="button" className="danger small" onClick={() => { setImages((current) => ({ ...current, [selectedRow.key]: (current[selectedRow.key] ?? []).filter((_, index) => index !== imageIndex) })); markDirty(); }}>削除</button></div>}</figure>)}</div></fieldset>
               </div>
             </div>
           </div>}
           {bulkMode && <div className="design-bulk-wrap"><table className="design-bulk-table"><thead><tr><th>No.</th><th>確認項目名</th><th>最初の操作</th><th>最初の期待結果</th><th>テストデータ</th><th>優先度</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.key} className={row.key === selectedRow?.key ? "selected" : ""} onClick={() => setSelectedRowKey(row.key)}><td>{index + 1}</td><td><AutoTextarea disabled={!canEdit} aria-label={`確認項目名 ${index + 1}`} value={row.title} onPaste={(event) => pasteGrid(event, index, 0)} onChange={(event) => updateRow(index, { title: event.target.value })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`一覧操作 ${index + 1}`} value={row.steps[0]?.action ?? ""} onPaste={(event) => pasteGrid(event, index, 1)} onChange={(event) => updateRow(index, { steps: row.steps.map((step, stepIndex) => stepIndex === 0 ? { ...step, action: event.target.value } : step) })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`一覧期待結果 ${index + 1}`} value={row.steps[0]?.expected ?? ""} onPaste={(event) => pasteGrid(event, index, 2)} onChange={(event) => updateRow(index, { steps: row.steps.map((step, stepIndex) => stepIndex === 0 ? { ...step, expected: event.target.value } : step) })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`テストデータ ${index + 1}`} value={row.data} onPaste={(event) => pasteGrid(event, index, 3)} onChange={(event) => updateRow(index, { data: event.target.value })} /></td><td><select disabled={!canEdit} value={row.priority} onChange={(event) => updateRow(index, { priority: event.target.value as Priority })}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></td></tr>)}</tbody></table></div>}
         </section>
         <section className="design-tab-panel" role="tabpanel" hidden={activeTab !== "common"}>
-          <details className="design-common-data" open={commonEnabled} onToggle={(event) => { const open = event.currentTarget.open; if (open !== commonEnabled) { setCommonEnabled(open); markDirty(); } }}><summary>テスト共通データを設定する（任意）</summary><div className="design-common-body"><div className="design-common-head-fields"><label>名前<input disabled={!canEdit} value={commonData.name} onChange={(event) => { setCommonData({ ...commonData, name: event.target.value }); markDirty(); }} /></label><label>説明<AutoTextarea disabled={!canEdit} value={commonData.description} onChange={(event) => { setCommonData({ ...commonData, description: event.target.value }); markDirty(); }} /></label></div><div className="design-data-table-wrap"><table className="design-data-table"><thead><tr><th>項目名</th><th>値</th><th>メモ</th><th></th></tr></thead><tbody>{commonData.items.map((item, index) => <tr key={index}><td><AutoTextarea disabled={!canEdit} aria-label={`共通データ名 ${index + 1}`} placeholder="項目名" value={item.label} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, label: event.target.value } : entry) }); markDirty(); }} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`共通データ値 ${index + 1}`} placeholder="値" value={item.value} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, value: event.target.value } : entry) }); markDirty(); }} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`共通データメモ ${index + 1}`} placeholder="メモ" value={item.memo} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, memo: event.target.value } : entry) }); markDirty(); }} /></td><td><button type="button" className="danger small" disabled={!canEdit} onClick={() => { setCommonData({ ...commonData, items: commonData.items.filter((_, itemIndex) => itemIndex !== index) }); markDirty(); }}>削除</button></td></tr>)}</tbody></table></div>{canEdit && <button type="button" onClick={() => { setCommonData({ ...commonData, items: [...commonData.items, { label: "", value: "", memo: "" }] }); markDirty(); }}>＋ データ項目</button>}</div></details>
+          <details className="design-common-data" open={commonEnabled} onToggle={(event) => { const open = event.currentTarget.open; if (open !== commonEnabled) { setCommonEnabled(open); markDirty(); } }}><summary>テスト共通データを設定する（任意）</summary><div className="design-common-body"><div className="design-common-head-fields"><label>名前<input disabled={!canEdit} value={commonData.name} onChange={(event) => { setCommonData({ ...commonData, name: event.target.value }); markDirty(); }} /></label><label>説明<AutoTextarea disabled={!canEdit} value={commonData.description} onChange={(event) => { setCommonData({ ...commonData, description: event.target.value }); markDirty(); }} /></label></div><div className="design-data-table-wrap"><table className="design-data-table"><thead><tr><th>項目名</th><th>値</th><th>メモ</th><th></th></tr></thead><tbody>{commonData.items.map((item, index) => <tr key={index}><td><AutoTextarea disabled={!canEdit} aria-label={`共通データ名 ${index + 1}`} placeholder="項目名" value={item.label} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, label: event.target.value } : entry) }); markDirty(); }} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`共通データ値 ${index + 1}`} placeholder="値" value={item.value} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, value: event.target.value } : entry) }); markDirty(); }} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`共通データメモ ${index + 1}`} placeholder="メモ" value={item.memo} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, memo: event.target.value } : entry) }); markDirty(); }} /></td><td><button type="button" className="danger small" disabled={!canEdit} onClick={() => { setCommonData({ ...commonData, items: commonData.items.filter((_, itemIndex) => itemIndex !== index) }); markDirty(); }}>削除</button></td></tr>)}</tbody></table></div>{canEdit && <button type="button" className="design-action-add" onClick={() => { setCommonData({ ...commonData, items: [...commonData.items, { label: "", value: "", memo: "" }] }); markDirty(); }}>＋ データ項目</button>}</div></details>
         </section>
       </section>
     </div>

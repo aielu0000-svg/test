@@ -387,7 +387,9 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, dataSets, canEdit
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const [completionReviewOpen, setCompletionReviewOpen] = useState(false);
   const [largeImage, setLargeImage] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
   const [editingViewImage, setEditingViewImage] = useState<string | null>(null);
+  const lightboxStageRef = useRef<HTMLDivElement>(null);
   const editRevision = useRef(0);
   const lastSubmittedRevision = useRef(0);
   const lastResolvedRevision = useRef(0);
@@ -421,6 +423,18 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, dataSets, canEdit
     loadedCaseVersion.current = item.version;
   }, [item?.id, item?.version]);
 
+  useEffect(() => {
+    const stage = lightboxStageRef.current;
+    if (!largeImage || !stage) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      setImageZoom((current) => Math.min(5, Math.max(.5, current * (event.deltaY < 0 ? 1.12 : .89))));
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [largeImage]);
+
   if (!item) return <div className="run-empty"><h2>確認項目がありません</h2><p className="muted">実行準備へ戻り、対象テストを選択してください。</p></div>;
 
   const dirty = isEditing || status !== item.status || actualResult !== (item.actual_result ?? "") || notes !== (item.notes ?? "")
@@ -449,6 +463,13 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, dataSets, canEdit
   function changeIndex(next: number) {
     if (dirty && !window.confirm("この確認項目には未保存の変更があります。保存せずに移動しますか？")) return;
     setIndex(Math.min(Math.max(next, 0), cases.length - 1));
+  }
+  function openLargeImage(source: string) {
+    setImageZoom(1);
+    setLargeImage(source);
+  }
+  function changeImageZoom(multiplier: number) {
+    setImageZoom((current) => Math.min(5, Math.max(.5, current * multiplier)));
   }
 
   async function reloadConflict() {
@@ -534,7 +555,7 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, dataSets, canEdit
       <label>実績結果{requiresActualResult(status) && "（必須）"}<textarea disabled={!canEdit} aria-invalid={requiresActualResult(status) && !actualResult.trim()} value={actualResult} onChange={(event) => edit(setActualResult, event.target.value)} /></label>
       <label>備考<textarea disabled={!canEdit} value={notes} onChange={(event) => edit(setNotes, event.target.value)} /></label>
       <div className="field-grid"><label>担当者<AssigneeSelect disabled={!canEdit || runStatus === "completed"} value={assigneeId} assignees={assignees} onChange={(value) => edit(setAssigneeId, value)} /></label><label>実行日時<input disabled={!canEdit || runStatus === "completed"} type="datetime-local" value={executedAt} onChange={(event) => edit(setExecutedAt, event.target.value)} /></label></div>
-      {!!runCaseImages(item).length && <section className="run-reference-images"><h3>見る場所の画像</h3><p className="muted">画像を選択すると拡大表示します。</p><div>{runCaseImages(item).map((source, imageIndex) => <figure key={imageIndex}><button type="button" className="run-reference-preview" onClick={() => setLargeImage(source)}><img src={source} alt={`参考画像 ${imageIndex + 1}`} /></button>{canEdit && <button type="button" className="small" onClick={() => setEditingViewImage(source)}>この実行用に編集</button>}</figure>)}</div></section>}
+      {!!runCaseImages(item).length && <section className="run-reference-images"><h3>見る場所の画像</h3><p className="muted">画像を選択すると拡大表示します。</p><div>{runCaseImages(item).map((source, imageIndex) => <figure key={imageIndex}><button type="button" className="run-reference-preview" onClick={() => openLargeImage(source)}><img src={source} alt={`参考画像 ${imageIndex + 1}`} /></button>{canEdit && <button type="button" className="small" onClick={() => setEditingViewImage(source)}>この実行用に編集</button>}</figure>)}</div></section>}
       {error && <p className="error-message" role="alert">{error}</p>}
       {conflictValues && <section className="conflict-input" aria-label="競合の復旧">
         <h3>競合の復旧</h3>
@@ -553,9 +574,9 @@ function FocusedRunPanel({ projectId, runId, runStatus, cases, dataSets, canEdit
       </section>}
       <EvidencePanelV2 projectId={projectId} canEdit={canEdit} runCases={[item]} runId={runId} onRunUpdated={onRunUpdated} onUploadingChange={setEvidenceUploading} />
       {runStatus === "in_progress" && index === cases.length - 1 && incompleteCount > 0 && <p className="muted">完了まで残り {incompleteCount} 件です。未実行・実行中の確認項目を保存してください。</p>}
-      <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent("stay")}>保存</button><button type="button" className="primary" disabled={saveState === "saving" || incompleteCount === 0} onClick={() => void saveCurrent("nextPending")}>保存して次の未実行へ →</button></>}{runStatus === "in_progress" && <button type="button" disabled={dirty || saveState === "saving" || evidenceUploading} onClick={() => void completeRun()}>完了内容を確認</button>}</div></div>
+      <div className="focused-run-actions"><button type="button" disabled={index === 0} onClick={() => changeIndex(index - 1)}>← 前へ</button><div>{canEdit && <><button type="button" disabled={!dirty || saveState === "saving"} onClick={() => void saveCurrent("stay")}>保存</button>{incompleteCount > 0 && <button type="button" className="primary" disabled={saveState === "saving"} onClick={() => void saveCurrent("nextPending")}>保存して次の未実行へ →</button>}</>}{runStatus === "in_progress" && <button type="button" disabled={dirty || saveState === "saving" || evidenceUploading} onClick={() => void completeRun()}>完了内容を確認</button>}</div></div>
     </section>
-    {largeImage && <div className="run-image-lightbox" role="dialog" aria-modal="true" aria-label="見る場所画像の拡大表示" onClick={(event) => { if (event.target === event.currentTarget) setLargeImage(null); }}><div><button type="button" onClick={() => setLargeImage(null)}>閉じる</button><img src={largeImage} alt="見る場所の拡大画像" /></div></div>}
+    {largeImage && <div className="run-image-lightbox" role="dialog" aria-modal="true" aria-label="見る場所画像の拡大表示" onClick={(event) => { if (event.target === event.currentTarget) setLargeImage(null); }}><div><div className="run-image-lightbox-toolbar"><span className="run-image-lightbox-hint">Ctrl + スクロールでも拡大・縮小できます</span><button type="button" aria-label="縮小" onClick={() => changeImageZoom(.8)}>−</button><span className="run-image-zoom-value" aria-live="polite">{Math.round(imageZoom * 100)}%</span><button type="button" aria-label="拡大" onClick={() => changeImageZoom(1.25)}>＋</button><button type="button" onClick={() => setImageZoom(1)}>100%に戻す</button><button type="button" onClick={() => setLargeImage(null)}>閉じる</button></div><div className="run-image-lightbox-stage" ref={lightboxStageRef}><img src={largeImage} alt="見る場所の拡大画像" style={{ width: `${imageZoom * 100}%` }} /></div></div></div>}
     {editingViewImage && <ViewImageEditor projectId={projectId} sourceUrl={editingViewImage} scope="run" onClose={() => setEditingViewImage(null)} onSaved={async (newUrl) => { const result = await api<{ run?: RunUpdate | null }>(`/api/run-cases/${item.id}/view-image`, { method: "POST", body: JSON.stringify({ projectId, version: item.version, sourceUrl: editingViewImage, newUrl }) }); onRunUpdated(result.run); setEditingViewImage(null); await onConflict(); }} />}
     {completionReviewOpen && <div className="run-completion-backdrop" role="dialog" aria-modal="true" aria-label="完了前チェック"><section className="panel run-completion-dialog"><div className="section-heading"><div><p className="eyebrow">FINAL CHECK</p><h2>完了前チェック</h2></div><button type="button" onClick={() => setCompletionReviewOpen(false)}>閉じる</button></div><div className="run-completion-counts"><button type="button" onClick={() => moveToStatus(["pass"])}><span>合格</span><strong>{statusCounts.pass}</strong></button><button type="button" onClick={() => moveToStatus(["fail"])}><span>不合格</span><strong>{statusCounts.fail}</strong></button><button type="button" onClick={() => moveToStatus(["blocked"])}><span>ブロック</span><strong>{statusCounts.blocked}</strong></button><button type="button" onClick={() => moveToStatus(["skip"])}><span>スキップ</span><strong>{statusCounts.skip}</strong></button><button type="button" onClick={() => moveToStatus(["not_run", "in_progress"])}><span>未実行・実行中</span><strong>{incompleteCount}</strong></button></div>{incompleteCount > 0 ? <p className="warning-message">未実行または実行中の確認項目が残っています。件数カードから対象へ移動し、結果を保存してください。</p> : <p className="success-message">全確認項目の結果が保存されています。</p>}<div className="button-row"><button type="button" onClick={() => setCompletionReviewOpen(false)}>実行へ戻る</button><button type="button" className="primary" disabled={incompleteCount > 0} onClick={() => { setCompletionReviewOpen(false); void onComplete(); }}>テストを完了</button></div></section></div>}
   </div>;
@@ -692,10 +713,11 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
   }
   return <section className="panel">
     <h2>証跡</h2>
-    <p className="muted">ファイルはストリームで保存します。通常のJSONリクエスト上限は25 MiB（26,214,400 bytes）です。証跡アップロードはmultipartストリームで処理し、1要求につき1ファイル、最大100 MiBまでです。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトにより、さらに小さい上限が適用される場合があります。編集時も元版を保持します。</p>
+    <p className="muted">画像やファイルを証跡として追加できます。説明は任意です。</p>
+    <details className="evidence-help"><summary>アップロード条件を確認</summary><p>1回につき1ファイル、最大100 MiBです。配備先のプロキシ、ストレージ容量、ブラウザ、タイムアウトによっては、さらに小さい上限が適用されます。画像編集では元の版を保持します。</p></details>
     {canEdit && <div className="evidence-entry"><form className="field-grid evidence-form" onSubmit={upload}>{runCases.length === 1 ? <p>関連する確認項目: <strong>{runCases[0].title}</strong></p> : <label>関連するテストケース<select name="runCaseSnapshotId" required value={activeCaseId} onChange={(event) => setSelectedCaseId(event.target.value)}>{runCases.map((entry) => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select></label>}<label>ファイル<input name="file" type="file" required disabled={uploading || !activeCaseId} /></label><label>説明<input name="description" disabled={uploading || !activeCaseId} /></label><button className="primary" disabled={uploading || !activeCaseId}>{uploading ? "アップロード中…" : "ファイルを追加"}</button></form><button type="button" disabled={uploading || !activeCaseId} onClick={() => void pasteFromClipboard()}>クリップボードから貼り付け</button></div>}
     {uploadProgress !== null && <div className="evidence-progress" aria-live="polite"><progress max={100} value={uploadProgress} /><span>{uploadProgress}%</span></div>}
-    <div className="evidence-grid">{evidence.map((item) => <article key={item.id}><a href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{item.original_filename}</strong></a><small>{formatByteSize(item.byte_size)} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button onClick={() => setEditing(item)}>画像編集</button>}<button className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>
+    <div className="evidence-grid">{evidence.map((item) => <article key={item.id}><a href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /><strong>{item.original_filename}</strong></a>{item.description?.trim() && <details className="evidence-description"><summary>説明を見る</summary><p>{item.description}</p></details>}<details className="evidence-file-info"><summary>ファイル情報</summary><small>{formatByteSize(item.byte_size)} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small></details>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button onClick={() => setEditing(item)}>画像編集</button>}<button className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>
     {editing && <EvidenceImageEditor projectId={projectId} evidenceId={editing.id} filename={editing.original_filename} onClose={() => setEditing(null)} onSaved={async (run) => { onRunUpdated?.(run); await refresh(); }} />}
     {loadError && <p className="error-message">{loadError}</p>}{message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}
   </section>;

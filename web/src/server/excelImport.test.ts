@@ -18,9 +18,22 @@ afterEach(async () => {
 });
 
 describe("Excel test design import", () => {
-  it("builds a current template that restores a scenario, case, steps and data", async () => {
+  it("builds a human-oriented template and infers keys from sequential input", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await buildCasesTemplate());
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
+    const input = workbook.getWorksheet("入力")!;
+    expect(input.getRow(1).values).not.toContain("テストキー");
+    expect(input.getRow(1).values).not.toContain("確認項目キー");
+    input.getRow(2).values = [
+      "ログイン機能の確認", "正常ログイン", "ユーザー名とパスワードを入力する", "入力値が表示される", "高", "ログイン画面",
+      "ユーザー: test-user", "smoke,login", "機能/ログイン", "機能/ログイン|回帰", "利用者がログインできること", "テストユーザーが登録済み", "正常系を確認", "ログイン画面を表示済み",
+    ];
+    input.getRow(3).values = ["", "", "ログインボタンを押す", "ダッシュボードが表示される"];
+    const common = workbook.getWorksheet("共通データ")!;
+    common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login", "テスト環境", "ログイン共通データ", "ログイン確認で共通利用"];
     const filePath = await temporaryFile("template.xlsx");
-    await writeFile(filePath, await buildCasesTemplate());
+    await writeFile(filePath, Buffer.from(await workbook.xlsx.writeBuffer()));
 
     const parsed = await parseCasesWorkbook(filePath);
 
@@ -46,6 +59,25 @@ describe("Excel test design import", () => {
         ],
       }],
     });
+  });
+
+  it("keeps accepting the current keyed workbook format for compatibility", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const scenarios = workbook.addWorksheet("Scenarios");
+    scenarios.addRow(["テストキー", "フォルダパス", "テスト名", "目的", "テスト全体の前提条件", "共通データ名", "共通データ説明"]);
+    scenarios.addRow(["S-1", "", "互換テスト", "", "", "", ""]);
+    const cases = workbook.addWorksheet("Cases");
+    cases.addRow(["テストキー", "確認項目キー", "所属フォルダパス", "確認項目名", "目的", "前提条件", "見る場所", "優先度", "タグ", "テストデータ"]);
+    cases.addRow(["S-1", "C-1", "", "互換ケース", "", "", "", "中", "", ""]);
+    const steps = workbook.addWorksheet("Steps");
+    steps.addRow(["確認項目キー", "手順番号", "操作", "期待結果"]);
+    steps.addRow(["C-1", 1, "開く", "表示される"]);
+    const filePath = await temporaryFile("keyed.xlsx");
+    await writeFile(filePath, Buffer.from(await workbook.xlsx.writeBuffer()));
+
+    const parsed = await parseCasesWorkbook(filePath);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.scenarios[0]?.title).toBe("互換テスト");
   });
 
   it("rejects the old cases-only template with a migration message", async () => {

@@ -61,7 +61,7 @@ export async function createTestDesign(page: Page, caseCount = 1): Promise<{ tes
     await page.getByLabel("詳細操作 1", { exact: true }).fill(`操作 ${index + 1}`);
     await page.getByLabel("詳細期待結果 1", { exact: true }).fill(`期待結果 ${index + 1}`);
   }
-  await page.getByRole("button", { name: "テスト全体を保存" }).click();
+  await page.locator(".design-action-save").click();
   await expect(page.getByText("テスト全体を保存しました。")).toBeVisible();
   return { testName, caseNames };
 }

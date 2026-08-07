@@ -72,7 +72,7 @@ test("選択フォルダへ新規テストを配置し、複数手順を一覧�
   await page.getByRole("button", { name: "＋ 操作手順" }).click();
   await page.getByLabel("詳細操作 2", { exact: true }).fill("保存する");
   await page.getByLabel("詳細期待結果 2", { exact: true }).fill("保存完了になる");
-  await page.getByRole("button", { name: "テスト全体を保存" }).click();
+  await page.locator(".design-action-save").click();
   await expect(page.getByText("テスト全体を保存しました。")).toBeVisible();
 
   const testTreeItem = page.getByRole("treeitem", { name: `テスト ${testName}`, exact: true });
@@ -83,6 +83,31 @@ test("選択フォルダへ新規テストを配置し、複数手順を一覧�
   await expect(operationSummary).toContainText("保存する");
   await expect(page.getByText(/↑↓で移動、Enterで開く/)).toHaveCount(0);
   await expect(page.getByText("所属フォルダ（複数選択可）")).toHaveCount(0);
+});
+
+test("確認項目の複製で見る場所画像も独立して複製する", async ({ page }) => {
+  await login(page);
+  await createProject(page, unique("E2E 画像複製"));
+  const validPng = await sharp({ create: { width: 20, height: 16, channels: 4, background: { r: 15, g: 118, b: 110, alpha: 1 } } }).png().toBuffer();
+  await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
+  await page.getByLabel("テスト名").fill(unique("画像複製テスト"));
+  await page.getByRole("tab", { name: /確認項目/ }).click();
+  await page.getByLabel("確認項目名 1").fill("画像付き確認項目");
+  await page.getByLabel("詳細操作 1", { exact: true }).fill("画面を見る");
+  await page.getByLabel("詳細期待結果 1", { exact: true }).fill("表示される");
+  await page.locator(".design-image-actions input[type=file]").setInputFiles({ name: "copy-source.png", mimeType: "image/png", buffer: validPng });
+  await expect(page.locator(".design-image-grid img")).toBeVisible();
+  const sourceUrl = await page.locator(".design-image-grid img").getAttribute("src");
+  await page.getByRole("button", { name: "⧉ 複製", exact: true }).click();
+  await expect(page.locator(".design-case-card")).toHaveCount(2);
+  const copiedImage = page.locator(".design-image-grid img");
+  await expect(copiedImage).toBeVisible();
+  const copiedUrl = await copiedImage.getAttribute("src");
+  expect(copiedUrl).toBeTruthy();
+  expect(copiedUrl).not.toBe(sourceUrl);
+  await page.getByLabel("確認項目名 2").fill("画像付き確認項目 コピー");
+  await page.locator(".design-action-save").click();
+  await expect(page.getByText("テスト全体を保存しました。")).toBeVisible();
 });
 
 test("実行時にデータと画像を確認・編集し、証跡画像入りExcelを出力できる", async ({ page }) => {
@@ -133,18 +158,34 @@ test("実行時にデータと画像を確認・編集し、証跡画像入りEx
   await execution.locator(".run-reference-preview").click();
   const lightbox = page.getByRole("dialog", { name: "見る場所画像の拡大表示" });
   await expect(lightbox).toBeVisible();
+  await expect(lightbox.getByText("100%", { exact: true })).toBeVisible();
+  await lightbox.locator(".run-image-lightbox-stage").evaluate((element) => element.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, ctrlKey: true, bubbles: true, cancelable: true })));
+  await expect(lightbox.locator(".run-image-zoom-value")).not.toHaveText("100%");
+  await lightbox.getByRole("button", { name: "100%に戻す" }).click();
+  await expect(lightbox.getByText("100%", { exact: true })).toBeVisible();
   await lightbox.getByRole("button", { name: "閉じる" }).click();
 
   await execution.getByRole("button", { name: "合格", exact: true }).click();
   await execution.getByRole("button", { name: "保存", exact: true }).click();
   await expect(execution.locator(".save-state")).toContainText("保存済み");
-  await expect(execution.getByRole("button", { name: "保存して次の未実行へ →", exact: true })).toBeDisabled();
+  await expect(execution.getByRole("button", { name: "保存して次の未実行へ →", exact: true })).toHaveCount(0);
 
-  await execution.locator('input[type="file"]').setInputFiles({ name: "evidence.png", mimeType: "image/png", buffer: validPng });
+  const evidenceHelp = execution.locator("details.evidence-help");
+  await expect(evidenceHelp).not.toHaveAttribute("open", "");
+  await evidenceHelp.locator("summary").click();
+  await expect(evidenceHelp).toContainText("最大100 MiB");
+  await execution.locator('input[name="file"]').setInputFiles({ name: "evidence.png", mimeType: "image/png", buffer: validPng });
+  await execution.getByLabel("説明", { exact: true }).fill("確認用の証跡画像です");
   await execution.getByRole("button", { name: "ファイルを追加" }).click();
   await expect(execution.getByText("証跡を登録しました。")).toBeVisible();
+  const description = execution.locator("details.evidence-description");
+  await expect(description).not.toHaveAttribute("open", "");
+  await description.locator("summary").click();
+  await expect(description).toContainText("確認用の証跡画像です");
 
   await page.getByRole("button", { name: "Excelから追加・エクスポート" }).click();
+  await expect(page.getByText("正式JSONインポート")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Excelからテストを追加" })).toBeVisible();
   await page.getByRole("radio", { name: /テスト実行/ }).check();
   await page.locator(".export-options label").filter({ hasText: /^テスト実行/ }).locator("select").selectOption({ label: `${runName}（実行中）` });
   const downloadPromise = page.waitForEvent("download");
