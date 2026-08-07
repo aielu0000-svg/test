@@ -2,7 +2,9 @@
 
 ## Product issues
 
-Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）は修正・独立検証済みで、未解決の製品不具合はありません。
+2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）は修正・独立検証済みで、今回追加された未解決の製品不具合はありません。
+
+Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）も修正・独立検証済みです。
 
 ## Additional hardening candidates
 
@@ -20,11 +22,12 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - 画面固有request helperは400/409の編集競合情報を扱うため維持している。共通化する場合は、競合情報を保持できる共通エラー型の導入を先に行う。
 - 既存MariaDBボリュームの認証修復を使うDocker統合試験
   - 修復スクリプトの構文、新規Compose設定、空パスワード拒否はCI検証済み。無パスワードで初期化した使い捨てボリュームを修復し、無パスワード接続拒否まで確認する試験は追加の堅牢化候補とする。
-
 - 実OpenShiftクラスターでの配備確認
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- テスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）: GitHub Actions run `31169231328`でnpm audit 0件、TypeCheck、Unit/API 52件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。Artifact `web-ci-31169231328-1`（ID `9007154348`、SHA256 `f3f392f083c939bd1356398085459549832afb6901da00427978e1db74e5b028`）。
 
 - リポジトリ構成整理（ISSUE-20260806-005）: GitHub Actions run `31067948455`でTypeCheck、Unit/API、MariaDB統合、バックアップ・復元、OpenShift互換起動、Chromium E2Eを含む全工程成功。Artifact `web-ci-31067948455-1`（ID `8954562403`）。
 
