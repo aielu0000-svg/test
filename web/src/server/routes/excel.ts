@@ -13,6 +13,7 @@ import { requireUser } from "../auth.js";
 import { requireProjectEdit } from "../access.js";
 import { writeAudit } from "../audit.js";
 import { buildCasesTemplate, parseCasesWorkbook, type ExcelImportScenario } from "../excelImport.js";
+import { decorateCasesTemplate } from "../excelTemplatePresentation.js";
 import { parseJson, routeParam, stringValue } from "./routeUtils.js";
 
 async function ensureFolderPath(
@@ -115,7 +116,7 @@ async function importScenario(
 export async function registerExcelRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
   app.get("/api/imports/excel/template", async (request, reply) => {
     await requireUser(request, db, config);
-    const buffer = await buildCasesTemplate();
+    const buffer = await decorateCasesTemplate(await buildCasesTemplate());
     return reply.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
       .header("Content-Disposition", 'attachment; filename="the-test-design-template.xlsx"').send(buffer);
   });

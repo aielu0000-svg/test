@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-21T12:24:00+09:00",
-  "generated_from_commit": "beb8b7d093e530611aa4a1ee68145adda3a469fe",
+  "generated_at": "2026-08-21T12:35:00+09:00",
+  "generated_from_commit": "e79496a72152fa75b3cbfa2de2349081fa5b081a",
   "scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","package.json","web/package.json",".github/workflows","import-examples"],
-  "regeneration_reason": "Previous lock was based on bd94514ac30ddcea3689a03064bfbcb2ea7edbf1. Current source changed in web/src/client, web/src/server and web/e2e, so the map was regenerated before the next code change.",
+  "regeneration_reason": "The Excel template presentation module changes a server module boundary. The map is generated from the product-source snapshot before the atomic code-and-codemap commit.",
   "nodes": [
     {"id":"electron_renderer","label":"Electron Renderer","type":"ui","group":"Desktop App","path":"src/renderer/src/App.tsx","role":"Desktop React UI for test management.","tests":[]},
     {"id":"electron_preload","label":"Electron Preload Bridge","type":"bridge","group":"Desktop App","path":"src/preload/index.ts","role":"Context-isolated IPC bridge.","tests":[]},
@@ -16,7 +16,8 @@
     {"id":"api_client","label":"Browser API Client","type":"bridge","group":"Browser UI","path":"web/src/client/api.ts","role":"Same-origin typed fetch wrapper.","tests":["web/src/client/api.test.ts"]},
     {"id":"api_core","label":"Fastify API Core","type":"service","group":"Web Server","path":"web/src/server/app.ts","role":"Fastify auth/admin core, CSRF and feature-route registration.","tests":["web/src/server/app.test.ts"]},
     {"id":"excel_routes","label":"Excel Import Routes","type":"route","group":"Web Server","path":"web/src/server/routes/excel.ts","role":"Official template download, Excel preview and import confirmation/persistence.","tests":["web/e2e/excel-import.spec.ts"]},
-    {"id":"excel_import","label":"Excel Import Module","type":"service","group":"Web Server","path":"web/src/server/excelImport.ts","role":"Generate the official workbook and parse friendly/legacy workbook formats.","tests":["web/src/server/excelImport.test.ts","web/e2e/excel-import.spec.ts"],"constraints":["Official template uses 使い方/入力/共通データ.","Friendly parser requires テスト名/確認項目名/操作/期待結果.","Legacy keyed workbook remains readable."]},
+    {"id":"excel_import","label":"Excel Import Module","type":"service","group":"Web Server","path":"web/src/server/excelImport.ts","role":"Generate the semantic official workbook and parse friendly/legacy workbook formats.","tests":["web/src/server/excelImport.test.ts","web/e2e/excel-import.spec.ts"],"constraints":["Official template uses 使い方/入力/共通データ.","Friendly parser requires テスト名/確認項目名/操作/期待結果.","Legacy keyed workbook remains readable."]},
+    {"id":"excel_template_presentation","label":"Excel Template Presentation","type":"service","group":"Web Server","path":"web/src/server/excelTemplatePresentation.ts","role":"Decorate the generated official workbook with visible grids and per-field examples without adding importable sample rows.","tests":["web/src/server/excelTemplatePresentation.test.ts"],"constraints":["Input grid covers A1:N201.","Common-data grid covers A1:F201.","Examples are placed in guide content and header notes, not data rows."]},
     {"id":"design_routes","label":"Design & Definition Routes","type":"route","group":"Web Server","path":"web/src/server/routes/scenarioEditor.ts","role":"Scenario/case/step/data/view-image HTTP domain.","tests":["web/src/server/scenarioEditor.test.ts"]},
     {"id":"run_routes","label":"Run Domain Routes","type":"route","group":"Web Server","path":"web/src/server/routes/runs.ts","role":"Run snapshots, results, revisions and completion.","tests":["web/src/server/runDomain.test.ts"]},
     {"id":"evidence_routes","label":"Evidence Routes","type":"route","group":"Web Server","path":"web/src/server/routes/evidence.ts","role":"Evidence upload, download, versioning and thumbnails.","tests":["web/e2e/evidence.spec.ts"]},
@@ -34,13 +35,16 @@
     {"from":"design_ui","to":"api_core","type":"calls"},{"from":"run_ui","to":"api_core","type":"calls"},
     {"from":"api_core","to":"excel_routes","type":"registers","evidence":"web/src/server/routes/features.ts::registerExcelRoutes"},
     {"from":"excel_routes","to":"excel_import","type":"calls","evidence":"buildCasesTemplate / parseCasesWorkbook"},
+    {"from":"excel_routes","to":"excel_template_presentation","type":"calls","evidence":"decorateCasesTemplate"},
     {"from":"excel_routes","to":"mariadb","type":"reads_writes","evidence":"import_previews and imported design entities"},
     {"from":"excel_import","to":"external_deps","type":"imports","evidence":"exceljs"},
+    {"from":"excel_template_presentation","to":"external_deps","type":"imports","evidence":"exceljs"},
     {"from":"api_core","to":"design_routes","type":"registers"},{"from":"api_core","to":"run_routes","type":"registers"},{"from":"api_core","to":"evidence_routes","type":"registers"},{"from":"api_core","to":"export_routes","type":"registers"},{"from":"api_core","to":"operations_api","type":"registers"},
     {"from":"design_routes","to":"mariadb","type":"reads_writes"},{"from":"run_routes","to":"mariadb","type":"reads_writes"},{"from":"evidence_routes","to":"mariadb","type":"reads_writes"},{"from":"evidence_routes","to":"evidence_storage","type":"reads_writes"},{"from":"export_routes","to":"mariadb","type":"reads"},
     {"from":"api_core","to":"cleanup_queue","type":"calls"},{"from":"cleanup_queue","to":"mariadb","type":"reads_writes"},{"from":"cleanup_queue","to":"evidence_storage","type":"writes"},{"from":"ops_runtime","to":"mariadb","type":"reads_writes"},{"from":"ops_runtime","to":"evidence_storage","type":"reads"}
   ],
   "flows": [
+    {"id":"excel_template_download_flow","label":"Official Excel template download","steps":["transfer_ui","api_core","excel_routes","excel_import","excel_template_presentation"],"tests":["web/src/server/excelImport.test.ts","web/src/server/excelTemplatePresentation.test.ts","web/e2e/excel-import.spec.ts"]},
     {"id":"excel_import_flow","label":"Excel test-design import","steps":["transfer_ui","api_client","api_core","excel_routes","excel_import","mariadb"],"tests":["web/src/server/excelImport.test.ts","web/e2e/excel-import.spec.ts"]},
     {"id":"design_flow","label":"Test design save","steps":["design_ui","api_core","design_routes","mariadb"],"tests":["web/e2e/test-design.spec.ts"]},
     {"id":"run_flow","label":"Run execution","steps":["run_ui","api_core","run_routes","mariadb"],"tests":["web/e2e/run-create-start.spec.ts"]},
