@@ -11,16 +11,6 @@ const INPUT_EXAMPLE_ROWS: readonly (readonly (string | null)[])[] = [
     "正常ログイン",
     "ユーザー名とパスワードを入力する",
     "入力値が表示される",
-    "高",
-    "ログイン画面",
-    "ユーザー: test-user / パスワード: test-pass",
-    "smoke,login",
-    "機能/ログイン",
-    "機能/ログイン|回帰",
-    "利用者が正常にログインできること",
-    "テストユーザーが登録済み",
-    "正常系のログインを確認する",
-    "ログイン画面を表示済み",
   ],
   [null, null, "ログインボタンを押す", "ダッシュボードが表示される"],
 ];
@@ -29,9 +19,6 @@ const COMMON_EXAMPLE_ROW = [
   "ログイン機能の確認",
   "ベースURL",
   "https://example.test/login",
-  "テスト環境",
-  "ログイン共通データ",
-  "ログイン確認で共通利用",
 ] as const;
 
 function applyGrid(sheet: ExcelJS.Worksheet, lastColumn: number, lastRow = 201): void {
@@ -46,12 +33,12 @@ function writeExampleRows(input: ExcelJS.Worksheet, common: ExcelJS.Worksheet): 
   INPUT_EXAMPLE_ROWS.forEach((values, index) => {
     const row = input.getRow(index + 2);
     row.values = [...values];
-    for (let column = 1; column <= 14; column += 1) row.getCell(column).fill = EXAMPLE_FILL;
+    for (let column = 1; column <= 4; column += 1) row.getCell(column).fill = EXAMPLE_FILL;
   });
 
   const commonRow = common.getRow(2);
   commonRow.values = [...COMMON_EXAMPLE_ROW];
-  for (let column = 1; column <= 6; column += 1) commonRow.getCell(column).fill = EXAMPLE_FILL;
+  for (let column = 1; column <= 3; column += 1) commonRow.getCell(column).fill = EXAMPLE_FILL;
 }
 
 function pointGuideToExampleRows(guide: ExcelJS.Worksheet): void {
@@ -71,8 +58,8 @@ export async function decorateCasesTemplate(buffer: Buffer): Promise<Buffer> {
 
   writeExampleRows(input, common);
   pointGuideToExampleRows(guide);
-  applyGrid(input, 14);
-  applyGrid(common, 6);
+  applyGrid(input, 4);
+  applyGrid(common, 3);
 
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
