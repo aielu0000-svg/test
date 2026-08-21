@@ -6,6 +6,7 @@ test.beforeAll(() => assertE2EConfiguration());
 test("業務導線から完了確認と不合格再実行まで進められる", async ({ page }) => {
   await login(page);
   await createProject(page, unique("E2E 導線改善"));
+  await expect(page.getByRole("button", { name: "作業手順", exact: true })).toHaveCount(0);
 
   const suffix = unique("workflow");
   const testName = `導線テスト ${suffix}`;
