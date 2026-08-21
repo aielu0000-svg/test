@@ -67,7 +67,7 @@ function priorityLabel(priority: Priority) {
   return priority === "high" ? "高" : priority === "low" ? "低" : "中";
 }
 
-export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases, onChanged, onRun, onOpenExcel }: {
+export function TestDesignEditor({ projectId, canEdit, scenarios, folders, onChanged, onRun, onOpenExcel }: {
   projectId: string; canEdit: boolean; scenarios: DesignScenario[]; folders: DesignFolder[]; cases: DesignCaseSummary[];
   onChanged: () => Promise<void>; onRun: (scenarioId: string) => void; onOpenExcel: () => void;
 }) {
