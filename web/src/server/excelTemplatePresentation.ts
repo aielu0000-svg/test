@@ -70,9 +70,9 @@ function addGuideExamples(guide: ExcelJS.Worksheet): void {
 
 export async function decorateCasesTemplate(buffer: Buffer): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  // ExcelJS expects Buffer<ArrayBuffer> while Node currently exposes Buffer<ArrayBufferLike>.
-  // The runtime representation is the same; this cast keeps the boundary explicit.
-  await workbook.xlsx.load(buffer as unknown as Buffer<ArrayBuffer>);
+  // ExcelJS defines its own buffer input type, which differs structurally from the generic Node Buffer type.
+  const excelJsBuffer = buffer as unknown as Parameters<typeof workbook.xlsx.load>[0];
+  await workbook.xlsx.load(excelJsBuffer);
   const guide = workbook.getWorksheet("使い方");
   const input = workbook.getWorksheet("入力");
   const common = workbook.getWorksheet("共通データ");
