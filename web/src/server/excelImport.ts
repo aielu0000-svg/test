@@ -74,12 +74,23 @@ const COMMON_DATA_HEADERS: HeaderAliases = {
   "項目番号": "ItemNo", "ItemNo": "ItemNo", "項目名": "Label", "Label": "Label", "値": "Value", "Value": "Value", "メモ": "Memo", "Memo": "Memo",
 };
 const INPUT_HEADERS: HeaderAliases = {
-  "テスト名": "ScenarioTitle", "確認項目名": "CaseTitle", "操作": "Action", "期待結果": "Expected", "優先度": "Priority",
-  "見る場所": "ViewLocation", "テストデータ": "Data", "タグ": "Tags", "テストフォルダ": "ScenarioFolder", "確認項目フォルダ": "CaseFolders",
+  "テスト項目（必須）": "ScenarioTitle", "テスト名": "ScenarioTitle",
+  "確認項目（必須）": "CaseTitle", "確認項目名": "CaseTitle",
+  "操作（必須）": "Action", "操作": "Action",
+  "確認観点・期待結果（必須）": "Expected", "期待結果": "Expected",
+  "対象・確認箇所（任意）": "ViewLocation", "見る場所": "ViewLocation",
+  "優先度（任意）": "Priority", "優先度": "Priority",
+  "テストデータ（任意）": "Data", "テストデータ": "Data",
+  "タグ（任意）": "Tags", "タグ": "Tags",
+  "テストフォルダ": "ScenarioFolder", "確認項目フォルダ": "CaseFolders",
   "テストの目的": "ScenarioObjective", "テスト全体の前提条件": "ScenarioPreconditions", "確認項目の目的": "CaseObjective", "確認項目の前提条件": "CasePreconditions",
 };
 const FRIENDLY_COMMON_HEADERS: HeaderAliases = {
-  "テスト名": "ScenarioTitle", "項目名": "Label", "値": "Value", "メモ": "Memo", "データ名（任意）": "CommonDataName", "説明（任意）": "CommonDataDescription",
+  "テスト項目（必須）": "ScenarioTitle", "テスト名": "ScenarioTitle",
+  "項目名（必須）": "Label", "項目名": "Label",
+  "値（任意）": "Value", "値": "Value",
+  "メモ（任意）": "Memo", "メモ": "Memo",
+  "データ名（任意）": "CommonDataName", "説明（任意）": "CommonDataDescription",
 };
 
 function cellText(cell: ExcelJS.Cell): string {
@@ -117,26 +128,27 @@ function splitTags(value: string): string[] {
 function splitFolderPaths(value: string): string[] {
   return [...new Set(value.split(/[|\n;；]+/).map((item) => item.trim()).filter(Boolean))];
 }
-function styleDataSheet(sheet: ExcelJS.Worksheet, widths: number[]): void {
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: widths.length } };
-  sheet.getRow(1).font = { bold: true };
-  sheet.getRow(1).alignment = { vertical: "middle", wrapText: true };
-  widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
-}
 
-function styleFriendlyInput(sheet: ExcelJS.Worksheet): void {
-  sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }];
-  sheet.autoFilter = { from: "A1", to: "D1" };
-  const widths = [30, 30, 45, 45];
+const REQUIRED_HEADER_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FF0068A8" } };
+const OPTIONAL_HEADER_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFB35A00" } };
+const REQUIRED_BODY_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFF7FBFF" } };
+const OPTIONAL_BODY_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFF7E8" } };
+
+function styleFriendlySheet(sheet: ExcelJS.Worksheet, widths: number[], requiredColumns: number, freezeColumns = 0): void {
+  sheet.views = [{ state: "frozen", ySplit: 1, ...(freezeColumns ? { xSplit: freezeColumns } : {}) }];
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: widths.length } };
   widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   const header = sheet.getRow(1);
   header.height = 34;
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
   header.alignment = { vertical: "middle", wrapText: true };
-  for (let column = 1; column <= 4; column += 1) header.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0068A8" } };
+  for (let column = 1; column <= widths.length; column += 1) {
+    header.getCell(column).fill = column <= requiredColumns ? REQUIRED_HEADER_FILL : OPTIONAL_HEADER_FILL;
+  }
   for (let row = 2; row <= 201; row += 1) {
-    for (let column = 1; column <= 4; column += 1) sheet.getRow(row).getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7FBFF" } };
+    for (let column = 1; column <= widths.length; column += 1) {
+      sheet.getRow(row).getCell(column).fill = column <= requiredColumns ? REQUIRED_BODY_FILL : OPTIONAL_BODY_FILL;
+    }
   }
 }
 
@@ -148,13 +160,14 @@ export async function buildCasesTemplate(): Promise<Buffer> {
   const guide = workbook.addWorksheet("使い方");
   guide.addRows([
     ["THE TEST WEB Excel入力テンプレート"],
-    ["最短手順", "1. 「入力」シートの4列へ入力 → 2. 必要なら「共通データ」シートの3列へ入力 → 3. 保存 → 4. THE TEST WEBへアップロードして確認 → 5. 追加を確定"],
-    ["入力シート", "テスト名・確認項目名・操作・期待結果の4列だけです。1行につき1手順を入力します。"],
-    ["同じ確認項目の次の手順", "テスト名と確認項目名を空欄にし、操作・期待結果だけ次の行へ入力します。"],
-    ["同じテストの次の確認項目", "テスト名を空欄にし、確認項目名・操作・期待結果を入力します。"],
-    ["別のテスト", "新しいテスト名を入力した行から自動的に別テストとして扱います。ScenarioKeyやCaseKeyなどのシステム用キーは不要です。"],
-    ["共通データ", "必要な場合だけ「共通データ」シートのテスト名・項目名・値の3列へ入力します。同じテストの2行目以降はテスト名を空欄にできます。"],
-    ["詳細項目", "優先度・見る場所・テストデータ・タグ・フォルダ・目的・前提条件・共通データのメモ等は公式テンプレートには表示しません。追加後にTHE TEST WEBの画面で必要な項目だけ設定してください。従来の詳細列付きExcelは引き続き読み込めます。"],
+    ["最短手順", "1. 「入力」シートの青い必須列へ入力 → 2. 必要なら橙の任意列と「共通データ」を入力 → 3. 保存 → 4. THE TEST WEBへアップロードして確認 → 5. 追加を確定"],
+    ["色分け", "青: 必須入力　/　橙: 任意入力。まずA〜D列だけでテストを作成できます。"],
+    ["1行目", "テスト項目・確認項目・操作・確認観点・期待結果を入力します。"],
+    ["同じ確認項目の次の手順", "テスト項目と確認項目を空欄にし、操作・確認観点・期待結果だけ次の行へ入力します。"],
+    ["同じテストの次の確認項目", "テスト項目を空欄にし、確認項目・操作・確認観点・期待結果を入力します。"],
+    ["別のテスト", "新しいテスト項目を入力した行から自動的に別テストとして扱います。システム用キーは不要です。"],
+    ["共通データ", "必要な場合だけ「共通データ」シートへ入力します。同じテストの2行目以降はテスト項目を空欄にできます。"],
+    ["作成者・作成日", "ログイン中の作成者と登録日時はアプリが自動記録します。Excelへの入力は不要です。"],
     ["注意", "列名とシート名は変更しないでください。数式・結合セルは使用できません。"],
     ["入力例", "「入力」2〜3行目と「共通データ」2行目に実際の記入例があります。利用時は上書きするか削除してください。"],
   ]);
@@ -163,19 +176,32 @@ export async function buildCasesTemplate(): Promise<Buffer> {
   guide.getRow(1).font = { bold: true, size: 16, color: { argb: "FF17498E" } };
   guide.getRow(1).height = 28;
   guide.eachRow((row) => { row.alignment = { vertical: "top", wrapText: true }; });
+  guide.state = "hidden";
 
   const input = workbook.addWorksheet("入力");
-  input.addRow(["テスト名", "確認項目名", "操作", "期待結果"]);
-  styleFriendlyInput(input);
+  input.addRow([
+    "テスト項目（必須）", "確認項目（必須）", "操作（必須）", "確認観点・期待結果（必須）",
+    "対象・確認箇所（任意）", "優先度（任意）", "テストデータ（任意）", "タグ（任意）",
+  ]);
+  styleFriendlySheet(input, [30, 30, 45, 45, 28, 12, 30, 22], 4, 2);
   input.getCell("A1").note = "新しいテストの最初の行だけ入力します。同じテストの続きは空欄で構いません。";
   input.getCell("B1").note = "新しい確認項目の最初の行だけ入力します。同じ確認項目の次の手順では空欄で構いません。";
   input.getCell("C1").note = "操作手順。1行につき1手順です。";
-  input.getCell("D1").note = "その操作の期待結果です。";
+  input.getCell("D1").note = "その操作で確認する観点と期待結果です。";
+  input.getCell("E1").note = "画面名、メニュー、項目名など、確認する場所を入力します。";
+  input.getCell("F1").note = "空欄の場合は「中」です。";
+  input.getCell("G1").note = "この確認項目で使用する個別のテストデータを入力します。";
+  input.getCell("H1").note = "複数タグはカンマまたは読点で区切ります。";
+  for (let row = 2; row <= 201; row += 1) {
+    input.getCell(`F${row}`).dataValidation = { type: "list", allowBlank: true, formulae: ['"高,中,低"'] };
+  }
 
   const common = workbook.addWorksheet("共通データ");
-  common.addRow(["テスト名", "項目名", "値"]);
-  styleDataSheet(common, [30, 28, 42]);
+  common.addRow(["テスト項目（必須）", "項目名（必須）", "値（任意）", "メモ（任意）", "データ名（任意）", "説明（任意）"]);
+  styleFriendlySheet(common, [30, 28, 42, 32, 28, 40], 2);
   common.getCell("A1").note = "同じテストの続きは空欄で構いません。";
+  common.getCell("E1").note = "共通データ全体の名前です。最初の行だけ入力すれば十分です。";
+  common.getCell("F1").note = "共通データ全体の説明です。最初の行だけ入力すれば十分です。";
 
   const value = await workbook.xlsx.writeBuffer();
   return Buffer.from(value);
