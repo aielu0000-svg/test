@@ -1,8 +1,8 @@
 {
-  "current_commit": "efb35a9a57bc1d0d7545ce604b5ecee0dd96ec0d",
+  "current_commit": "594ffe2ac06c8160d9b9e7beafb4b6a22b727e65",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-21T19:12:10+09:00",
-  "generation_basis": "clean product-source snapshot after introducing semantic web UI tokens, shared focus/current-navigation semantics, manual design-review guidance and Workspace aria-current regression coverage",
+  "generation_time": "2026-08-21T19:44:00+09:00",
+  "generation_basis": "clean product-source snapshot after clamping FolderExplorer context-menu coordinates within the viewport following a reproducible folder-overlay E2E timeout",
   "scanned_scope": [
     "src/main",
     "src/preload",
@@ -32,7 +32,7 @@
     "src/main": {"mode":"git-tree","source_tree_sha":"5c476d0bf75d645bff64eea8c589c8f74c653956","fingerprint":"3483c1458d166c1dea7f7f3a7c87c144361f24fe7fa0d8b6282a0787f7ea5671"},
     "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3e18485f7fa3a5d069b452f4fd17af7fda1b20fd87d66fe75ccdf587e5355144"},
     "src/renderer": {"mode":"git-tree","source_tree_sha":"094202631b8e48e0db00a5308d4e39392e5f7f1f","fingerprint":"4dc4a7fd4a765f08f303766466f9346be957ce85f689b94a34e0b78338f40280"},
-    "web/src/client": {"mode":"git-tree","source_tree_sha":"2f6e8aea9c517737d73913806b28a76435de0bed","fingerprint":"8d102ae290fbe8550745107710e7a36bb6d84b1c1d048636890c146e9191d947"},
+    "web/src/client": {"mode":"git-tree","source_tree_sha":"576a4bcc54ec206a77703945a150bd82c4a9baf5","fingerprint":"cd0bd6438ceba40cab1fb30f7c8e7f16ebad98522eed7a5c85a293eb70113aa3"},
     "web/src/server": {"mode":"git-tree","source_tree_sha":"0d347d65e8e81c2e4e19c82dbab19db4eef03cb9","fingerprint":"8b38b618cac9f304914d4300d4932dff63b8e3558d9428d934aa9a42ea2c8f55"},
     "web/src/shared": {"mode":"git-tree","source_tree_sha":"ca86705e76101bfd37b2b15464e5f032ef7bfc4a","fingerprint":"3ff755beecb9b44a3f75327ca5d53e141af2985b06ae0ff9f5f60c025797bad3"},
     "web/src/tools": {"mode":"git-tree","source_tree_sha":"656b68d6fa24118fe2ccacebedca695fa3c82cd3","fingerprint":"c9d4d4fdf968e38a5c1acf89f31a398eecf0f83c0ada04c8edb320cada1d7fff"},
@@ -46,8 +46,8 @@
     "web/ui-foundations": {"mode":"tracked-files","paths":["web/src/client/operations.css","web/src/client/phase25.css","web/src/client/styles.css","web/src/client/test-design.css","web/src/client/workspace.css"],"fingerprint":"e610013cfb5dcd7fc1ed0db2d42c59623d1c8404dad1cd98e10dabe7a1383899"},
     "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"58603ac40a4b7916a1ff4bbb78c60c116714d7b14194b32a25f2660bad489595"}
   },
-  "previous_lock_commit": "c57ff48252675d015606fb388b82b94fd48dbbbb",
-  "changed_modules_since_previous_lock": ["web/src/client", "web/e2e", "web/ui-foundations"],
-  "baseline_status": "Browser styling remains custom CSS with no new runtime dependency. styles.css now defines semantic color, 4px spacing, radius, elevation, content-width and focus tokens; workspace.css and test-design.css consume the shared tokens in their primary shells. Dashboard and Workspace navigation expose aria-current=page, and workflow-guidance.spec.ts asserts the Workspace current destination. API, database and migrations are unchanged.",
+  "previous_lock_commit": "e590b0d710d9336cf4a7b3f5b3df2f593112c54f",
+  "changed_modules_since_previous_lock": ["web/src/client"],
+  "baseline_status": "Browser styling remains custom CSS with no new runtime dependency. styles.css defines semantic color, 4px spacing, radius, elevation, content-width and focus tokens; workspace.css and test-design.css consume the shared tokens in their primary shells. Dashboard and Workspace navigation expose aria-current=page. FolderExplorer now clamps context-menu coordinates after measuring the mounted menu, preserving existing actions while preventing viewport overflow. API, database and migrations are unchanged.",
   "excluded_generated_codemap_from_fingerprints": true
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { folderAncestors, invalidMoveTargetIds } from "./folderExplorerModel.js";
 
 export interface ExplorerFolder { id: string; parentId: string | null; name: string; version: number }
@@ -45,6 +45,7 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
   const [dropTarget, setDropTarget] = useState<string | null | undefined>();
   const [working, setWorking] = useState(false);
   const refs = useRef(new Map<Key, HTMLDivElement>());
+  const menuRef = useRef<HTMLDivElement>(null);
   const renameKey = useRef<Key | null>(null);
 
   useEffect(() => setExpanded((current) => new Set([...current, ...folders.map((item) => item.id)])), [folders]);
@@ -58,6 +59,15 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
     const close = () => setMenu(null); window.addEventListener("click", close); window.addEventListener("resize", close);
     return () => { window.removeEventListener("click", close); window.removeEventListener("resize", close); };
   }, []);
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) return;
+    const margin = 8;
+    const rect = menuRef.current.getBoundingClientRect();
+    const left = Math.min(Math.max(menu.x, margin), Math.max(margin, window.innerWidth - rect.width - margin));
+    const top = Math.min(Math.max(menu.y, margin), Math.max(margin, window.innerHeight - rect.height - margin));
+    menuRef.current.style.left = `${left}px`;
+    menuRef.current.style.top = `${top}px`;
+  }, [menu]);
 
   const byParent = useMemo(() => {
     const map = new Map<string | null, ExplorerFolder[]>();
@@ -211,7 +221,7 @@ export function FolderExplorer({ canEdit, busy, folders, scenarios, selectedScen
       {visible.map((item) => <div key={item.key}>{row(item)}{item.kind === "folder" && createRow(item.id, item.depth + 1)}</div>)}
       {!visible.length && <p className="muted">該当するテストまたはフォルダはありません。</p>}
     </div>
-    {menu && <div className="design-context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
+    {menu && <div ref={menuRef} className="design-context-menu" role="menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
       {menu.key === null && <>{canEdit && <button role="menuitem" type="button" onClick={() => { setCreating({ parentId: null, value: "" }); setMenu(null); }}>新しいフォルダ</button>}{selected.size > 0 && canEdit && <button role="menuitem" type="button" onClick={() => { void move([...selected], null); setMenu(null); }}>選択項目をここへ移動</button>}</>}
       {menu.key?.startsWith("folder:") && (() => { const item = folders.find((folder) => folder.id === idOf(menu.key!)); return item ? <><button role="menuitem" type="button" onClick={() => { toggle(item.id); setMenu(null); }}>{expanded.has(item.id) ? "折りたたむ" : "展開する"}</button>
         {canEdit && <button role="menuitem" type="button" onClick={() => { setCreating({ parentId: item.id, value: "" }); setExpanded((current) => new Set([...current, item.id])); setMenu(null); }}>新しいサブフォルダ</button>}{canEdit && selected.size > 0 && !selected.has(fkey(item.id)) && <button role="menuitem" type="button" onClick={() => { void move([...selected], item.id); setMenu(null); }}>選択項目をこのフォルダへ移動</button>}{canEdit && selected.size === 1 && <button role="menuitem" type="button" onClick={() => startRename(fkey(item.id))}>名前変更（F2）</button>}{canEdit && <button role="menuitem" type="button" className="danger" onClick={() => { setDeleting({ keys: actionKeys(fkey(item.id)), reason: "" }); setMenu(null); }}>削除</button>}</> : null; })()}
