@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-21T12:46:00+09:00",
-  "generated_from_commit": "95cbdfbad208113603f6e6d25d25202715a16fca",
+  "generated_at": "2026-08-21T13:43:00+09:00",
+  "generated_from_commit": "dee33eb005474e1644a6f211855fb93cc05ac3c8",
   "scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","package.json","web/package.json",".github/workflows","import-examples"],
-  "regeneration_reason": "The exact-head CI audit surfaced a high-severity advisory in transitive nanoid 3.3.16. The dependency manifest now pins the safe 3.3.18 override, so the dependency edge is recorded in the code map.",
+  "regeneration_reason": "Pre-change refresh for the Excel example-row task. The prior lock was based on a side snapshot and the current branch additionally contains the ExcelJS Buffer-boundary fix and the synchronized dependency lockfile.",
   "nodes": [
     {"id":"electron_renderer","label":"Electron Renderer","type":"ui","group":"Desktop App","path":"src/renderer/src/App.tsx","role":"Desktop React UI for test management.","tests":[]},
     {"id":"electron_preload","label":"Electron Preload Bridge","type":"bridge","group":"Desktop App","path":"src/preload/index.ts","role":"Context-isolated IPC bridge.","tests":[]},
