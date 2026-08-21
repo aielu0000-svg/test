@@ -1,8 +1,8 @@
 {
-  "current_commit": "96303f31b8b7cb561a472040da0d6af964e9e94d",
+  "current_commit": "586e1406b4b7c4c98283ff6aa13bed0cd537687a",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-21T15:40:00+09:00",
-  "generation_basis": "clean product-source snapshot after reducing the official Excel template to four input columns and three common-data columns while preserving parser compatibility for previous detailed friendly workbooks",
+  "generation_time": "2026-08-21T16:22:00+09:00",
+  "generation_basis": "clean product-source snapshot after restoring the user-supplied reference workbook layout: eight input columns and six common-data columns with required/optional visual grouping, thin grids, real example rows, hidden guide sheet, and backward-compatible parsing",
   "scanned_scope": [
     "src/main",
     "src/preload",
@@ -30,13 +30,13 @@
   },
   "modules": {
     "src/main": {"mode":"git-tree","source_tree_sha":"5c476d0bf75d645bff64eea8c589c8f74c653956","fingerprint":"3483c1458d166c1dea7f7f3a7c87c144361f24fe7fa0d8b6282a0787f7ea5671"},
-    "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3e18485f7fa3a0d069b452f4fd17af7fda1b20fd87d66fe75ccdf587e5355144"},
+    "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3e18485f7fa3a5d069b452f4fd17af7fda1b20fd87d66fe75ccdf587e5355144"},
     "src/renderer": {"mode":"git-tree","source_tree_sha":"094202631b8e48e0db00a5308d4e39392e5f7f1f","fingerprint":"4dc4a7fd4a765f08f303766466f9346be957ce85f689b94a34e0b78338f40280"},
     "web/src/client": {"mode":"git-tree","source_tree_sha":"c624fe09f235cc1d341267006fb2e1a7115f56d0","fingerprint":"cbb4573fc020ecaef374c943fff80a6ca0d47f3f83afc78d95d1caf278fc5022"},
-    "web/src/server": {"mode":"git-tree","source_tree_sha":"4db91786dea8049ada382aec71d2b89f930a4756","fingerprint":"8a55be78b23dda0b370439a90ca753d4bc0bdc30cff8ac38fd6b42af0ef49e76"},
+    "web/src/server": {"mode":"git-tree","source_tree_sha":"0d347d65e8e81c2e4e19c82dbab19db4eef03cb9","fingerprint":"8b38b618cac9f304914d4300d4932dff63b8e3558d9428d934aa9a42ea2c8f55"},
     "web/src/shared": {"mode":"git-tree","source_tree_sha":"ca86705e76101bfd37b2b15464e5f032ef7bfc4a","fingerprint":"3ff755beecb9b44a3f75327ca5d53e141af2985b06ae0ff9f5f60c025797bad3"},
     "web/src/tools": {"mode":"git-tree","source_tree_sha":"656b68d6fa24118fe2ccacebedca695fa3c82cd3","fingerprint":"c9d4d4fdf968e38a5c1acf89f31a398eecf0f83c0ada04c8edb320cada1d7fff"},
-    "web/e2e": {"mode":"git-tree","source_tree_sha":"cfbc61b25bbdc0e9c2cccabc183dff64009a5109","fingerprint":"cf9151e3c46c72a29a856a45d63c762076b9251aff976f9212566cfcc3558e74"},
+    "web/e2e": {"mode":"git-tree","source_tree_sha":"d89a991286cbafccfd75994113408b1b46f315a0","fingerprint":"9e6573cf4a88c2674453d294e3c16b0ee44da712d54f6abc3a640718a1226326"},
     "web/migrations": {"mode":"git-tree","source_tree_sha":"6ad072b65b41f9cc944aa882a61e5ba69e921594","fingerprint":"313ca6d7221747a06f9465ce19ee6b81719be0df4199e71eed3899529f241166"},
     "web/ops": {"mode":"git-tree","source_tree_sha":"91a9305bc2bc04ba23374d041ca90b69320cb9d8","fingerprint":"a202a6f22e482a9c839f5778e5d98d5e005f03966e2f1730392f1c03b96d7019"},
     "web/scripts": {"mode":"git-tree","source_tree_sha":"ef8f248b3523b7f808efb142e40dac1d263c5eb1","fingerprint":"920e47d56cd30b6f56444c0e90eccb20c46c9aa8c5bc97f2c1fc703760d191d3"},
@@ -45,8 +45,8 @@
     "web/runtime-manifests": {"mode":"tracked-files","paths":["web/Dockerfile","web/kustomization.yaml","web/openshift-build.yaml","web/openshift-operations.yaml","web/openshift-retention.yaml","web/openshift-secrets.example.yaml","web/openshift.yaml"],"fingerprint":"c4c92e08f570d76dd1890e6bd6792d27d8d9c50b07e89590f44a7efb39a91a3c"},
     "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"58603ac40a4b7916a1ff4bbb78c60c116714d7b14194b32a25f2660bad489595"}
   },
-  "previous_lock_commit": "42e3a95a5a3e8c1940dda453742a16ece2e7499f",
+  "previous_lock_commit": "96303f31b8b7cb561a472040da0d6af964e9e94d",
   "changed_modules_since_previous_lock": ["web/src/server", "web/e2e"],
-  "baseline_status": "The official workbook remains a 3-sheet template, but its default input surface is now truly minimal: 入力 has only four columns and 共通データ only three. Thin grids cover those exact ranges, actual examples remain in rows 2-3/2, and previous detailed friendly workbooks remain import-compatible.",
+  "baseline_status": "The official workbook physically keeps 使い方/入力/共通データ, with 使い方 hidden. 入力 restores the user reference's exact eight visible columns with blue required and orange optional groups, 高/中/低 priority validation, thin grid A1:H201 and actual examples in rows 2-3. 共通データ restores six visible columns, thin grid A1:F201 and an actual row-2 example. Previous 4/3 minimal, 14/6 detailed-friendly and keyed workbook formats remain import-compatible.",
   "excluded_generated_codemap_from_fingerprints": true
 }
