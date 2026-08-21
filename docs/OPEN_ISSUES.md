@@ -2,7 +2,7 @@
 
 ## Product issues
 
-2026-08-21のExcel公式テンプレート視認性改善（ISSUE-20260821-001）は修正・独立検証済みです。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
+2026-08-21のExcel公式テンプレート視認性改善（ISSUE-20260821-001）と、簡略3シート・枠線を維持した実セル記入例化（ISSUE-20260821-002）は修正・独立検証済みです。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
 
 Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）も修正・独立検証済みです。
 
@@ -26,6 +26,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- Excel公式テンプレートの簡略3シート・枠線維持と実セル記入例（ISSUE-20260821-002）: GitHub Actions run `32448865787`でnpm audit 0件、TypeCheck、Unit/API 53件（2件skip）、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。`入力`2〜3行目と`共通データ`2行目を実例とし、継続行のテスト名・確認項目名は真の空セルで確認。Artifact `web-ci-32448865787-1`（ID `9435028667`、SHA256 `6c0d1033ac4d8f94f285b1b5d96d9ff9cc2baa1904f04e1d6124465f6d2a73cd`）。
 
 - Excel公式テンプレートの枠線・全項目記入例（ISSUE-20260821-001）: GitHub Actions run `32445558693`でnpm audit 0件、TypeCheck、Unit/API 53件（2件skip）、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。Artifact `web-ci-32445558693-1`（ID `9433980395`、SHA256 `cc63d38f0d3c8a08a0d5913652aa71d5f994a90e4ddaca298085d568ebbd4701`）。
 
