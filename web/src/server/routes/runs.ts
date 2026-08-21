@@ -124,6 +124,7 @@ async function makeSnapshot(
   scenarioIds: string[],
   caseIds: string[],
   dataSetIds: string[],
+  assigneeId: string | null,
 ): Promise<void> {
   const scenarioRows = scenarioIds.length
     ? await connection.query<Array<{ id: string; title: string; objective: string | null; preconditions: string | null; updated_at: Date | string }>>(
@@ -170,10 +171,10 @@ async function makeSnapshot(
     const source = scenarioById.get(scenarioId)!;
     const snapshotId = randomUUID();
     scenarioSnapshotBySource.set(scenarioId, snapshotId);
-    return [snapshotId, runId, revisionNo, source.id, source.updated_at, source.title, source.objective, source.preconditions, position];
+    return [snapshotId, runId, revisionNo, source.id, source.updated_at, source.title, source.objective, source.preconditions, assigneeId, position];
   });
   await insertRows(connection, "run_scenario_snapshots", [
-    "id", "test_run_id", "revision_no", "source_scenario_id", "source_updated_at", "title", "objective", "preconditions", "position",
+    "id", "test_run_id", "revision_no", "source_scenario_id", "source_updated_at", "title", "objective", "preconditions", "assignee_id", "position",
   ], scenarioSnapshotRows);
 
   const caseSnapshotRows: unknown[][] = [];
@@ -185,7 +186,7 @@ async function makeSnapshot(
       const snapshotId = randomUUID();
       caseSnapshotRows.push([
         snapshotId, runId, scenarioSnapshotId, revisionNo, source.id, source.updated_at,
-        source.title, source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, position,
+        source.title, source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, assigneeId, position,
       ]);
       caseSnapshotSteps.push({ snapshotId, sourceCaseId: source.id });
     }
@@ -195,13 +196,13 @@ async function makeSnapshot(
     const snapshotId = randomUUID();
     caseSnapshotRows.push([
       snapshotId, runId, null, revisionNo, source.id, source.updated_at,
-      source.title, source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, position,
+      source.title, source.objective, source.preconditions, source.view_location, source.view_images_json, source.priority, assigneeId, position,
     ]);
     caseSnapshotSteps.push({ snapshotId, sourceCaseId: source.id });
   }
   await insertRows(connection, "run_case_snapshots", [
     "id", "test_run_id", "run_scenario_snapshot_id", "revision_no", "source_test_case_id", "source_updated_at",
-    "title", "objective", "preconditions", "view_location", "view_images_json", "priority", "position",
+    "title", "objective", "preconditions", "view_location", "view_images_json", "priority", "assignee_id", "position",
   ], caseSnapshotRows);
   const stepSnapshotRows = caseSnapshotSteps.flatMap(({ snapshotId, sourceCaseId }) =>
     (stepsByCase.get(sourceCaseId) ?? []).map((step) => [
@@ -432,7 +433,7 @@ ${rerunNote}` : rerunNote;
     await db.withTransaction(async (connection) => {
       if (starting) {
         await connection.query("INSERT INTO run_revisions (id, test_run_id, revision_no, change_reason, created_by) VALUES (?, ?, 1, ?, ?)", [randomUUID(), id, "実行開始時スナップショット", actor.id]);
-        await makeSnapshot(connection, projectId, id, 1, scenarioIds, caseIds, dataSetIds);
+        await makeSnapshot(connection, projectId, id, 1, scenarioIds, caseIds, dataSetIds, assigneeId);
       }
       if (completing) {
         const completionRows = await connection.query<Array<{ total: number; incomplete: number; missing_actual: number }>>(
@@ -486,7 +487,7 @@ ${rerunNote}` : rerunNote;
       );
       if (Number(runUpdate.affectedRows) !== 1) throw conflict();
       await connection.query("INSERT INTO run_revisions (id, test_run_id, revision_no, change_reason, created_by) VALUES (?, ?, ?, ?, ?)", [randomUUID(), id, revisionNo, reason, actor.id]);
-      await makeSnapshot(connection, projectId, id, revisionNo, scenarioIds, caseIds, dataSetIds);
+      await makeSnapshot(connection, projectId, id, revisionNo, scenarioIds, caseIds, dataSetIds, run.assignee_id);
       if (excludeScenarioIds.length) await connection.query("UPDATE run_scenario_snapshots SET excluded_at = UTC_TIMESTAMP(6), exclusion_reason = ?, version = version + 1 WHERE test_run_id = ? AND id IN (?) AND excluded_at IS NULL", [reason, id, excludeScenarioIds]);
       if (excludeScenarioIds.length) await connection.query("UPDATE run_case_snapshots SET excluded_at = UTC_TIMESTAMP(6), exclusion_reason = ?, version = version + 1 WHERE test_run_id = ? AND run_scenario_snapshot_id IN (?) AND excluded_at IS NULL", [reason, id, excludeScenarioIds]);
       if (excludeCaseIds.length) await connection.query("UPDATE run_case_snapshots SET excluded_at = UTC_TIMESTAMP(6), exclusion_reason = ?, version = version + 1 WHERE test_run_id = ? AND id IN (?) AND excluded_at IS NULL", [reason, id, excludeCaseIds]);

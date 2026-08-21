@@ -42,6 +42,7 @@ export interface StartedRun {
   testName: string;
   runName: string;
   caseNames: string[];
+  assigneeId?: string;
 }
 
 export async function createTestDesign(page: Page, caseCount = 1): Promise<{ testName: string; caseNames: string[] }> {
@@ -66,18 +67,25 @@ export async function createTestDesign(page: Page, caseCount = 1): Promise<{ tes
   return { testName, caseNames };
 }
 
-export async function createStartedRun(page: Page, caseCount = 1): Promise<StartedRun> {
+export async function createStartedRun(page: Page, caseCount = 1, assignFirstAssignee = false): Promise<StartedRun> {
   await login(page);
   const projectName = await createProject(page);
   const { testName, caseNames } = await createTestDesign(page, caseCount);
   const runName = unique("E2E 実行");
   await page.getByRole("button", { name: "このテストで実行を作成" }).click();
   await page.getByLabel("実行名").fill(runName);
+  let assigneeId: string | undefined;
+  if (assignFirstAssignee) {
+    const assignee = page.getByLabel("担当者").first();
+    assigneeId = await assignee.locator("option").evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value).find(Boolean));
+    if (!assigneeId) throw new Error("E2E用プロジェクトに担当者候補がありません。");
+    await assignee.selectOption(assigneeId);
+  }
   await page.getByRole("button", { name: "実行準備を保存" }).click();
   await expect(page.getByRole("heading", { name: runName })).toBeVisible();
   await page.getByRole("button", { name: "実行を開始" }).click();
   await expect(page.locator(".focused-run-case").getByRole("heading", { name: caseNames[0]!, exact: true })).toBeVisible();
-  return { projectName, testName, runName, caseNames };
+  return { projectName, testName, runName, caseNames, assigneeId };
 }
 
 export async function savePass(page: Page, caseName: string, next = false): Promise<void> {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FolderExplorer, type ExplorerSelection } from "./FolderExplorer.js";
 import { folderDepth } from "./folderExplorerModel.js";
 import { ViewImageEditor } from "./ViewImageEditor.js";
@@ -25,6 +25,7 @@ type EditorResponse = {
   commonData: CommonData | null;
 };
 type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
+type CaseContextMenu = { x: number; y: number; rowKey: string };
 
 let draftCounter = 0;
 const newKey = () => `draft-${Date.now()}-${draftCounter++}`;
@@ -90,11 +91,37 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
   const [images, setImages] = useState<Record<string, string[]>>({});
   const [imageUploading, setImageUploading] = useState(false);
   const [editingImage, setEditingImage] = useState<{ rowKey: string; source: string } | null>(null);
+  const [caseMenu, setCaseMenu] = useState<CaseContextMenu | null>(null);
   const loadSequence = useRef(0);
   const editorRef = useRef<HTMLDivElement>(null);
+  const caseMenuRef = useRef<HTMLDivElement>(null);
   const dirty = saveState === "dirty" || saveState === "error";
   const selectedIndex = Math.max(0, rows.findIndex((item) => item.key === selectedRowKey));
   const selectedRow = rows[selectedIndex] ?? rows[0];
+
+  useEffect(() => {
+    const close = () => setCaseMenu(null);
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", closeOnKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", closeOnKey);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!caseMenu || !caseMenuRef.current) return;
+    const margin = 8;
+    const rect = caseMenuRef.current.getBoundingClientRect();
+    const left = Math.min(Math.max(caseMenu.x, margin), Math.max(margin, window.innerWidth - rect.width - margin));
+    const top = Math.min(Math.max(caseMenu.y, margin), Math.max(margin, window.innerHeight - rect.height - margin));
+    caseMenuRef.current.style.left = `${left}px`;
+    caseMenuRef.current.style.top = `${top}px`;
+  }, [caseMenu]);
 
   function markDirty() {
     if (canEdit && saveState !== "saving") setSaveState("dirty");
@@ -236,13 +263,6 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     return Promise.all(sources.map(uploadImageCopy));
   }
 
-  async function copyExisting(caseId: string) {
-    try {
-      const loaded = await request<{ testCase: Omit<EditorCase, "key" | "data"> }>(`/api/test-cases/${caseId}?projectId=${encodeURIComponent(projectId)}`);
-      const clone: EditorCase = { ...loaded.testCase, key: newKey(), id: null, version: null, data: "" };
-      setRows((current) => [...current, clone]); setSelectedRowKey(clone.key); setActiveTab("cases"); markDirty();
-    } catch (error) { setMessage(errorText(error, "確認項目をコピーできませんでした。")); }
-  }
   async function createFolder(name: string, parentId: string | null) {
     try { await request("/api/folders", { method: "POST", body: JSON.stringify({ projectId, name, parentId }) }); await onChanged(); }
     catch (error) { setMessage(errorText(error, "フォルダを作成できませんでした。")); throw error; }
@@ -368,6 +388,23 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
     } finally { setImageUploading(false); }
   }
 
+  function openCaseMenu(event: React.MouseEvent, rowKey: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedRowKey(rowKey);
+    setCaseMenu({ x: event.clientX, y: event.clientY, rowKey });
+  }
+
+  function removeCaseFromMenu(rowKey: string) {
+    const index = rows.findIndex((row) => row.key === rowKey);
+    if (index < 0 || rows.length === 1) return;
+    const next = rows.filter((_, rowIndex) => rowIndex !== index);
+    setRows(next);
+    setSelectedRowKey(next[Math.max(0, index - 1)]?.key ?? "");
+    setCaseMenu(null);
+    markDirty();
+  }
+
   const stateLabel: Record<SaveState, string> = { clean: "変更なし", dirty: "未保存", saving: "保存中…", saved: savedAt ? `保存済み ${savedAt}` : "保存済み", error: "保存失敗" };
 
   return <div className="test-design-shell" ref={editorRef}>
@@ -410,12 +447,11 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
             <button type="button" className="design-action-add" disabled={!canEdit} onClick={() => addRow()}>＋ 確認項目</button>
             <button type="button" className="design-action-copy" disabled={!canEdit || !selectedRow || imageUploading} onClick={() => selectedRow && void duplicateRow(selectedIndex, selectedRow)}>⧉ 複製</button>
             <button type="button" className="design-action-mode" aria-pressed={bulkMode} onClick={() => setBulkMode((current) => !current)}>{bulkMode ? "詳細編集へ戻る" : "一覧編集"}</button>
-            <details className="design-copy-control"><summary className="link-button design-action-copy">既存からコピー</summary><div className="design-copy-menu">{cases.map((item) => <button type="button" key={item.id} onClick={() => void copyExisting(item.id)}>{item.title}</button>)}{!cases.length && <span className="muted">コピー元はありません。</span>}</div></details>
             <button type="button" className="design-action-import" onClick={onOpenExcel}>Excelから取り込む</button>
           </div>
           {!bulkMode && selectedRow && <div className="design-case-workspace">
             <nav className="design-case-list" aria-label="確認項目一覧">
-              {rows.map((row, index) => <button type="button" key={row.key} className={`design-case-card ${row.key === selectedRow.key ? "active" : ""}`} aria-current={row.key === selectedRow.key ? "true" : undefined} onClick={() => setSelectedRowKey(row.key)}>
+              {rows.map((row, index) => <button type="button" key={row.key} className={`design-case-card ${row.key === selectedRow.key ? "active" : ""}`} aria-current={row.key === selectedRow.key ? "true" : undefined} onClick={() => setSelectedRowKey(row.key)} onContextMenu={(event) => openCaseMenu(event, row.key)}>
                 <span className="design-case-number">{index + 1}</span><span className="design-case-card-body"><strong>{row.title.trim() || "名称未設定"}</strong><small>{row.steps.length}手順</small></span><span className={`design-priority ${row.priority}`}>{priorityLabel(row.priority)}</span>
               </button>)}
             </nav>
@@ -436,13 +472,23 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, cases
               </div>
             </div>
           </div>}
-          {bulkMode && <div className="design-bulk-wrap"><table className="design-bulk-table"><thead><tr><th>No.</th><th>確認項目名</th><th>最初の操作</th><th>最初の期待結果</th><th>テストデータ</th><th>優先度</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.key} className={row.key === selectedRow?.key ? "selected" : ""} onClick={() => setSelectedRowKey(row.key)}><td>{index + 1}</td><td><AutoTextarea disabled={!canEdit} aria-label={`確認項目名 ${index + 1}`} value={row.title} onPaste={(event) => pasteGrid(event, index, 0)} onChange={(event) => updateRow(index, { title: event.target.value })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`一覧操作 ${index + 1}`} value={row.steps[0]?.action ?? ""} onPaste={(event) => pasteGrid(event, index, 1)} onChange={(event) => updateRow(index, { steps: row.steps.map((step, stepIndex) => stepIndex === 0 ? { ...step, action: event.target.value } : step) })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`一覧期待結果 ${index + 1}`} value={row.steps[0]?.expected ?? ""} onPaste={(event) => pasteGrid(event, index, 2)} onChange={(event) => updateRow(index, { steps: row.steps.map((step, stepIndex) => stepIndex === 0 ? { ...step, expected: event.target.value } : step) })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`テストデータ ${index + 1}`} value={row.data} onPaste={(event) => pasteGrid(event, index, 3)} onChange={(event) => updateRow(index, { data: event.target.value })} /></td><td><select disabled={!canEdit} value={row.priority} onChange={(event) => updateRow(index, { priority: event.target.value as Priority })}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></td></tr>)}</tbody></table></div>}
+          {bulkMode && <div className="design-bulk-wrap"><table className="design-bulk-table"><thead><tr><th>No.</th><th>確認項目名</th><th>最初の操作</th><th>最初の期待結果</th><th>テストデータ</th><th>優先度</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.key} className={row.key === selectedRow?.key ? "selected" : ""} onClick={() => setSelectedRowKey(row.key)} onContextMenu={(event) => openCaseMenu(event, row.key)}><td>{index + 1}</td><td><AutoTextarea disabled={!canEdit} aria-label={`確認項目名 ${index + 1}`} value={row.title} onPaste={(event) => pasteGrid(event, index, 0)} onChange={(event) => updateRow(index, { title: event.target.value })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`一覧操作 ${index + 1}`} value={row.steps[0]?.action ?? ""} onPaste={(event) => pasteGrid(event, index, 1)} onChange={(event) => updateRow(index, { steps: row.steps.map((step, stepIndex) => stepIndex === 0 ? { ...step, action: event.target.value } : step) })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`一覧期待結果 ${index + 1}`} value={row.steps[0]?.expected ?? ""} onPaste={(event) => pasteGrid(event, index, 2)} onChange={(event) => updateRow(index, { steps: row.steps.map((step, stepIndex) => stepIndex === 0 ? { ...step, expected: event.target.value } : step) })} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`テストデータ ${index + 1}`} value={row.data} onPaste={(event) => pasteGrid(event, index, 3)} onChange={(event) => updateRow(index, { data: event.target.value })} /></td><td><select disabled={!canEdit} value={row.priority} onChange={(event) => updateRow(index, { priority: event.target.value as Priority })}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></td></tr>)}</tbody></table></div>}
         </section>
         <section className="design-tab-panel" role="tabpanel" hidden={activeTab !== "common"}>
           <details className="design-common-data" open={commonEnabled} onToggle={(event) => { const open = event.currentTarget.open; if (open !== commonEnabled) { setCommonEnabled(open); markDirty(); } }}><summary>テスト共通データを設定する（任意）</summary><div className="design-common-body"><div className="design-common-head-fields"><label>名前<input disabled={!canEdit} value={commonData.name} onChange={(event) => { setCommonData({ ...commonData, name: event.target.value }); markDirty(); }} /></label><label>説明<AutoTextarea disabled={!canEdit} value={commonData.description} onChange={(event) => { setCommonData({ ...commonData, description: event.target.value }); markDirty(); }} /></label></div><div className="design-data-table-wrap"><table className="design-data-table"><thead><tr><th>項目名</th><th>値</th><th>メモ</th><th></th></tr></thead><tbody>{commonData.items.map((item, index) => <tr key={index}><td><AutoTextarea disabled={!canEdit} aria-label={`共通データ名 ${index + 1}`} placeholder="項目名" value={item.label} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, label: event.target.value } : entry) }); markDirty(); }} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`共通データ値 ${index + 1}`} placeholder="値" value={item.value} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, value: event.target.value } : entry) }); markDirty(); }} /></td><td><AutoTextarea disabled={!canEdit} aria-label={`共通データメモ ${index + 1}`} placeholder="メモ" value={item.memo} onChange={(event) => { setCommonData({ ...commonData, items: commonData.items.map((entry, itemIndex) => itemIndex === index ? { ...entry, memo: event.target.value } : entry) }); markDirty(); }} /></td><td><button type="button" className="danger small" disabled={!canEdit} onClick={() => { setCommonData({ ...commonData, items: commonData.items.filter((_, itemIndex) => itemIndex !== index) }); markDirty(); }}>削除</button></td></tr>)}</tbody></table></div>{canEdit && <button type="button" className="design-action-add" onClick={() => { setCommonData({ ...commonData, items: [...commonData.items, { label: "", value: "", memo: "" }] }); markDirty(); }}>＋ データ項目</button>}</div></details>
         </section>
       </section>
     </div>
+    {caseMenu && (() => {
+      const row = rows.find((item) => item.key === caseMenu.rowKey);
+      const index = rows.findIndex((item) => item.key === caseMenu.rowKey);
+      if (!row || index < 0) return null;
+      return <div ref={caseMenuRef} className="design-case-context-menu" role="menu" style={{ left: caseMenu.x, top: caseMenu.y }} onClick={(event) => event.stopPropagation()}>
+        <button type="button" role="menuitem" onClick={() => { setSelectedRowKey(row.key); setActiveTab("cases"); setBulkMode(false); setCaseMenu(null); }}>開く</button>
+        {canEdit && <button type="button" role="menuitem" disabled={imageUploading} onClick={() => { setCaseMenu(null); void duplicateRow(index, row); }}>複製</button>}
+        {canEdit && rows.length > 1 && <button type="button" role="menuitem" className="danger" onClick={() => removeCaseFromMenu(row.key)}>削除</button>}
+      </div>;
+    })()}
     {message && <p className={saveState === "error" || message.includes("入力") ? "error-message design-message" : "success-message design-message"} role="status">{message}</p>}
     {editingImage && <ViewImageEditor projectId={projectId} sourceUrl={editingImage.source} onClose={() => setEditingImage(null)} onSaved={async (url) => { setImages((current) => ({ ...current, [editingImage.rowKey]: (current[editingImage.rowKey] ?? []).map((item) => item === editingImage.source ? url : item) })); setEditingImage(null); markDirty(); }} />}
   </div>;
