@@ -137,10 +137,10 @@ GitHub Actions run `31169231328`（head `e96325cb93fa0cbacbd3709588fc8f32c459b33
 ## TASK-20260821-001: Excel公式テンプレートの枠線・記入例追加と回帰確認
 
 - 開始日時: 2026-08-21 12:52 JST
-- 完了日時: 未完了
+- 完了日時: 2026-08-21 13:07 JST
 - 対応課題: ISSUE-20260821-001
 - 担当: ChatGPT
-- 状態: In Progress / Verification
+- 状態: Completed / Verified
 
 ### 作業前の状態
 
@@ -148,49 +148,72 @@ GitHub Actions run `31169231328`（head `e96325cb93fa0cbacbd3709588fc8f32c459b33
 - 再現手順: Excelテンプレートをダウンロードし、`入力`・`共通データ`シートの入力領域と各項目の記入方法を確認する。
 - 期待動作: 入力領域が枠線で視認でき、全項目の具体的な記入例を確認できる。
 - 実際の動作: 改善前は枠線がなく、記入例も十分ではなかった。
-- 関連エラーID: GitHub Actions run `32444607705`
-- 関連ログ: `npm ci` が `nanoid@3.3.16 does not satisfy nanoid@3.3.18` で停止。
+- 関連エラーID: GitHub Actions run `32444607705`, `32445345845`
+- 関連ログ: 最初はpackage manifest/lock不一致、その解消後はExcelJSとNode Buffer型境界のTS2345でTypeCheckが停止した。
 
 ### 調査内容
 
-- 確認したファイル: `AGENTS.md`, `docs/codex-development-operation-rules.md`, `docs/codemap/codemap.lock`, `docs/codemap/codemap.json`, `web/package.json`, `web/package-lock.json`, `docs/ISSUE_LEDGER.md`, `docs/OPEN_ISSUES.md`。
+- 確認したファイル: `AGENTS.md`, `docs/codex-development-operation-rules.md`, `docs/codemap/codemap.lock`, `docs/codemap/codemap.json`, `web/src/server/excelTemplatePresentation.ts`, `web/src/server/excelTemplatePresentation.test.ts`, `web/src/server/routes/excel.ts`, `web/package.json`, `web/package-lock.json`, 課題管理ドキュメント。
 - 確認したDB: DB変更なし。
-- 実行した確認: PR #2の最新head、exact-head CI、コードマップ基準、package manifest/lockの同期状態を確認。
-- 仮説: Excel本体の変更とは別に、監査対応で追加した`nanoid` overrideだけpackage-lockへ反映されておらず、CIが依存解決前に停止している。
-- 仮説の検証結果: run `32444607705` のログとlockfile内容で成立。
-- 確定原因: `web/package.json`の`nanoid: 3.3.18` overrideに対し、`web/package-lock.json`が3.3.16のままだった。
+- コードマップ確認:
+  - 呼び出し元: `web/src/server/routes/excel.ts` が `buildCasesTemplate()` 後に `decorateCasesTemplate()` を呼ぶ。
+  - 影響先: 公式Excelテンプレートのダウンロード時の見た目（枠線・記入例）だけで、Excel解析・DB保存には影響しない。
+  - テスト: `web/src/server/excelTemplatePresentation.test.ts`, `web/src/server/excelImport.test.ts`, `web/e2e/excel-import.spec.ts`。
+- 仮説と検証:
+  - `nanoid` override追加後のlockfile未同期はrun `32444607705`の`npm ci`ログで確定。
+  - lock同期後のrun `32445345845`で`excelTemplatePresentation.ts`のBuffer型キャストがExcelJSの実際の引数型と一致していないことをTypeCheckで確定。
 
 ### 実施内容
 
-- 変更ファイル: `web/package-lock.json`（同期）、本タスク管理ドキュメント。
+- Excelテンプレート本体（commit `f26879027ad8c02ffbb49b9669fa2705dfb6874f`）:
+  - `入力`シートA1:N201へthin枠線を追加。
+  - `共通データ`シートA1:F201へthin枠線を追加。
+  - 入力14項目・共通データ6項目の全20項目へ記入例を追加。
+  - 記入例は`使い方`シート一覧と各ヘッダー注記へ配置し、インポート対象のサンプル行は追加しない。
+- 依存同期:
+  - `nanoid` 3.3.18 overrideに合わせ`web/package-lock.json`を正規生成して同期（commit `ea7a08748c309f54b9af021c19370b269907763f`）。
+  - 同期用一時workflowは自己削除し、恒久ファイルを残していない。
+- TypeScript修正:
+  - `decorateCasesTemplate()`でExcelJS `load` の実際の引数型を`Parameters<typeof workbook.xlsx.load>[0]`から取得し、Node Bufferとの境界を明示した（commit `9b624888f5156361eb896762ca231e7b158e6c2f`）。
 - DB変更: なし
 - Migration: なし
-- API変更: なし
-- UI変更: なし（Excelテンプレート本体の枠線・記入例追加はcommit `f26879027ad8c02ffbb49b9669fa2705dfb6874f`で実装済み）。
-- テスト追加: なし。既存`web/src/server/excelTemplatePresentation.test.ts`、`web/src/server/excelImport.test.ts`、`web/e2e/excel-import.spec.ts`を回帰対象とする。
-- ドキュメント更新: TASK_LOG開始記録。完了時にISSUE_LEDGER、OPEN_ISSUESと検証結果を同期する。
+- API route変更: なし
+- モジュール境界・主要データフロー変更: なし。コードマップ再生成不要。
 
 ### 作業中に発生したこと
 
-- 新たに発生したエラー: run `32444607705`でpackage manifest/lock不一致を確認。
-- 想定外の影響: `npm ci`で停止したため、同runではTypeCheck以降が未実施。
-- 追加で判明した課題: なし。
-- 回避策: 一時GitHub Actionsを用いて`npm install --package-lock-only --ignore-scripts`を実行し、lockfileを正規生成した。ワークフロー自身は同commitで削除し、恒久ファイルを残していない。
+- run `32444607705`: `npm ci`が`nanoid@3.3.16 does not satisfy nanoid@3.3.18`で停止。
+- run `32445345845`: lock同期後、`excelTemplatePresentation.ts`でExcelJS/Node Buffer型のTS2345によりTypeCheck停止。
+- 対処後run `32445558693`で全工程成功。
 
 ### 検証
 
-- TypeCheck: 実施待ち
-- Unit Test: 実施待ち
-- Integration Test: 実施待ち
-- Build: 実施待ち
-- E2E: 実施待ち
-- 手動確認: 実施待ち
-- DB確認: DB変更なし
-- セキュリティ確認: 実施待ち
+GitHub Actions run `32445558693`（製品head `9b624888f5156361eb896762ca231e7b158e6c2f`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査、脆弱性0件
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 53件成功、2件skip（19 test files成功、2 files skip）
+- Excelテンプレート表示Unit: 2件成功（枠線、全項目の記入例）
+- Excel import Unit: 3件成功
+- MariaDB Integration Test: 2件成功
+- Migration CLI / schema validation: 成功
+- Backup / restore / retention: 成功、2世代保持確認
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 21件成功（`excel-import.spec.ts`を含む）
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32445558693-1`（ID `9433980395`、SHA256 `cc63d38f0d3c8a08a0d5913652aa71d5f994a90e4ddaca298085d568ebbd4701`、450676 bytes）
+- 手動確認: 未実施。ExcelJSで生成物を再読込するUnitが枠線と全項目注記を直接検証し、Chromium E2Eが公式テンプレートのダウンロード・入力・取込を検証した。
+- DB確認: MariaDB統合・DB export成功。今回DB変更なし。
+- セキュリティ確認: npm audit 0件。
 
 ### 結果
 
-- 解消した内容: package-lock同期は完了。`nanoid`は3.3.18へ更新済み。
-- 解消していない内容: exact-head全CI確認が未完了。
-- 残るリスク: 全回帰CI未完了。
-- 次のタスク: exact-head Web CIの全工程を確認し、課題台帳・未解決課題・長期記憶を確定状態へ更新する。
+- 解消した内容: Excel公式テンプレートの視認性向上（枠線）と全20項目の記入例追加を実装し、依存lock同期とExcelJS Buffer型境界も修正した。
+- 解消していない内容: なし。
+- 残るリスク: Excelの表示はExcelクライアント差により細部が異なる可能性があるが、生成ファイル上のborder/note値はUnitで検証済み。
+- 次のタスク: 利用者による実ファイルの見た目確認。必要なら列幅・行高・色などを追加調整する。
