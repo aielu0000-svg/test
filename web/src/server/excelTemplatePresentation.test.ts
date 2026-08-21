@@ -28,21 +28,33 @@ function hasThinGrid(cell: ExcelJS.Cell): boolean {
 }
 
 describe("Excel template presentation", () => {
-  it("keeps the simplified three-sheet template and visible cell borders", async () => {
+  it("keeps only the minimal visible columns and their cell borders", async () => {
     const workbook = await decoratedWorkbook();
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
     const input = workbook.getWorksheet("入力")!;
     const common = workbook.getWorksheet("共通データ")!;
 
-    expect(input.getRow(1).values).not.toContain("テストキー");
-    expect(input.getRow(1).values).not.toContain("確認項目キー");
+    expect(input.getRow(1).cellCount).toBe(4);
+    expect(input.getCell("A1").text).toBe("テスト名");
+    expect(input.getCell("B1").text).toBe("確認項目名");
+    expect(input.getCell("C1").text).toBe("操作");
+    expect(input.getCell("D1").text).toBe("期待結果");
+    expect(input.getCell("E1").value).toBeNull();
+    expect(common.getRow(1).cellCount).toBe(3);
+    expect(common.getCell("A1").text).toBe("テスト名");
+    expect(common.getCell("B1").text).toBe("項目名");
+    expect(common.getCell("C1").text).toBe("値");
+    expect(common.getCell("D1").value).toBeNull();
+
     expect(hasThinGrid(input.getCell("A1"))).toBe(true);
-    expect(hasThinGrid(input.getCell("N201"))).toBe(true);
+    expect(hasThinGrid(input.getCell("D201"))).toBe(true);
+    expect(hasThinGrid(input.getCell("E1"))).toBe(false);
     expect(hasThinGrid(common.getCell("A1"))).toBe(true);
-    expect(hasThinGrid(common.getCell("F201"))).toBe(true);
+    expect(hasThinGrid(common.getCell("C201"))).toBe(true);
+    expect(hasThinGrid(common.getCell("D1"))).toBe(false);
   });
 
-  it("writes examples into the actual input cells", async () => {
+  it("writes examples into the actual minimal input cells", async () => {
     const workbook = await decoratedWorkbook();
     const guide = workbook.getWorksheet("使い方")!;
     const input = workbook.getWorksheet("入力")!;
@@ -51,13 +63,14 @@ describe("Excel template presentation", () => {
     expect(input.getCell("A2").value).toBe("ログイン機能の確認");
     expect(input.getCell("B2").value).toBe("正常ログイン");
     expect(input.getCell("C2").value).toBe("ユーザー名とパスワードを入力する");
-    expect(input.getCell("N2").value).toBe("ログイン画面を表示済み");
+    expect(input.getCell("D2").value).toBe("入力値が表示される");
     expect(input.getCell("A3").value).toBeNull();
     expect(input.getCell("B3").value).toBeNull();
     expect(input.getCell("C3").value).toBe("ログインボタンを押す");
     expect(input.getCell("D3").value).toBe("ダッシュボードが表示される");
     expect(common.getCell("A2").value).toBe("ログイン機能の確認");
-    expect(common.getCell("F2").value).toBe("ログイン確認で共通利用");
+    expect(common.getCell("B2").value).toBe("ベースURL");
+    expect(common.getCell("C2").value).toBe("https://example.test/login");
     expect(guide.getCell("B10").text).toContain("記入例を上書きするか削除");
   });
 });
