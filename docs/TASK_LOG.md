@@ -293,3 +293,79 @@ GitHub Actions run `32448865787`（head `b7a170d51167e55b394c2f1994864894d874eed
 - 記入例は説明文ではなく実際の入力セルへ移動した。
 - UnitとブラウザE2Eで「簡略化・枠線・実セル記入例」を明示的な回帰条件として固定した。
 - 未解決の製品不具合: なし。
+
+## TASK-20260821-003: Excel公式テンプレートの最小列化
+
+- 開始日時: 2026-08-21 15:30 JST
+- 完了日時: 2026-08-21 15:42 JST
+- 対応課題: ISSUE-20260821-003
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 利用者が求める「大幅簡略化」は、公式`入力`シートを通常利用に必要な4列だけへ絞り、`共通データ`も最小列だけへ絞る意味だった。
+- 作業前は3シート化と内部キー非表示は実装済みだったが、`入力`は14列、`共通データ`は6列が常時表示されていた。
+- 枠線と実セル記入例は維持対象とした。
+
+### 調査内容
+
+- 作業開始head `fedb126a4c7f8915e4f4bfc97e063386af773a08` と`docs/codemap/codemap.lock`の製品基準`42e3a95a5a3e8c1940dda453742a16ece2e7499f`を比較した。
+- 差分は課題管理・コードマップ生成物だけで、対象製品ソースに後続差分がないことを確認したため、既存コードマップは変更前調査に使用可能と判断した。
+- コードマップから変更対象を確認:
+  - 呼び出し元: `web/src/server/routes/excel.ts`が`buildCasesTemplate()`と`decorateCasesTemplate()`を呼ぶ。
+  - 影響先: 公式テンプレート生成、friendly Excel解析、テンプレートの見た目、Excel preview/confirm導線。
+  - テスト: `web/src/server/excelImport.test.ts`, `web/src/server/excelTemplatePresentation.test.ts`, `web/e2e/excel-import.spec.ts`。
+
+### 実施内容
+
+- `web/src/server/excelImport.ts`:
+  - 公式`入力`を「テスト名・確認項目名・操作・期待結果」の4列だけへ変更。
+  - 公式`共通データ`を「テスト名・項目名・値」の3列だけへ変更。
+  - 省略した優先度・見る場所・テストデータ・タグ・フォルダ・目的・前提条件・共通データメモ等は公式テンプレートには表示せず、必要なら取込後に画面で設定する案内へ変更。
+  - friendly parserは従来の14列/6列を引き続き任意列として認識し、旧ファイル互換を維持。
+  - 旧キー付き形式の互換読込も維持。
+  - 最小テンプレートでは優先度は既定の`medium`、その他詳細項目は空欄として取り込む。
+- `web/src/server/excelTemplatePresentation.ts`:
+  - 枠線を`入力`A1:D201、`共通データ`A1:C201へ最小列に合わせて維持。
+  - `入力`2〜3行目と`共通データ`2行目へ実際の記入例を維持。
+  - 継続行のテスト名・確認項目名は真の空セルを維持。
+- テスト:
+  - 公式テンプレートが正確に4列/3列で、それ以降の列が空であることをUnit/E2Eで固定化。
+  - 最小列からの取込を検証。
+  - 従来14列/6列friendly workbookの詳細情報が引き続き解析される互換テストを追加。
+  - 旧キー付き形式の互換テストも維持。
+- DB変更: なし。
+- Migration: なし。
+- API route契約変更: なし。
+- 製品変更後、コードマップ3ファイルを新しいExcel制約へ更新し、製品基準を`96303f31b8b7cb561a472040da0d6af964e9e94d`へ更新した。
+
+### 検証
+
+GitHub Actions run `32455211801`（製品head `96303f31b8b7cb561a472040da0d6af964e9e94d`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 54件成功、2件skip（19 test files成功、2 files skip）
+- Excel import Unit: 4件成功（最小列生成・取込、従来詳細friendly互換、旧キー付き互換を含む）
+- Excelテンプレート表示Unit: 2件成功（4列/3列、枠線、実セル記入例を含む）
+- MariaDB Integration Test: 2件成功
+- Migration CLI / schema validation: 成功
+- Backup / restore / retention: 成功
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 21件成功（`excel-import.spec.ts`を含む）
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32455211801-1`（ID `9437062798`、SHA256 `07d40d5e29a0472a82fdfb495b448db0ba9f1efcc172a65940dd1037c812d665`、446824 bytes）
+
+### 結果
+
+- 公式テンプレートは3シート構成を維持しつつ、通常入力面を本当に最小化した。
+- `入力`は4列だけ、`共通データ`は3列だけとなり、不要な横スクロールと詳細項目の常時露出を除去した。
+- 枠線と実セル記入例は維持した。
+- 過去に作成した詳細列付きExcelと旧キー付きExcelの読込互換は維持した。
+- 未解決の製品不具合: なし。
