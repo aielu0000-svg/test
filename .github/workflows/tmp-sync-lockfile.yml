@@ -1,0 +1,36 @@
+name: Temporary lockfile sync
+
+on:
+  push:
+    branches:
+      - agent/folder-explorer-p2
+    paths:
+      - .github/workflows/tmp-sync-lockfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-lockfile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/folder-explorer-p2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Regenerate lockfile only
+        working-directory: web
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Commit synchronized lockfile and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-sync-lockfile.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/package-lock.json .github/workflows/tmp-sync-lockfile.yml
+          git diff --cached --check
+          git commit -m "Sync package lock for Nano ID override"
+          git push origin HEAD:agent/folder-explorer-p2
