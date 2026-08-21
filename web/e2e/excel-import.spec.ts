@@ -16,9 +16,16 @@ test("公式Excelテンプレートからテスト設計全体を取り込める
   await workbook.xlsx.load(await templateResponse.body());
   expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
   const input = workbook.getWorksheet("入力")!;
+  const common = workbook.getWorksheet("共通データ")!;
+  expect(input.getRow(1).values).not.toContain("テストキー");
+  expect(input.getRow(1).values).not.toContain("確認項目キー");
+  expect(input.getCell("A2").value).toBe("ログイン機能の確認");
+  expect(input.getCell("N2").value).toBe("ログイン画面を表示済み");
+  expect(input.getCell("C3").value).toBe("ログインボタンを押す");
+  expect(common.getCell("F2").value).toBe("ログイン確認で共通利用");
+
   input.getRow(2).values = ["ログイン機能の確認", "正常ログイン", "ユーザー名とパスワードを入力する", "入力値が表示される", "高", "ログイン画面", "ユーザー: test-user", "smoke,login", "機能/ログイン", "機能/ログイン|回帰"];
   input.getRow(3).values = ["", "", "ログインボタンを押す", "ダッシュボードが表示される"];
-  const common = workbook.getWorksheet("共通データ")!;
   common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login", "テスト環境", "ログイン共通データ", "ログイン確認で共通利用"];
   const templatePath = testInfo.outputPath("the-test-design-template.xlsx");
   await writeFile(templatePath, Buffer.from(await workbook.xlsx.writeBuffer()));
