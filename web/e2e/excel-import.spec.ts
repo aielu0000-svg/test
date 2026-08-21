@@ -5,6 +5,10 @@ import { assertE2EConfiguration, createProject, login, unique } from "./helpers.
 
 test.beforeEach(() => assertE2EConfiguration());
 
+function rowTexts(row: ExcelJS.Row, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => row.getCell(index + 1).text);
+}
+
 test("公式Excelテンプレートからテスト設計全体を取り込める", async ({ page }, testInfo) => {
   await login(page);
   await createProject(page, unique("E2E Excel取込"));
@@ -20,8 +24,7 @@ test("公式Excelテンプレートからテスト設計全体を取り込める
   const input = workbook.getWorksheet("入力")!;
   const common = workbook.getWorksheet("共通データ")!;
   expect(input.getRow(1).cellCount).toBe(8);
-  expect(input.getRow(1).values).toEqual([
-    undefined,
+  expect(rowTexts(input.getRow(1), 8)).toEqual([
     "テスト項目（必須）", "確認項目（必須）", "操作（必須）", "確認観点・期待結果（必須）",
     "対象・確認箇所（任意）", "優先度（任意）", "テストデータ（任意）", "タグ（任意）",
   ]);
@@ -33,8 +36,7 @@ test("公式Excelテンプレートからテスト設計全体を取り込める
   expect(input.getCell("C3").value).toBe("ログインボタンを押す");
 
   expect(common.getRow(1).cellCount).toBe(6);
-  expect(common.getRow(1).values).toEqual([
-    undefined,
+  expect(rowTexts(common.getRow(1), 6)).toEqual([
     "テスト項目（必須）", "項目名（必須）", "値（任意）", "メモ（任意）", "データ名（任意）", "説明（任意）",
   ]);
   expect(common.getCell("G1").value).toBeNull();
