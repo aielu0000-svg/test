@@ -1,8 +1,8 @@
 {
-  "current_commit": "2d657aa8c91b79f9e1592e0785b03e527c298115",
+  "current_commit": "df1ec3b71eab76ffee6b5d6e20b965d98d1f8631",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-21T21:03+09:00",
-  "generation_basis": "clean product-source snapshot at the current PR head before the siji.md Web UI changes; source module trees are unchanged since the previous generation, while the map metadata now matches the current head",
+  "generation_time": "2026-08-21T21:25+09:00",
+  "generation_basis": "clean product-source snapshot after siji.md UI fixes and successful Web CI run 32481647224; source tree SHAs below reflect the final PR head",
   "scanned_scope": [
     "src/main",
     "src/preload",
@@ -46,12 +46,12 @@
     },
     "web/src/client": {
       "mode": "git-tree",
-      "source_tree_sha": "576a4bcc54ec206a77703945a150bd82c4a9baf5",
+      "source_tree_sha": "de5fae725bff1aa97ed8ff44a810c35c4332374e",
       "fingerprint": "cd0bd6438ceba40cab1fb30f7c8e7f16ebad98522eed7a5c85a293eb70113aa3"
     },
     "web/src/server": {
       "mode": "git-tree",
-      "source_tree_sha": "0d347d65e8e81c2e4e19c82dbab19db4eef03cb9",
+      "source_tree_sha": "f1559307229cca0ea83c4a9f460025385fd96454",
       "fingerprint": "8b38b618cac9f304914d4300d4932dff63b8e3558d9428d934aa9a42ea2c8f55"
     },
     "web/src/shared": {
@@ -66,7 +66,7 @@
     },
     "web/e2e": {
       "mode": "git-tree",
-      "source_tree_sha": "d29898df5b2c2b7e14c2acde75c6947c1c7ccb63",
+      "source_tree_sha": "78e16956a8f25c96574a06a2888000172f5da130",
       "fingerprint": "83e5a05ddcf7be3e4410389b1f91ceca880f1440e060e477807dd0303842ec23"
     },
     "web/migrations": {
@@ -130,7 +130,11 @@
     }
   },
   "previous_lock_commit": "e590b0d710d9336cf4a7b3f5b3df2f593112c54f",
-  "changed_modules_since_previous_lock": [],
-  "baseline_status": "Browser styling remains custom CSS with no new runtime dependency. styles.css defines semantic color, 4px spacing, radius, elevation, content-width and focus tokens; workspace.css, test-design.css and operations.css consume the shared tokens. Dashboard and Workspace navigation expose aria-current=page. FolderExplorer clamps context-menu coordinates after measuring the mounted menu. TestDesignEditor owns confirmation-item row actions, and RunWorkspace owns execution assignment and evidence presentation. API, database and migrations are unchanged at this baseline.",
+  "changed_modules_since_previous_lock": [
+    "web/src/client",
+    "web/src/server",
+    "web/e2e"
+  ],
+  "baseline_status": "Browser styling remains custom CSS with no new runtime dependency. styles.css defines semantic color, 4px spacing, radius, elevation, content-width and focus tokens; workspace.css, test-design.css and operations.css consume the shared tokens. Dashboard and Workspace navigation expose aria-current=page. FolderExplorer clamps context-menu coordinates after measuring the mounted menu. TestDesignEditor owns confirmation-item row actions and no longer exposes existing-from-copy. RunWorkspace owns execution assignment and evidence presentation; run snapshot creation seeds scenario/case assignees from the run assignee. API contracts and database schema are unchanged.",
   "excluded_generated_codemap_from_fingerprints": true
 }

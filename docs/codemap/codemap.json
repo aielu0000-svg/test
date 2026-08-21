@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-21T21:03+09:00",
-  "generated_from_commit": "2d657aa8c91b79f9e1592e0785b03e527c298115",
+  "generated_at": "2026-08-21T21:25+09:00",
+  "generated_from_commit": "df1ec3b71eab76ffee6b5d6e20b965d98d1f8631",
   "scope": [
     "src/main",
     "src/preload",
@@ -21,7 +21,7 @@
     ".github/workflows",
     "import-examples"
   ],
-  "regeneration_reason": "Before the next Web UI changes, refreshed from the current PR head. Existing source trees are unchanged since the prior map; the map now records the current head and the confirmation-item and evidence UI responsibilities.",
+  "regeneration_reason": "Regenerated after the siji.md UI changes and their successful independent CI verification. The map records confirmation-item context-menu actions, removal of the existing-from-copy control, run-assignee snapshot inheritance, and the evidence card reading order.",
   "nodes": [
     {
       "id": "electron_renderer",
@@ -119,13 +119,14 @@
       "type": "ui",
       "group": "Browser UI",
       "path": "web/src/client/TestDesignEditor.tsx",
-      "role": "Tabbed test-design editor, duplication and view-image UI.",
+      "role": "Tabbed test-design editor, confirmation-item context-menu actions, duplication and view-image UI.",
       "tests": [
         "web/e2e/test-design.spec.ts",
-        "web/e2e/design-duplicate-images.spec.ts"
+        "web/e2e/design-duplicate-images.spec.ts",
+        "web/e2e/requested-improvements.spec.ts"
       ],
       "constraints": [
-        "TestDesignEditor.tsx owns the confirmation-item list, local row duplication/deletion and the existing-from-copy control.",
+        "TestDesignEditor.tsx owns the confirmation-item list, local row duplication/deletion and the row context menu. The existing-from-copy control is removed.",
         "The FolderExplorer context menu owns test-level actions; confirmation-item row actions are local to the editor."
       ]
     },
@@ -154,14 +155,15 @@
       "type": "ui",
       "group": "Browser UI",
       "path": "web/src/client/RunWorkspace.tsx",
-      "role": "Run creation, execution, assignment, conflict, zoom and evidence UI; also contains the legacy procedures panel component retained for compatibility but no longer exposed by Workspace navigation.",
+      "role": "Run creation, execution, assignment inheritance, conflict, zoom and evidence UI; also contains the legacy procedures panel component retained for compatibility but no longer exposed by Workspace navigation.",
       "tests": [
         "web/e2e/run-create-start.spec.ts",
-        "web/e2e/requested-improvements.spec.ts"
+        "web/e2e/requested-improvements.spec.ts",
+        "web/e2e/completed-run-evidence.spec.ts"
       ],
       "constraints": [
         "EvidencePanelV2 is rendered within FocusedRunPanel and uses operations.css for upload guidance, evidence cards and item actions.",
-        "The initial run assignee is the source for case/scenario snapshot assignees when an execution starts or is revised."
+        "The initial run assignee is written to scenario/case snapshots when an execution starts or is revised; subsequent case edits remain independent."
       ]
     },
     {
@@ -265,7 +267,7 @@
       "type": "route",
       "group": "Web Server",
       "path": "web/src/server/routes/runs.ts",
-      "role": "Run snapshots, results, revisions and completion.",
+      "role": "Run snapshots, initial assignment inheritance, results, revisions and completion.",
       "tests": [
         "web/src/server/runDomain.test.ts"
       ]
@@ -661,7 +663,7 @@
         "web/e2e/requested-improvements.spec.ts"
       ],
       "constraints": [
-        "Confirmation-item context-menu actions are covered by the test-design UI regression suite."
+        "Confirmation-item context-menu actions and removal of the existing-from-copy control are covered by the test-design UI regression suite."
       ]
     },
     {
@@ -689,10 +691,11 @@
       ],
       "tests": [
         "web/e2e/evidence.spec.ts",
-        "web/e2e/requested-improvements.spec.ts"
+        "web/e2e/requested-improvements.spec.ts",
+        "web/e2e/completed-run-evidence.spec.ts"
       ],
       "constraints": [
-        "Evidence cards preserve a clear filename/preview/actions reading order."
+        "Evidence cards preserve a clear filename/preview/details/actions reading order."
       ]
     }
   ]

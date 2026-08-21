@@ -584,57 +584,47 @@ GitHub Actions run `32460494663`（製品head `76548555e7387c1c37c052f9a2d68870e
 ## TASK-20260821-007: siji.mdによる画面修正
 
 - 開始日時: 2026-08-21 21:03+09:00
-- 完了日時: 未完了
+- 完了日時: 2026-08-21 21:25+09:00
 - 対応課題: ISSUE-20260821-007, ISSUE-20260821-008, ISSUE-20260821-009, ISSUE-20260821-010
 - 担当: ChatGPT
-- 状態: In Progress
+- 状態: Completed / Verified
 
 ### 作業前の状態
 
-- 発生していた現象: 実行担当者を設定しても、実行開始後の確認項目担当者へ初期値が反映されない。証跡項目の情報配置を改善する必要がある。確認項目一覧には右クリックの複製・削除がなく、「既存からコピー」導線が残っている。
-- 再現手順: テスト実行で担当者を設定して開始する。テスト設計の確認項目一覧と証跡項目を表示する。
-- 期待動作: 実行担当者が項目担当者の初期値になる。証跡のファイル名・プレビュー・補足情報・操作が順序立って見える。確認項目の右クリックで複製・削除でき、「既存からコピー」が表示されない。
-- 実際の動作: 要修正。詳細な原因は実装確認中。
+- 実行担当者を設定して開始しても、実行開始時の確認項目担当者へ初期値が反映されていなかった。
+- 証跡カードのファイル名・プレビュー・補足情報・操作の視線順を整理する必要があった。
+- 確認項目一覧に行単位の右クリック複製・削除がなく、「既存からコピー」導線が残っていた。
 
-### 調査内容
+### 調査と実施内容
 
-- 確認したファイル: `web/src/client/RunWorkspace.tsx`, `web/src/client/TestDesignEditor.tsx`, `web/src/client/operations.css`, `web/src/client/test-design.css`, `web/src/server/routes/runs.ts`, 関連Playwright E2E
-- 実行したコマンド: GitHub current-head取得、コードマップとcurrent tree比較、対象ファイル読取
-- 仮説: 実行開始時のsnapshot INSERTに担当者列がなく、証跡カードと確認項目リストの情報階層が現行ガイドラインに対して不足している。
-- 仮説の検証結果: 実装確認後に確定する。
-- 確定原因: 未確定
-
-### 実施内容
-
-- 変更ファイル: 未実施
-- DB変更: なし（予定）
-- Migration: なし（予定）
-- API変更: 未実施
-- UI変更: 未実施
-- テスト追加: 未実施
-- ドキュメント更新: コードマップ再生成、課題台帳・Open Issues・タスクログ開始記録
+- `web/src/server/routes/runs.ts`: `makeSnapshot`に実行担当者を渡し、シナリオ／確認項目snapshotの`assignee_id`へ保存。開始時と改訂時の両方へ適用。
+- `web/src/client/RunWorkspace.tsx`, `web/src/client/operations.css`: 証跡を見出し・件数、追加フォーム、空状態、カードのファイル名・プレビュー・詳細・操作へ再構成。
+- `web/src/client/TestDesignEditor.tsx`, `web/src/client/test-design.css`: 詳細編集・一覧編集の確認項目行へviewport補正付き右クリックメニュー（開く・複製・削除）を追加し、既存からコピーUIと`copyExisting`を削除。
+- `web/e2e/run-create-start.spec.ts`, `web/e2e/helpers.ts`: 担当者をプロジェクトへ割り当てて実行開始し、確認項目担当者へ引き継がれることを検証。
+- `web/e2e/test-design.spec.ts`, `web/e2e/completed-run-evidence.spec.ts`: 右クリック操作、導線削除、証跡見出しの回帰検証を追加・補正。
+- DB migration、外部API契約、依存パッケージの変更: なし。
 
 ### 作業中に発生したこと
 
-- 新たに発生したエラー: なし
-- 想定外の影響: なし
-- 追加で判明した課題: コードマップの基準コミットが現行PR headから遅れていた。
-- 回避策: 最新headのソースツリーを確認し、コード変更前にコードマップを現行headへ更新する。
+- 初回CI run 32481140227はTypeCheck・Unit/API・MariaDB・Buildまで成功したが、E2Eの既存証跡locatorの未スコープと、E2E用プロジェクトに担当者候補を作らないテスト準備で失敗。
+- `helpers.ts`を実際の管理画面のユーザー割当フローに合わせ、証跡見出しを`.evidence-panel`内へスコープして再実行した。
+- 想定外の製品不具合は確認されなかった。
 
 ### 検証
 
-- TypeCheck: 未実施
-- Unit Test: 未実施
-- Integration Test: 未実施
-- Build: 未実施
-- E2E: 未実施
-- 手動確認: 未実施
-- DB確認: 実行開始時のsnapshot INSERTをコード確認済み
-- セキュリティ確認: 未実施
+- TypeCheck: Web CI run 32481647224 成功
+- Unit/API: Web CI run 32481647224 成功
+- MariaDB統合: Web CI run 32481647224 成功
+- Migration/Schema validation: Web CI run 32481647224 成功
+- Build/OpenShift互換コンテナ: Web CI run 32481647224 成功
+- Chromium E2E: Web CI run 32481647224 成功
+- セキュリティ監査: Web CI run 32481647224 成功（npm audit high以上 0件）
+- 手動確認: 画面構造・レスポンシブCSS・操作導線をコードレビュー済み
+- DB確認: snapshot INSERTの`assignee_id`反映をコード確認済み。migrationは不要。
 
 ### 結果
 
-- 解消した内容: なし。実装前。
-- 解消していない内容: siji.mdの4項目すべて。
-- 残るリスク: 担当者の初期反映、画面操作、既存複製機能の回帰。
-- 次のタスク: コードマップ更新を反映後、実装と回帰テストを行う。
+- 解消した内容: siji.mdの4項目すべて。
+- 解消していない内容: なし。
+- 残るリスク: E2E実環境での視覚的な微調整は今後のデザインレビューで確認可能。
+- CI artifact: Web CI run 32481647224の検証artifactを保存済み。
