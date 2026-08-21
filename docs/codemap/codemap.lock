@@ -1,8 +1,8 @@
 {
-  "current_commit": "95cbdfbad208113603f6e6d25d25202715a16fca",
+  "current_commit": "dee33eb005474e1644a6f211855fb93cc05ac3c8",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-21T12:46:00+09:00",
-  "generation_basis": "clean product-source snapshot before the atomic dependency-and-codemap commit",
+  "generation_time": "2026-08-21T13:43:00+09:00",
+  "generation_basis": "clean product-source snapshot before the Excel example-row task; subsequent codemap-only commits do not alter scanned product sources",
   "scanned_scope": [
     "src/main",
     "src/preload",
@@ -24,16 +24,16 @@
     "import-examples"
   ],
   "fingerprint_algorithm": {
-    "name": "sha256-git-tree-v1",
-    "description": "For directory modules: SHA-256 of 'codemap-module-v1\\0tree\\0<module>\\0<git-tree-sha>'. Synthetic file-list modules retain sorted path/blob fingerprints.",
-    "content_basis": "tracked file paths and current tracked file contents at current_commit"
+    "name": "sha256-git-tree-v2",
+    "description": "Directory modules use SHA-256 of 'codemap-module-v1\\0tree\\0<module>\\0<git-tree-sha>'. Tracked-file modules use SHA-256 of 'codemap-module-v2\\0tracked-files\\0<module>\\0' plus sorted '<path>\\0<blob-sha>' lines.",
+    "content_basis": "tracked file paths and tracked file contents at current_commit"
   },
   "modules": {
     "src/main": {"mode":"git-tree","source_tree_sha":"5c476d0bf75d645bff64eea8c589c8f74c653956","fingerprint":"3483c1458d166c1dea7f7f3a7c87c144361f24fe7fa0d8b6282a0787f7ea5671"},
     "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3e18485f7fa3a0d069b452f4fd17af7fda1b20fd87d66fe75ccdf587e5355144"},
     "src/renderer": {"mode":"git-tree","source_tree_sha":"094202631b8e48e0db00a5308d4e39392e5f7f1f","fingerprint":"4dc4a7fd4a765f08f303766466f9346be957ce85f689b94a34e0b78338f40280"},
     "web/src/client": {"mode":"git-tree","source_tree_sha":"c624fe09f235cc1d341267006fb2e1a7115f56d0","fingerprint":"cbb4573fc020ecaef374c943fff80a6ca0d47f3f83afc78d95d1caf278fc5022"},
-    "web/src/server": {"mode":"git-tree","source_tree_sha":"c24f68e08b2eabf7f57769692f7faab070f66758","fingerprint":"f83228098d4c911b3613351daca45bd705284a14efe9fb0e75c49ada8a24d3a0"},
+    "web/src/server": {"mode":"git-tree","source_tree_sha":"ad719e7ed0fd782974dc9b00084f2cadc4a08086","fingerprint":"53428535f9abb15a9feee5de3045aba1abf7e326b76a69e74d7d2a73772f3ae8"},
     "web/src/shared": {"mode":"git-tree","source_tree_sha":"ca86705e76101bfd37b2b15464e5f032ef7bfc4a","fingerprint":"3ff755beecb9b44a3f75327ca5d53e141af2985b06ae0ff9f5f60c025797bad3"},
     "web/src/tools": {"mode":"git-tree","source_tree_sha":"656b68d6fa24118fe2ccacebedca695fa3c82cd3","fingerprint":"c9d4d4fdf968e38a5c1acf89f31a398eecf0f83c0ada04c8edb320cada1d7fff"},
     "web/e2e": {"mode":"git-tree","source_tree_sha":"3e6d1477df2983f58994d9354ac9470e5cc9c6cd","fingerprint":"a1d6800cba2811ace5d0b0be957eafd37b6218651798e2b17bddd96c47196e36"},
@@ -42,11 +42,11 @@
     "web/scripts": {"mode":"git-tree","source_tree_sha":"ef8f248b3523b7f808efb142e40dac1d263c5eb1","fingerprint":"920e47d56cd30b6f56444c0e90eccb20c46c9aa8c5bc97f2c1fc703760d191d3"},
     "import-examples": {"mode":"git-tree","source_tree_sha":"2d8e9dbf04c70fa72ee9c44a88ca004a66659a3f","fingerprint":"170715adda56db0521bb4d5221fff4a21ac76fd1180782689ff369069daf21f2"},
     ".github/workflows": {"mode":"git-tree","source_tree_sha":"dbb6423c5c4989eb7218dca342417cb5f4c5138e","fingerprint":"60a531451e0d5fa6e4391ed56886e6692afa4f00d0cce0ef14b6d1214f340772"},
-    "web/runtime-manifests": {"mode":"tracked-files","fingerprint":"f78df26ba85b0e91479a9663e7f95177e74dc6ed108a1d773b6cdbd42cac0aac"},
-    "dependency-manifests": {"mode":"tracked-files","fingerprint":"99dd430ffa3cd13ed805c23cf7426e053758e5917401df8e9850f9264eac03c7"}
+    "web/runtime-manifests": {"mode":"tracked-files","paths":["web/Dockerfile","web/kustomization.yaml","web/openshift-build.yaml","web/openshift-operations.yaml","web/openshift-retention.yaml","web/openshift-secrets.example.yaml","web/openshift.yaml"],"fingerprint":"c4c92e08f570d76dd1890e6bd6792d27d8d9c50b07e89590f44a7efb39a91a3c"},
+    "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"58603ac40a4b7916a1ff4bbb78c60c116714d7b14194b32a25f2660bad489595"}
   },
-  "previous_lock_commit": "e79496a72152fa75b3cbfa2de2349081fa5b081a",
-  "changed_modules_since_previous_lock": ["dependency-manifests"],
-  "baseline_status": "web/package.json now overrides nanoid 3.3.18 after the exact-head audit surfaced GHSA-mwcw-c2x4-8c55",
+  "previous_lock_commit": "95cbdfbad208113603f6e6d25d25202715a16fca",
+  "changed_modules_since_previous_lock": ["web/src/server", "dependency-manifests"],
+  "baseline_status": "Current branch preserves the 3-sheet simplified Excel template and thin-grid presentation; later commits fixed the ExcelJS Buffer type boundary and synchronized the nanoid override lockfile.",
   "excluded_generated_codemap_from_fingerprints": true
 }
