@@ -37,6 +37,21 @@ export async function createProject(page: Page, projectName = unique("E2E プロ
   return projectName;
 }
 
+async function assignFirstUserToProject(page: Page, projectName: string): Promise<void> {
+  await page.getByRole("button", { name: "← プロジェクト" }).click();
+  await page.getByRole("button", { name: "ユーザー管理", exact: true }).click();
+  const userSelect = page.getByLabel("ユーザーを選択");
+  const userId = await userSelect.locator("option").first().getAttribute("value");
+  if (!userId) throw new Error("E2E用ユーザーが見つかりません。");
+  await userSelect.selectOption(userId);
+  await page.getByRole("checkbox", { name: projectName, exact: true }).check();
+  await page.getByRole("button", { name: "選択内容を割り当て", exact: true }).click();
+  await expect(page.getByText(/割当を\d+件追加しました/)).toBeVisible();
+  await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
+  const project = page.locator("article.project-card").filter({ has: page.getByRole("heading", { name: projectName, exact: true }) });
+  await project.getByRole("button", { name: "開く" }).click();
+}
+
 export interface StartedRun {
   projectName: string;
   testName: string;
@@ -70,6 +85,7 @@ export async function createTestDesign(page: Page, caseCount = 1): Promise<{ tes
 export async function createStartedRun(page: Page, caseCount = 1, assignFirstAssignee = false): Promise<StartedRun> {
   await login(page);
   const projectName = await createProject(page);
+  if (assignFirstAssignee) await assignFirstUserToProject(page, projectName);
   const { testName, caseNames } = await createTestDesign(page, caseCount);
   const runName = unique("E2E 実行");
   await page.getByRole("button", { name: "このテストで実行を作成" }).click();

@@ -1,7 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { archiveProject, assertE2EConfiguration, completeRun, createStartedRun, savePass, unique } from "./helpers.js";
 
 test.beforeEach(() => assertE2EConfiguration());
+
+function evidenceHeading(page: Page) {
+  return page.locator(".evidence-panel").getByRole("heading", { name: "証跡", exact: true });
+}
 
 test("完了済み実行を切り替えても以前の実行ケースで証跡を取得しない", async ({ page }) => {
   const first = await createStartedRun(page);
@@ -28,10 +32,10 @@ test("完了済み実行を切り替えても以前の実行ケースで証跡�
 
   const runList = page.locator(".run-list");
   await runList.getByRole("button").filter({ hasText: first.runName }).click();
-  await expect(page.getByRole("heading", { name: "証跡" })).toBeVisible();
+  await expect(evidenceHeading(page)).toBeVisible();
   await page.waitForTimeout(400);
   await runList.getByRole("button").filter({ hasText: secondRunName }).click();
-  await expect(page.getByRole("heading", { name: "証跡" })).toBeVisible();
+  await expect(evidenceHeading(page)).toBeVisible();
   await page.waitForTimeout(400);
 
   await expect(page.getByText("実行ケースがプロジェクトに存在しません。", { exact: false })).toHaveCount(0);
