@@ -18,28 +18,36 @@ afterEach(async () => {
 });
 
 describe("Excel test design import", () => {
-  it("builds the minimal official template and infers keys from sequential input", async () => {
+  it("builds the reference-shaped official template and infers keys from sequential input", async () => {
     const filePath = await temporaryFile("template.xlsx");
     await writeFile(filePath, await buildCasesTemplate());
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
+    expect(workbook.getWorksheet("使い方")!.state).toBe("hidden");
+
     const input = workbook.getWorksheet("入力")!;
-    expect(input.getRow(1).cellCount).toBe(4);
-    expect(input.getCell("A1").text).toBe("テスト名");
-    expect(input.getCell("B1").text).toBe("確認項目名");
-    expect(input.getCell("C1").text).toBe("操作");
-    expect(input.getCell("D1").text).toBe("期待結果");
-    expect(input.getCell("E1").value).toBeNull();
-    input.getRow(2).values = ["ログイン機能の確認", "正常ログイン", "ユーザー名とパスワードを入力する", "入力値が表示される"];
-    input.getRow(3).values = [null, null, "ログインボタンを押す", "ダッシュボードが表示される"];
+    expect(input.getRow(1).cellCount).toBe(8);
+    expect(input.getRow(1).values).toEqual([
+      undefined,
+      "テスト項目（必須）", "確認項目（必須）", "操作（必須）", "確認観点・期待結果（必須）",
+      "対象・確認箇所（任意）", "優先度（任意）", "テストデータ（任意）", "タグ（任意）",
+    ]);
+    expect(input.getCell("I1").value).toBeNull();
+    input.getRow(2).values = [
+      "ログイン機能の確認", "正常ログイン", "ユーザー名とパスワードを入力する", "入力値が表示される",
+      "ログイン画面", "高", "ユーザー: test-user", "smoke,login",
+    ];
+    input.getRow(3).values = [null, null, "ログインボタンを押す", "ダッシュボードが表示される", null, null, null, null];
+
     const common = workbook.getWorksheet("共通データ")!;
-    expect(common.getRow(1).cellCount).toBe(3);
-    expect(common.getCell("A1").text).toBe("テスト名");
-    expect(common.getCell("B1").text).toBe("項目名");
-    expect(common.getCell("C1").text).toBe("値");
-    expect(common.getCell("D1").value).toBeNull();
-    common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login"];
+    expect(common.getRow(1).cellCount).toBe(6);
+    expect(common.getRow(1).values).toEqual([
+      undefined,
+      "テスト項目（必須）", "項目名（必須）", "値（任意）", "メモ（任意）", "データ名（任意）", "説明（任意）",
+    ]);
+    expect(common.getCell("G1").value).toBeNull();
+    common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login", "テスト環境", "ログイン共通データ", "ログイン確認で共通利用"];
     await workbook.xlsx.writeFile(filePath);
 
     const parsed = await parseCasesWorkbook(filePath);
@@ -52,9 +60,9 @@ describe("Excel test design import", () => {
       title: "ログイン機能の確認",
       objective: "",
       preconditions: "",
-      commonDataName: "",
-      commonDataDescription: "",
-      commonDataItems: [{ itemNo: 1, label: "共通URL", value: "https://example.test/login", memo: "" }],
+      commonDataName: "ログイン共通データ",
+      commonDataDescription: "ログイン確認で共通利用",
+      commonDataItems: [{ itemNo: 1, label: "共通URL", value: "https://example.test/login", memo: "テスト環境" }],
       cases: [{
         caseKey: "CASE-001",
         scenarioKey: "SCENARIO-001",
@@ -62,15 +70,36 @@ describe("Excel test design import", () => {
         title: "正常ログイン",
         objective: "",
         preconditions: "",
-        viewLocation: "",
-        data: "",
-        priority: "medium",
-        tags: [],
+        viewLocation: "ログイン画面",
+        data: "ユーザー: test-user",
+        priority: "high",
+        tags: ["smoke", "login"],
         steps: [
           { stepNo: 1, action: "ユーザー名とパスワードを入力する", expected: "入力値が表示される" },
           { stepNo: 2, action: "ログインボタンを押す", expected: "ダッシュボードが表示される" },
         ],
       }],
+    });
+  });
+
+  it("keeps accepting the previous four-column minimal workbook", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const input = workbook.addWorksheet("入力");
+    input.addRow(["テスト名", "確認項目名", "操作", "期待結果"]);
+    input.addRow(["ログイン機能の確認", "正常ログイン", "ユーザー名を入力する", "入力値が表示される"]);
+    const common = workbook.addWorksheet("共通データ");
+    common.addRow(["テスト名", "項目名", "値"]);
+    common.addRow(["ログイン機能の確認", "共通URL", "https://example.test/login"]);
+    const filePath = await temporaryFile("minimal-friendly.xlsx");
+    await workbook.xlsx.writeFile(filePath);
+
+    const parsed = await parseCasesWorkbook(filePath);
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.scenarios[0]).toMatchObject({
+      title: "ログイン機能の確認",
+      commonDataItems: [{ itemNo: 1, label: "共通URL", value: "https://example.test/login", memo: "" }],
+      cases: [{ title: "正常ログイン", priority: "medium", viewLocation: "", data: "", tags: [] }],
     });
   });
 
