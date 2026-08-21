@@ -17,16 +17,25 @@ test("公式Excelテンプレートからテスト設計全体を取り込める
   expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
   const input = workbook.getWorksheet("入力")!;
   const common = workbook.getWorksheet("共通データ")!;
-  expect(input.getRow(1).values).not.toContain("テストキー");
-  expect(input.getRow(1).values).not.toContain("確認項目キー");
+  expect(input.getRow(1).cellCount).toBe(4);
+  expect(input.getCell("A1").text).toBe("テスト名");
+  expect(input.getCell("B1").text).toBe("確認項目名");
+  expect(input.getCell("C1").text).toBe("操作");
+  expect(input.getCell("D1").text).toBe("期待結果");
+  expect(input.getCell("E1").value).toBeNull();
   expect(input.getCell("A2").value).toBe("ログイン機能の確認");
-  expect(input.getCell("N2").value).toBe("ログイン画面を表示済み");
+  expect(input.getCell("D2").value).toBe("入力値が表示される");
   expect(input.getCell("C3").value).toBe("ログインボタンを押す");
-  expect(common.getCell("F2").value).toBe("ログイン確認で共通利用");
+  expect(common.getRow(1).cellCount).toBe(3);
+  expect(common.getCell("A1").text).toBe("テスト名");
+  expect(common.getCell("B1").text).toBe("項目名");
+  expect(common.getCell("C1").text).toBe("値");
+  expect(common.getCell("D1").value).toBeNull();
+  expect(common.getCell("C2").value).toBe("https://example.test/login");
 
-  input.getRow(2).values = ["ログイン機能の確認", "正常ログイン", "ユーザー名とパスワードを入力する", "入力値が表示される", "高", "ログイン画面", "ユーザー: test-user", "smoke,login", "機能/ログイン", "機能/ログイン|回帰"];
-  input.getRow(3).values = ["", "", "ログインボタンを押す", "ダッシュボードが表示される"];
-  common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login", "テスト環境", "ログイン共通データ", "ログイン確認で共通利用"];
+  input.getRow(2).values = ["ログイン機能の確認", "正常ログイン", "ユーザー名とパスワードを入力する", "入力値が表示される"];
+  input.getRow(3).values = [null, null, "ログインボタンを押す", "ダッシュボードが表示される"];
+  common.getRow(2).values = ["ログイン機能の確認", "共通URL", "https://example.test/login"];
   const templatePath = testInfo.outputPath("the-test-design-template.xlsx");
   await writeFile(templatePath, Buffer.from(await workbook.xlsx.writeBuffer()));
 
@@ -51,7 +60,7 @@ test("公式Excelテンプレートからテスト設計全体を取り込める
   await expect(page.getByLabel("テスト名")).toHaveValue("ログイン機能の確認");
   await page.getByRole("tab", { name: /確認項目/ }).click();
   await expect(page.getByLabel("確認項目名 1")).toHaveValue("正常ログイン");
-  await expect(page.getByLabel("テストデータ 1")).toHaveValue("ユーザー: test-user");
+  await expect(page.getByLabel("テストデータ 1")).toHaveValue("");
   await page.getByRole("tab", { name: "共通データ", exact: true }).click();
   await expect(page.getByLabel("共通データ名 1")).toHaveValue("共通URL");
   await expect(page.getByLabel("共通データ値 1")).toHaveValue("https://example.test/login");
