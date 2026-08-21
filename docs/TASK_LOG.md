@@ -554,3 +554,29 @@ GitHub Actions run `32460494663`（製品head `76548555e7387c1c37c052f9a2d68870e
 - Unit/API: 未実施
 - Production Build: 未実施
 - Chromium E2E: 未実施
+
+### 実施内容
+
+- `web/src/client/styles.css`へ意味ベースの色、4px基準余白、角丸、影、content width、focusの共通トークンを追加した。
+- `workspace.css`と`test-design.css`の主要なシェル、ナビゲーション、カード、フォーム余白を共通トークンへ接続した。
+- DashboardとWorkspaceのナビゲーションへ`type="button"`と`aria-current="page"`を追加し、Workspaceの現在地をE2Eで固定した。
+- `docs/WEB_DESIGN_GUIDELINES.md`と`AGENTS.md`へ手動デザインレビュー手順とUI変更ルールを追加した。
+- 初回CIで再現したFolderExplorerの右クリックメニューviewport overflowを、マウント後の実寸計測と8pxマージン内クランプで修正した。
+- DB、Migration、API route契約、runtime UI依存は変更していない。
+
+### 検証
+
+- 初回ローカル依存導入はNode 24の`better-sqlite3`ネイティブビルドで失敗したため、`npm ci --ignore-scripts`で検証環境を整えた。リポジトリCIは指定条件で実行した。
+- ローカルTypeCheck: 成功。
+- ローカルUnit/API: 55件成功、2件skip。
+- ローカルProduction Build: 成功。
+- GitHub Actions run `32472543116`: 主要工程成功後、既存`folder-overlay.spec.ts`がviewport外クリックで失敗。
+- 修正後GitHub Actions run `32473680363`: npm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 21件、成果物保存まで全工程成功。
+- Artifact: `web-ci-32473680363-1`（ID `9443553164`、SHA256 `3ad47c33939810100a41f79b8ae5e0e174bda599222dcc92da9d4db5f232415d`）。
+
+### 結果
+
+- ISSUE-20260821-006をVerifiedへ更新した。
+- 未解決の製品不具合: なし。
+- 完了日時: 2026-08-21 19:45 JST
+- 状態: Completed / Verified

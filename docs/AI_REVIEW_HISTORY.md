@@ -58,3 +58,12 @@
 - 総評: Electron版とWeb版は双方が現行CI対象であり維持する。履歴資料、生成物、未参照実装、重複契約ファイルは削除対象と判定した。
 - 対応課題: ISSUE-20260806-005
 - 状態: GitHub Actions run `31067948455`で独立検証済み。Artifact `web-ci-31067948455-1`（ID `8954562403`）。
+
+## Web UIレイアウト基盤レビュー
+
+- 実施日: 2026-08-21
+- 入力ソース: `docs/WEB_DESIGN_GUIDELINES.md`、現行Web CSS、Workspace/TestDesignEditor/FolderExplorer、既存E2E
+- 総評: 既存の操作階層と独自CSSを維持しながら、意味ベースの共通トークン、現在地のアクセシビリティ表現、手動のcritique/layout/audit/harden/distill手順を導入した。自動レビューBot、Impeccable hook、外部UIコンポーネントライブラリは追加していない。
+- 対応課題: ISSUE-20260821-006
+- 境界条件: 初回CI run `32472543116`で`folder-overlay.spec.ts`のviewport外クリックを検出し、FolderExplorerのメニュー座標を測定後に8pxマージン内へ補正した。
+- 検証: 修正後GitHub Actions run `32473680363`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Build、OpenShift互換コンテナ、Chromium E2E 21件成功。

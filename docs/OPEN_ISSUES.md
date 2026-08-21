@@ -2,9 +2,9 @@
 
 ## Product issues
 
-現在、ISSUE-20260821-006としてWeb UIレイアウト基盤を整備中です。対象はデザイン判断基準、意味ベースの共通トークン、Workspaceとテスト設計画面への初期適用で、API・DB・業務仕様は変更しません。
+ISSUE-20260821-006のWeb UIレイアウト基盤導入は検証済みです。意味ベースの共通トークン、Workspaceとテスト設計画面への初期適用、FolderExplorerのviewport overflow補正を含み、API・DB・業務仕様は変更していません。
 
-2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）と、プロジェクト画面の`作業手順`タブ非表示（ISSUE-20260821-005）はすべて修正・独立検証済みです。最新のISSUE-20260821-005では、前タスクでExcelの`使い方`シートと取り違えていたプロジェクトナビゲーション側を修正し、通常表示タブを`テスト設計 / テスト実行 / Excelから追加・エクスポート / 削除済み`の4つに固定しました。procedure backend/APIは互換性のため保持しています。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
+2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）、プロジェクト画面の`作業手順`タブ非表示（ISSUE-20260821-005）、Web UIレイアウト基盤（ISSUE-20260821-006）はすべて修正・独立検証済みです。最新のWeb UI変更では、通常表示タブを`テスト設計 / テスト実行 / Excelから追加・エクスポート / 削除済み`の4つに固定し、FolderExplorerの右クリックメニューをviewport内へ補正しました。procedure backend/APIは互換性のため保持しています。2026-08-07の改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
 
 Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）も修正・独立検証済みです。
 
@@ -28,6 +28,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- Web UIレイアウト基盤（ISSUE-20260821-006）: 製品head `66ae92c0cd85502a8cb07e4e7de35bd9d0c835de` のGitHub Actions run `32473680363`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元・保持、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 21件を含む全工程成功。初回run `32472543116`では`folder-overlay.spec.ts`がviewport外クリックで失敗したため、FolderExplorerのメニュー位置補正を追加し、再実行で成功。Artifact `web-ci-32473680363-1`（ID `9443553164`、SHA256 `3ad47c33939810100a41f79b8ae5e0e174bda599222dcc92da9d4db5f232415d`）。
 
 - プロジェクト作業手順タブ非表示（ISSUE-20260821-005）: 製品head `76548555e7387c1c37c052f9a2d68870e50eef90` のGitHub Actions run `32460494663`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。`workflow-guidance.spec.ts`でプロジェクトを開いた際に`作業手順`ボタンが存在しないことを明示確認。procedure backend/APIと互換用コンポーネントは保持。Artifact `web-ci-32460494663-1`（ID `9438819309`、SHA256 `46bddb6b005427e75b8cfb0827705e79ddab7fd34d5e16f122f873ba8a4bcfce`）。
 
