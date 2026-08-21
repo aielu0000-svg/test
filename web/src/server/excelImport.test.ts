@@ -13,6 +13,10 @@ async function temporaryFile(name: string): Promise<string> {
   return path.join(directory, name);
 }
 
+function rowTexts(row: ExcelJS.Row, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => row.getCell(index + 1).text);
+}
+
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -28,8 +32,7 @@ describe("Excel test design import", () => {
 
     const input = workbook.getWorksheet("入力")!;
     expect(input.getRow(1).cellCount).toBe(8);
-    expect(input.getRow(1).values).toEqual([
-      undefined,
+    expect(rowTexts(input.getRow(1), 8)).toEqual([
       "テスト項目（必須）", "確認項目（必須）", "操作（必須）", "確認観点・期待結果（必須）",
       "対象・確認箇所（任意）", "優先度（任意）", "テストデータ（任意）", "タグ（任意）",
     ]);
@@ -42,8 +45,7 @@ describe("Excel test design import", () => {
 
     const common = workbook.getWorksheet("共通データ")!;
     expect(common.getRow(1).cellCount).toBe(6);
-    expect(common.getRow(1).values).toEqual([
-      undefined,
+    expect(rowTexts(common.getRow(1), 6)).toEqual([
       "テスト項目（必須）", "項目名（必須）", "値（任意）", "メモ（任意）", "データ名（任意）", "説明（任意）",
     ]);
     expect(common.getCell("G1").value).toBeNull();
