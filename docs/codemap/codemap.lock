@@ -1,8 +1,8 @@
 {
   "current_commit": "586e1406b4b7c4c98283ff6aa13bed0cd537687a",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-21T16:22:00+09:00",
-  "generation_basis": "clean product-source snapshot after restoring the user-supplied reference workbook layout: eight input columns and six common-data columns with required/optional visual grouping, thin grids, real example rows, hidden guide sheet, and backward-compatible parsing",
+  "generation_time": "2026-08-21T16:50:00+09:00",
+  "generation_basis": "clean product-source snapshot after restoring the user-supplied reference workbook layout; code-map metadata was regenerated from the same product snapshot to explicitly model project-level Workspace navigation, callers and regression coverage before a navigation change",
   "scanned_scope": [
     "src/main",
     "src/preload",
@@ -45,8 +45,8 @@
     "web/runtime-manifests": {"mode":"tracked-files","paths":["web/Dockerfile","web/kustomization.yaml","web/openshift-build.yaml","web/openshift-operations.yaml","web/openshift-retention.yaml","web/openshift-secrets.example.yaml","web/openshift.yaml"],"fingerprint":"c4c92e08f570d76dd1890e6bd6792d27d8d9c50b07e89590f44a7efb39a91a3c"},
     "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"58603ac40a4b7916a1ff4bbb78c60c116714d7b14194b32a25f2660bad489595"}
   },
-  "previous_lock_commit": "96303f31b8b7cb561a472040da0d6af964e9e94d",
-  "changed_modules_since_previous_lock": ["web/src/server", "web/e2e"],
-  "baseline_status": "The official workbook physically keeps 使い方/入力/共通データ, with 使い方 hidden. 入力 restores the user reference's exact eight visible columns with blue required and orange optional groups, 高/中/低 priority validation, thin grid A1:H201 and actual examples in rows 2-3. 共通データ restores six visible columns, thin grid A1:F201 and an actual row-2 example. Previous 4/3 minimal, 14/6 detailed-friendly and keyed workbook formats remain import-compatible.",
+  "previous_lock_commit": "586e1406b4b7c4c98283ff6aa13bed0cd537687a",
+  "changed_modules_since_previous_lock": [],
+  "baseline_status": "Product source is unchanged from 586e140. The project workspace map now explicitly records App.tsx -> Workspace.tsx and Workspace ownership of project-level tab visibility, with workflow-guidance.spec.ts and excel-import.spec.ts as browser coverage. Excel behavior remains: hidden 使い方, 8-column 入力, 6-column 共通データ, thin grids, real examples and backward-compatible parsing.",
   "excluded_generated_codemap_from_fingerprints": true
 }
