@@ -133,3 +133,64 @@ GitHub Actions run `31169231328`（head `e96325cb93fa0cbacbd3709588fc8f32c459b33
   - 正式JSONインポートAPI自体は互換性のため残るが、通常利用者向けUIからは除外した。
   - 旧キー付きExcel形式は既存ファイル互換のため解析を維持している。
 - 次のタスク: 利用者による画面確認。必要に応じて文言・余白など視覚調整を行う。
+
+## TASK-20260821-001: Excel公式テンプレートの枠線・記入例追加と回帰確認
+
+- 開始日時: 2026-08-21 12:52 JST
+- 完了日時: 未完了
+- 対応課題: ISSUE-20260821-001
+- 担当: ChatGPT
+- 状態: In Progress / Verification
+
+### 作業前の状態
+
+- 発生していた現象: 公式Excelテンプレートの入力領域に枠線がなく、各列の具体的な記入例を一覧で確認しにくかった。
+- 再現手順: Excelテンプレートをダウンロードし、`入力`・`共通データ`シートの入力領域と各項目の記入方法を確認する。
+- 期待動作: 入力領域が枠線で視認でき、全項目の具体的な記入例を確認できる。
+- 実際の動作: 改善前は枠線がなく、記入例も十分ではなかった。
+- 関連エラーID: GitHub Actions run `32444607705`
+- 関連ログ: `npm ci` が `nanoid@3.3.16 does not satisfy nanoid@3.3.18` で停止。
+
+### 調査内容
+
+- 確認したファイル: `AGENTS.md`, `docs/codex-development-operation-rules.md`, `docs/codemap/codemap.lock`, `docs/codemap/codemap.json`, `web/package.json`, `web/package-lock.json`, `docs/ISSUE_LEDGER.md`, `docs/OPEN_ISSUES.md`。
+- 確認したDB: DB変更なし。
+- 実行した確認: PR #2の最新head、exact-head CI、コードマップ基準、package manifest/lockの同期状態を確認。
+- 仮説: Excel本体の変更とは別に、監査対応で追加した`nanoid` overrideだけpackage-lockへ反映されておらず、CIが依存解決前に停止している。
+- 仮説の検証結果: run `32444607705` のログとlockfile内容で成立。
+- 確定原因: `web/package.json`の`nanoid: 3.3.18` overrideに対し、`web/package-lock.json`が3.3.16のままだった。
+
+### 実施内容
+
+- 変更ファイル: `web/package-lock.json`（同期）、本タスク管理ドキュメント。
+- DB変更: なし
+- Migration: なし
+- API変更: なし
+- UI変更: なし（Excelテンプレート本体の枠線・記入例追加はcommit `f26879027ad8c02ffbb49b9669fa2705dfb6874f`で実装済み）。
+- テスト追加: なし。既存`web/src/server/excelTemplatePresentation.test.ts`、`web/src/server/excelImport.test.ts`、`web/e2e/excel-import.spec.ts`を回帰対象とする。
+- ドキュメント更新: TASK_LOG開始記録。完了時にISSUE_LEDGER、OPEN_ISSUESと検証結果を同期する。
+
+### 作業中に発生したこと
+
+- 新たに発生したエラー: run `32444607705`でpackage manifest/lock不一致を確認。
+- 想定外の影響: `npm ci`で停止したため、同runではTypeCheck以降が未実施。
+- 追加で判明した課題: なし。
+- 回避策: 一時GitHub Actionsを用いて`npm install --package-lock-only --ignore-scripts`を実行し、lockfileを正規生成した。ワークフロー自身は同commitで削除し、恒久ファイルを残していない。
+
+### 検証
+
+- TypeCheck: 実施待ち
+- Unit Test: 実施待ち
+- Integration Test: 実施待ち
+- Build: 実施待ち
+- E2E: 実施待ち
+- 手動確認: 実施待ち
+- DB確認: DB変更なし
+- セキュリティ確認: 実施待ち
+
+### 結果
+
+- 解消した内容: package-lock同期は完了。`nanoid`は3.3.18へ更新済み。
+- 解消していない内容: exact-head全CI確認が未完了。
+- 残るリスク: 全回帰CI未完了。
+- 次のタスク: exact-head Web CIの全工程を確認し、課題台帳・未解決課題・長期記憶を確定状態へ更新する。
