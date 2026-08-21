@@ -28,30 +28,36 @@ function hasThinGrid(cell: ExcelJS.Cell): boolean {
 }
 
 describe("Excel template presentation", () => {
-  it("adds visible cell borders to the input areas", async () => {
+  it("keeps the simplified three-sheet template and visible cell borders", async () => {
     const workbook = await decoratedWorkbook();
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["使い方", "入力", "共通データ"]);
     const input = workbook.getWorksheet("入力")!;
     const common = workbook.getWorksheet("共通データ")!;
 
+    expect(input.getRow(1).values).not.toContain("テストキー");
+    expect(input.getRow(1).values).not.toContain("確認項目キー");
     expect(hasThinGrid(input.getCell("A1"))).toBe(true);
     expect(hasThinGrid(input.getCell("N201"))).toBe(true);
     expect(hasThinGrid(common.getCell("A1"))).toBe(true);
     expect(hasThinGrid(common.getCell("F201"))).toBe(true);
   });
 
-  it("adds examples for every input and common-data field", async () => {
+  it("writes examples into the actual input cells", async () => {
     const workbook = await decoratedWorkbook();
     const guide = workbook.getWorksheet("使い方")!;
     const input = workbook.getWorksheet("入力")!;
     const common = workbook.getWorksheet("共通データ")!;
-    const guideText = guide.getSheetValues().flat(2).filter(Boolean).join("\n");
 
-    expect(guideText).toContain("入力 / テスト名");
-    expect(guideText).toContain("入力 / 確認項目の前提条件");
-    expect(guideText).toContain("共通データ / テスト名");
-    expect(guideText).toContain("共通データ / 説明（任意）");
-    expect(JSON.stringify(input.getCell("A1").note)).toContain("ログイン機能の確認");
-    expect(JSON.stringify(input.getCell("N1").note)).toContain("ログイン画面を表示済み");
-    expect(JSON.stringify(common.getCell("F1").note)).toContain("ログイン確認で共通利用");
+    expect(input.getCell("A2").value).toBe("ログイン機能の確認");
+    expect(input.getCell("B2").value).toBe("正常ログイン");
+    expect(input.getCell("C2").value).toBe("ユーザー名とパスワードを入力する");
+    expect(input.getCell("N2").value).toBe("ログイン画面を表示済み");
+    expect(input.getCell("A3").value).toBeNull();
+    expect(input.getCell("B3").value).toBeNull();
+    expect(input.getCell("C3").value).toBe("ログインボタンを押す");
+    expect(input.getCell("D3").value).toBe("ダッシュボードが表示される");
+    expect(common.getCell("A2").value).toBe("ログイン機能の確認");
+    expect(common.getCell("F2").value).toBe("ログイン確認で共通利用");
+    expect(guide.getCell("B10").text).toContain("記入例を上書きするか削除");
   });
 });
