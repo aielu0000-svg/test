@@ -447,3 +447,72 @@ GitHub Actions run `32458072345`（製品head `586e1406b4b7c4c98283ff6aa13bed0cd
 - 案内用`使い方`シートはブックに保持したまま非表示になった。
 - 以前の4列/3列・14列/6列・キー付きExcelは引き続き読み込める。
 - 未解決の製品不具合: なし。
+
+## TASK-20260821-005: プロジェクト作業手順タブの非表示化
+
+- 開始日時: 2026-08-21 16:44 JST
+- 完了日時: 2026-08-21 16:55 JST
+- 対応課題: ISSUE-20260821-005
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- Excelテンプレートの`使い方`シートは非表示になったが、プロジェクト画面上部には`作業手順`タブが引き続き表示されていた。
+- 前タスクでは利用者の「作業手順のタブを非表示」という指定をExcelの案内シートと解釈しており、プロジェクトナビゲーションの確認が不足していた。
+
+### 調査内容
+
+- `AGENTS.md`と開発運用ルールを再確認した。
+- 作業開始時点のbranch headと`docs/codemap/codemap.lock`を比較し、製品ソース基準はExcel修正head `586e1406b4b7c4c98283ff6aa13bed0cd537687a`のままで、後続差分は管理ドキュメント/コードマップのみと確認した。
+- 既存コードマップは`Workspace.tsx`のプロジェクトタブ責務について「呼び出し元・影響先・テスト」の3点を十分に回答できなかったため、製品変更前に3ファイルを再生成した。
+- 再生成したコードマップで確認した内容:
+  - 呼び出し元: `web/src/client/App.tsx`がプロジェクトを開いた際に`Workspace`をrenderする。
+  - 影響先: `Workspace.tsx`がプロジェクトレベルの表示タブと`TestDesignEditor`、`RunWorkspace`、`ExportPanel`、削除済みパネルの構成を管理する。タブ非表示だけではbackend/APIを削除しない。
+  - テスト: `web/e2e/workflow-guidance.spec.ts`がプロジェクトを開いた導線を、`web/e2e/excel-import.spec.ts`がExcelタブ導線をカバーする。
+- 実ソースで`Workspace.tsx`に`"procedures"` Tab、`["procedures", "作業手順"]`ナビ項目、`ProceduresPanelV2`表示分岐が残っていることを確定した。
+
+### 実施内容
+
+- `web/src/client/Workspace.tsx`:
+  - `Tab`型から`procedures`を削除。
+  - プロジェクトナビゲーションから`作業手順`ボタンを削除。
+  - `ProceduresPanelV2`表示分岐と不要importを削除。
+  - 表示タブを`テスト設計 / テスト実行 / Excelから追加・エクスポート / 削除済み`の4つへ固定。
+- `web/e2e/workflow-guidance.spec.ts`:
+  - プロジェクト作成直後に`作業手順`ボタンが0件であることを明示的にassertし、今後の再表示を回帰として検出するようにした。
+- 互換性:
+  - `RunWorkspace.tsx`内の`ProceduresPanelV2`コンポーネントや既存procedure backend/APIは削除せず保持した。今回の変更はプロジェクトナビゲーションからの非表示だけ。
+- DB変更: なし。
+- Migration: なし。
+- API route変更: なし。
+- 製品変更後、コードマップ3ファイルをproduct head `76548555e7387c1c37c052f9a2d68870e50eef90`基準へ更新し、`作業手順`がvisible navigationに存在しないことと回帰テストを明記した。
+
+### 検証
+
+GitHub Actions run `32460494663`（製品head `76548555e7387c1c37c052f9a2d68870e50eef90`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 55件成功、2件skip（19 test files成功、2 files skip）
+- Excel import Unit: 5件成功
+- Excelテンプレート表示Unit: 2件成功
+- MariaDB Integration Test: 2件成功
+- Migration CLI / schema validation: 成功
+- Backup / restore / retention: 成功
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 21件成功。`workflow-guidance.spec.ts`の作業手順タブ非表示assertionも成功。
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32460494663-1`（ID `9438819309`、SHA256 `46bddb6b005427e75b8cfb0827705e79ddab7fd34d5e16f122f873ba8a4bcfce`、450468 bytes）
+
+### 結果
+
+- プロジェクト画面の`作業手順`タブを実際に非表示化した。
+- Excelの`使い方`シート非表示とは別のUIであることをコード・テスト・コードマップ上で明確化した。
+- procedure互換機能は削除せず、通常プロジェクトナビゲーションからのみ除外した。
+- 未解決の製品不具合: なし。
