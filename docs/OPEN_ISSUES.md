@@ -2,7 +2,7 @@
 
 ## Product issues
 
-2026-08-21のExcel公式テンプレート視認性改善（ISSUE-20260821-001）、実セル記入例化（ISSUE-20260821-002）、通常入力を4列・共通データを3列へ絞る大幅簡略化（ISSUE-20260821-003）は修正・独立検証済みです。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
+2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）はすべて修正・独立検証済みです。最新のISSUE-20260821-004では、利用者提示の参照テンプレートを基準に`入力`8列・`共通データ`6列へ戻し、必須/任意色分け、枠線、実セル記入例を維持したうえで案内用`使い方`シートを非表示にしました。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
 
 Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）も修正・独立検証済みです。
 
@@ -26,6 +26,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- Excel参照テンプレート復元・枠線・実セル記入例・案内シート非表示（ISSUE-20260821-004）: 製品head `586e1406b4b7c4c98283ff6aa13bed0cd537687a` のGitHub Actions run `32458072345`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、Excel import Unit 5件、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。公式`入力`は必須4列＋任意4列の8列、`共通データ`は6列、枠線はA1:H201/A1:F201、実例は`入力`2〜3行目と`共通データ`2行目。`使い方`はhidden。旧4列/3列・14列/6列friendly・キー付き形式もUnitで互換確認。Artifact `web-ci-32458072345-1`（ID `9437996267`、SHA256 `b3078b4040775b2b8e0d7cbe9a062a8fc250d14313db83eeb2fc9c2c927a41a3`）。
 
 - Excel公式テンプレートの最小列化（ISSUE-20260821-003）: GitHub Actions run `32455211801`でnpm audit 0件、TypeCheck、Unit/API 54件（2件skip）、Excel import Unit 4件、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。公式`入力`は4列のみ、`共通データ`は3列のみとし、枠線はA1:D201/A1:C201、実セル記入例を維持。従来14列/6列friendly形式と旧キー付き形式の読込互換もUnitで確認。Artifact `web-ci-32455211801-1`（ID `9437062798`、SHA256 `07d40d5e29a0472a82fdfb495b448db0ba9f1efcc172a65940dd1037c812d665`）。
 
