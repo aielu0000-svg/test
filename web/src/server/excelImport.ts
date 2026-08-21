@@ -127,18 +127,15 @@ function styleDataSheet(sheet: ExcelJS.Worksheet, widths: number[]): void {
 
 function styleFriendlyInput(sheet: ExcelJS.Worksheet): void {
   sheet.views = [{ state: "frozen", ySplit: 1, xSplit: 2 }];
-  sheet.autoFilter = { from: "A1", to: "N1" };
-  const widths = [30, 30, 45, 45, 12, 26, 30, 22, 24, 26, 34, 34, 34, 34];
+  sheet.autoFilter = { from: "A1", to: "D1" };
+  const widths = [30, 30, 45, 45];
   widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   const header = sheet.getRow(1);
   header.height = 34;
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
   header.alignment = { vertical: "middle", wrapText: true };
   for (let column = 1; column <= 4; column += 1) header.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0068A8" } };
-  for (let column = 5; column <= 14; column += 1) header.getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF526579" } };
   for (let row = 2; row <= 201; row += 1) {
-    const priorityCell = sheet.getCell(`E${row}`);
-    priorityCell.dataValidation = { type: "list", allowBlank: true, formulae: ['"高,中,低"'] };
     for (let column = 1; column <= 4; column += 1) sheet.getRow(row).getCell(column).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF7FBFF" } };
   }
 }
@@ -151,15 +148,15 @@ export async function buildCasesTemplate(): Promise<Buffer> {
   const guide = workbook.addWorksheet("使い方");
   guide.addRows([
     ["THE TEST WEB Excel入力テンプレート"],
-    ["最短手順", "1. 「入力」シートのA〜D列へ入力 → 2. 保存 → 3. THE TEST WEBへアップロードして確認 → 4. 追加を確定"],
-    ["1行目", "テスト名・確認項目名・操作・期待結果を入力します。優先度などは必要な場合だけ入力します。"],
+    ["最短手順", "1. 「入力」シートの4列へ入力 → 2. 必要なら「共通データ」シートの3列へ入力 → 3. 保存 → 4. THE TEST WEBへアップロードして確認 → 5. 追加を確定"],
+    ["入力シート", "テスト名・確認項目名・操作・期待結果の4列だけです。1行につき1手順を入力します。"],
     ["同じ確認項目の次の手順", "テスト名と確認項目名を空欄にし、操作・期待結果だけ次の行へ入力します。"],
     ["同じテストの次の確認項目", "テスト名を空欄にし、確認項目名・操作・期待結果を入力します。"],
-    ["別のテスト", "新しいテスト名を入力した行から自動的に別テストとして扱います。システム用キーは不要です。"],
-    ["共通データ", "必要な場合だけ「共通データ」シートへ入力します。同じテストの2行目以降はテスト名を空欄にできます。"],
-    ["フォルダ", "階層は / で区切ります。確認項目を複数フォルダへ入れる場合は | で区切ります。"],
+    ["別のテスト", "新しいテスト名を入力した行から自動的に別テストとして扱います。ScenarioKeyやCaseKeyなどのシステム用キーは不要です。"],
+    ["共通データ", "必要な場合だけ「共通データ」シートのテスト名・項目名・値の3列へ入力します。同じテストの2行目以降はテスト名を空欄にできます。"],
+    ["詳細項目", "優先度・見る場所・テストデータ・タグ・フォルダ・目的・前提条件・共通データのメモ等は公式テンプレートには表示しません。追加後にTHE TEST WEBの画面で必要な項目だけ設定してください。従来の詳細列付きExcelは引き続き読み込めます。"],
     ["注意", "列名とシート名は変更しないでください。数式・結合セルは使用できません。"],
-    ["入力例", "ログイン機能の確認 | 正常ログイン | ユーザー名を入力する | 入力値が表示される\n（次行）空欄 | 空欄 | ログインボタンを押す | ダッシュボードが表示される"],
+    ["入力例", "「入力」2〜3行目と「共通データ」2行目に実際の記入例があります。利用時は上書きするか削除してください。"],
   ]);
   guide.getColumn(1).width = 24;
   guide.getColumn(2).width = 100;
@@ -168,17 +165,16 @@ export async function buildCasesTemplate(): Promise<Buffer> {
   guide.eachRow((row) => { row.alignment = { vertical: "top", wrapText: true }; });
 
   const input = workbook.addWorksheet("入力");
-  input.addRow(["テスト名", "確認項目名", "操作", "期待結果", "優先度", "見る場所", "テストデータ", "タグ", "テストフォルダ", "確認項目フォルダ", "テストの目的", "テスト全体の前提条件", "確認項目の目的", "確認項目の前提条件"]);
+  input.addRow(["テスト名", "確認項目名", "操作", "期待結果"]);
   styleFriendlyInput(input);
   input.getCell("A1").note = "新しいテストの最初の行だけ入力します。同じテストの続きは空欄で構いません。";
   input.getCell("B1").note = "新しい確認項目の最初の行だけ入力します。同じ確認項目の次の手順では空欄で構いません。";
   input.getCell("C1").note = "操作手順。1行につき1手順です。";
   input.getCell("D1").note = "その操作の期待結果です。";
-  input.getCell("E1").note = "空欄の場合は「中」です。";
 
   const common = workbook.addWorksheet("共通データ");
-  common.addRow(["テスト名", "項目名", "値", "メモ", "データ名（任意）", "説明（任意）"]);
-  styleDataSheet(common, [30, 28, 42, 32, 28, 40]);
+  common.addRow(["テスト名", "項目名", "値"]);
+  styleDataSheet(common, [30, 28, 42]);
   common.getCell("A1").note = "同じテストの続きは空欄で構いません。";
 
   const value = await workbook.xlsx.writeBuffer();
@@ -258,7 +254,7 @@ function parseFriendlyWorkbook(workbook: ExcelJS.Workbook, inputSheet: ExcelJS.W
 
   if (commonSheet) {
     const commonHeaders = headerMap(commonSheet, FRIENDLY_COMMON_HEADERS);
-    requireHeaders("共通データ", commonHeaders, ["ScenarioTitle", "Label", "Value", "Memo"], errors);
+    requireHeaders("共通データ", commonHeaders, ["ScenarioTitle", "Label", "Value"], errors);
     if (errors.length) return { scenarios, errors, warnings };
     let currentTitle = "";
     commonSheet.eachRow((row, rowNumber) => {
