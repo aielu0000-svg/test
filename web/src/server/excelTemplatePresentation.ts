@@ -5,7 +5,7 @@ const GRID_SIDE = { style: "thin" as const, color: { argb: GRID_COLOR } };
 const GRID_BORDER = { top: GRID_SIDE, left: GRID_SIDE, bottom: GRID_SIDE, right: GRID_SIDE };
 const EXAMPLE_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFF7E0" } };
 
-const INPUT_EXAMPLE_ROWS: readonly (readonly string[])[] = [
+const INPUT_EXAMPLE_ROWS: readonly (readonly (string | null)[])[] = [
   [
     "ログイン機能の確認",
     "正常ログイン",
@@ -22,7 +22,7 @@ const INPUT_EXAMPLE_ROWS: readonly (readonly string[])[] = [
     "正常系のログインを確認する",
     "ログイン画面を表示済み",
   ],
-  ["", "", "ログインボタンを押す", "ダッシュボードが表示される"],
+  [null, null, "ログインボタンを押す", "ダッシュボードが表示される"],
 ];
 
 const COMMON_EXAMPLE_ROW = [
