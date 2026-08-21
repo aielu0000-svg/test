@@ -3,11 +3,11 @@ import type { AuthUser, ProjectSummary } from "../shared/types.js";
 import "./workspace.css";
 import { request } from "./api.js";
 import { ExportPanel } from "./ExportPanel.js";
-import { ProceduresPanelV2, RunsPanelV2 } from "./RunWorkspace.js";
+import { RunsPanelV2 } from "./RunWorkspace.js";
 import { RecycleBinPanel } from "./RecycleBinPanel.js";
 import { TestDesignEditor } from "./TestDesignEditor.js";
 
-type Tab = "bulk" | "runs" | "procedures" | "excel" | "trash";
+type Tab = "bulk" | "runs" | "excel" | "trash";
 type Priority = "high" | "medium" | "low";
 
 interface CaseSummary {
@@ -104,7 +104,7 @@ export function Workspace({ project, user, initialRunId, onBack, onLogout }: { p
 
   return <div className="app-shell">
     <header className="topbar"><div className="workspace-title"><button onClick={onBack} className="back-button">← プロジェクト</button><div><p className="eyebrow">THE TEST WEB</p><h1>{project.name}</h1></div></div><div className="user-menu"><span>{user.displayName || user.username}</span><span className="permission-badge">{canEdit ? "編集可" : "閲覧のみ"}</span><button type="button" className="small" onClick={() => { setError(""); void onLogout().catch((reason) => setError(reason instanceof Error ? reason.message : "ログアウトに失敗しました。もう一度お試しください。")); }}>ログアウト</button></div></header>
-    <nav className="workspace-tabs" aria-label="プロジェクト操作">{([["bulk", "テスト設計"], ["runs", "テスト実行"], ["procedures", "作業手順"], ["excel", "Excelから追加・エクスポート"], ["trash", "削除済み"]] as Array<[Tab, string]>).map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <nav className="workspace-tabs" aria-label="プロジェクト操作">{([["bulk", "テスト設計"], ["runs", "テスト実行"], ["excel", "Excelから追加・エクスポート"], ["trash", "削除済み"]] as Array<[Tab, string]>).map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}</nav>
     <main className="workspace-content">
       <ErrorNotice value={error} />
       {tab === "bulk" && <TestDesignEditor projectId={project.id} canEdit={canEdit} scenarios={scenarios} folders={folders} cases={cases}
@@ -113,7 +113,6 @@ export function Workspace({ project, user, initialRunId, onBack, onLogout }: { p
         onOpenExcel={() => setTab("excel")}
       />}
       {tab === "runs" && <RunsPanelV2 projectId={project.id} canEdit={canEdit} cases={cases} scenarios={scenarios} dataSets={dataSets} initialScenarioId={runScenarioId} initialRunId={initialRunId} />}
-      {tab === "procedures" && <ProceduresPanelV2 projectId={project.id} canEdit={canEdit} />}
       {tab === "trash" && <RecycleBinPanel projectId={project.id} canEdit={canEdit} onChanged={refresh} />}
       {tab === "excel" && <div className="transfer-page">
         <div className="transfer-page-heading"><p className="eyebrow">IMPORT / EXPORT</p><h2>Excelから追加・エクスポート</h2><p className="muted">「追加する」と「外へ出す」を分けています。必要な側だけ上から順に進めてください。</p></div>
