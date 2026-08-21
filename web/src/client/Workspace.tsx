@@ -104,7 +104,7 @@ export function Workspace({ project, user, initialRunId, onBack, onLogout }: { p
 
   return <div className="app-shell">
     <header className="topbar"><div className="workspace-title"><button onClick={onBack} className="back-button">← プロジェクト</button><div><p className="eyebrow">THE TEST WEB</p><h1>{project.name}</h1></div></div><div className="user-menu"><span>{user.displayName || user.username}</span><span className="permission-badge">{canEdit ? "編集可" : "閲覧のみ"}</span><button type="button" className="small" onClick={() => { setError(""); void onLogout().catch((reason) => setError(reason instanceof Error ? reason.message : "ログアウトに失敗しました。もう一度お試しください。")); }}>ログアウト</button></div></header>
-    <nav className="workspace-tabs" aria-label="プロジェクト操作">{([["bulk", "テスト設計"], ["runs", "テスト実行"], ["excel", "Excelから追加・エクスポート"], ["trash", "削除済み"]] as Array<[Tab, string]>).map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <nav className="workspace-tabs" aria-label="プロジェクト操作">{([["bulk", "テスト設計"], ["runs", "テスト実行"], ["excel", "Excelから追加・エクスポート"], ["trash", "削除済み"]] as Array<[Tab, string]>).map(([key, label]) => <button type="button" key={key} className={tab === key ? "active" : ""} aria-current={tab === key ? "page" : undefined} onClick={() => setTab(key)}>{label}</button>)}</nav>
     <main className="workspace-content">
       <ErrorNotice value={error} />
       {tab === "bulk" && <TestDesignEditor projectId={project.id} canEdit={canEdit} scenarios={scenarios} folders={folders} cases={cases}

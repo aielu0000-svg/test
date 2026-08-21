@@ -7,6 +7,9 @@ test("業務導線から完了確認と不合格再実行まで進められる",
   await login(page);
   await createProject(page, unique("E2E 導線改善"));
   await expect(page.getByRole("button", { name: "作業手順", exact: true })).toHaveCount(0);
+  const projectNavigation = page.getByRole("navigation", { name: "プロジェクト操作" });
+  await expect(projectNavigation.getByRole("button", { name: "テスト設計", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(projectNavigation.getByRole("button", { name: "テスト実行", exact: true })).not.toHaveAttribute("aria-current");
 
   const suffix = unique("workflow");
   const testName = `導線テスト ${suffix}`;

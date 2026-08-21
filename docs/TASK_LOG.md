@@ -516,3 +516,41 @@ GitHub Actions run `32460494663`（製品head `76548555e7387c1c37c052f9a2d68870e
 - Excelの`使い方`シート非表示とは別のUIであることをコード・テスト・コードマップ上で明確化した。
 - procedure互換機能は削除せず、通常プロジェクトナビゲーションからのみ除外した。
 - 未解決の製品不具合: なし。
+
+## TASK-20260821-006: Web UIレイアウト基盤の初期導入
+
+- 開始日時: 2026-08-21 19:02 JST
+- 完了日時: 未完了
+- 対応課題: ISSUE-20260821-006
+- 担当: ChatGPT
+- 状態: In Progress
+
+### 作業前の状態
+
+- Web UIは独自CSSで実装され、テスト設計画面には操作役割ごとの色分けやレスポンシブ対応がすでにある。
+- 一方で、色・余白・角丸・影の値は`styles.css`、`workspace.css`、`test-design.css`などへ個別に記述され、画面横断の命名規則とレイアウトレビュー手順がない。
+- `web/package.json`にはUIコンポーネントライブラリがなく、現在の機能を保ったまま基盤だけを段階導入するのが適切である。
+
+### 変更前調査
+
+- 作業開始head: `c57ff48252675d015606fb388b82b94fd48dbbbb`。
+- `docs/codemap/codemap.lock`の製品基準は`76548555e7387c1c37c052f9a2d68870e50eef90`で、そこから作業開始headまでの差分は台帳・作業記録・コードマップ生成物だけだった。
+- 既存コードマップは`Workspace.tsx`の呼び出し元・影響先・E2Eを記録しているが、CSS基盤のimport元・画面影響・回帰対象を独立モジュールとして回答できないため、製品コード変更前に再生成する。
+- 変更対象の呼び出し元: `main.tsx`が`styles.css`、`Workspace.tsx`が`workspace.css`、`TestDesignEditor.tsx`が`test-design.css`をimportする。
+- 影響先: 全Web画面の基本コントロール、プロジェクトナビゲーション、テスト設計の編集レイアウト。
+- 回帰対象: `web/e2e/auth.spec.ts`、`workflow-guidance.spec.ts`、`test-design.spec.ts`、`excel-import.spec.ts`。
+
+### 導入方針
+
+- Impeccableは自動hookや外部skillを追加せず、`critique / layout / audit / harden / distill`の観点を手動レビューのチェックリストへ取り込む。
+- Fluent 2から意味ベースのカラー、余白、角丸、影、フォーカス表現を参考にし、4px基準のトークンへ落とし込む。
+- Ant Design Proからページ見出し、主ナビゲーション、コンテンツカード、主操作の配置パターンを参考にする。
+- 初回は依存追加、全面的なコンポーネント置換、DB/API/Migration変更を行わない。
+
+### 検証予定
+
+- npm audit: 未実施
+- TypeCheck: 未実施
+- Unit/API: 未実施
+- Production Build: 未実施
+- Chromium E2E: 未実施
