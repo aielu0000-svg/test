@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-21T12:35:00+09:00",
-  "generated_from_commit": "e79496a72152fa75b3cbfa2de2349081fa5b081a",
+  "generated_at": "2026-08-21T12:46:00+09:00",
+  "generated_from_commit": "95cbdfbad208113603f6e6d25d25202715a16fca",
   "scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","package.json","web/package.json",".github/workflows","import-examples"],
-  "regeneration_reason": "The Excel template presentation module changes a server module boundary. The map is generated from the product-source snapshot before the atomic code-and-codemap commit.",
+  "regeneration_reason": "The exact-head CI audit surfaced a high-severity advisory in transitive nanoid 3.3.16. The dependency manifest now pins the safe 3.3.18 override, so the dependency edge is recorded in the code map.",
   "nodes": [
     {"id":"electron_renderer","label":"Electron Renderer","type":"ui","group":"Desktop App","path":"src/renderer/src/App.tsx","role":"Desktop React UI for test management.","tests":[]},
     {"id":"electron_preload","label":"Electron Preload Bridge","type":"bridge","group":"Desktop App","path":"src/preload/index.ts","role":"Context-isolated IPC bridge.","tests":[]},
@@ -27,7 +27,7 @@
     {"id":"evidence_storage","label":"Evidence Filesystem","type":"storage","group":"Data & Ops","path":"web/src/server/viewImageLifecycle.ts","role":"Evidence/view-image filesystem root.","tests":["web/e2e/evidence.spec.ts"]},
     {"id":"cleanup_queue","label":"File Cleanup Queue","type":"queue","group":"Data & Ops","path":"web/src/server/fileCleanup.ts","role":"DB-backed deferred file deletion queue.","tests":["web/src/server/mariaDb.integration.test.ts"]},
     {"id":"ops_runtime","label":"Operations Runtime","type":"ops","group":"Data & Ops","path":"web/ops/operations-worker.sh","role":"CronJob worker and backup/restore/purge scripts.","tests":[".github/workflows/web-ci.yaml"]},
-    {"id":"external_deps","label":"Runtime Dependencies","type":"external","group":"External","path":"web/package.json","role":"Major runtime libraries including ExcelJS, Fastify and MariaDB.","tests":[".github/workflows/web-ci.yaml"]}
+    {"id":"external_deps","label":"Runtime Dependencies","type":"external","group":"External","path":"web/package.json","role":"Major runtime libraries and security overrides including ExcelJS, Fastify, MariaDB and nanoid 3.3.18.","tests":[".github/workflows/web-ci.yaml"],"constraints":["npm audit --audit-level=high is required.","nanoid is overridden to 3.3.18 to avoid GHSA-mwcw-c2x4-8c55."]}
   ],
   "edges": [
     {"from":"electron_renderer","to":"electron_preload","type":"calls"},{"from":"electron_preload","to":"electron_main","type":"calls"},{"from":"electron_main","to":"electron_store","type":"calls"},

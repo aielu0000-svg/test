@@ -1,8 +1,8 @@
 {
-  "current_commit": "e79496a72152fa75b3cbfa2de2349081fa5b081a",
+  "current_commit": "95cbdfbad208113603f6e6d25d25202715a16fca",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-21T12:35:00+09:00",
-  "generation_basis": "clean product-source snapshot before the atomic code-and-codemap commit",
+  "generation_time": "2026-08-21T12:46:00+09:00",
+  "generation_basis": "clean product-source snapshot before the atomic dependency-and-codemap commit",
   "scanned_scope": [
     "src/main",
     "src/preload",
@@ -43,10 +43,10 @@
     "import-examples": {"mode":"git-tree","source_tree_sha":"2d8e9dbf04c70fa72ee9c44a88ca004a66659a3f","fingerprint":"170715adda56db0521bb4d5221fff4a21ac76fd1180782689ff369069daf21f2"},
     ".github/workflows": {"mode":"git-tree","source_tree_sha":"dbb6423c5c4989eb7218dca342417cb5f4c5138e","fingerprint":"60a531451e0d5fa6e4391ed56886e6692afa4f00d0cce0ef14b6d1214f340772"},
     "web/runtime-manifests": {"mode":"tracked-files","fingerprint":"f78df26ba85b0e91479a9663e7f95177e74dc6ed108a1d773b6cdbd42cac0aac"},
-    "dependency-manifests": {"mode":"tracked-files","fingerprint":"a78f3d17a4becfa134ef3709a0a8fcb3f02ab2cfc5f4c06b813e1b0df9aaf741"}
+    "dependency-manifests": {"mode":"tracked-files","fingerprint":"99dd430ffa3cd13ed805c23cf7426e053758e5917401df8e9850f9264eac03c7"}
   },
-  "previous_lock_commit": "beb8b7d093e530611aa4a1ee68145adda3a469fe",
-  "changed_modules_since_previous_lock": ["web/src/server"],
-  "baseline_status": "web/src/server changed by the Excel template presentation module and route integration",
+  "previous_lock_commit": "e79496a72152fa75b3cbfa2de2349081fa5b081a",
+  "changed_modules_since_previous_lock": ["dependency-manifests"],
+  "baseline_status": "web/package.json now overrides nanoid 3.3.18 after the exact-head audit surfaced GHSA-mwcw-c2x4-8c55",
   "excluded_generated_codemap_from_fingerprints": true
 }
