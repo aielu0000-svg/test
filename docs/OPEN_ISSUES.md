@@ -2,7 +2,7 @@
 
 ## Product issues
 
-2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）はすべて修正・独立検証済みです。最新のISSUE-20260821-004では、利用者提示の参照テンプレートを基準に`入力`8列・`共通データ`6列へ戻し、必須/任意色分け、枠線、実セル記入例を維持したうえで案内用`使い方`シートを非表示にしました。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
+2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）と、プロジェクト画面の`作業手順`タブ非表示（ISSUE-20260821-005）はすべて修正・独立検証済みです。最新のISSUE-20260821-005では、前タスクでExcelの`使い方`シートと取り違えていたプロジェクトナビゲーション側を修正し、通常表示タブを`テスト設計 / テスト実行 / Excelから追加・エクスポート / 削除済み`の4つに固定しました。procedure backend/APIは互換性のため保持しています。2026-08-07のテスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
 
 Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）も修正・独立検証済みです。
 
@@ -26,6 +26,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- プロジェクト作業手順タブ非表示（ISSUE-20260821-005）: 製品head `76548555e7387c1c37c052f9a2d68870e50eef90` のGitHub Actions run `32460494663`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。`workflow-guidance.spec.ts`でプロジェクトを開いた際に`作業手順`ボタンが存在しないことを明示確認。procedure backend/APIと互換用コンポーネントは保持。Artifact `web-ci-32460494663-1`（ID `9438819309`、SHA256 `46bddb6b005427e75b8cfb0827705e79ddab7fd34d5e16f122f873ba8a4bcfce`）。
 
 - Excel参照テンプレート復元・枠線・実セル記入例・案内シート非表示（ISSUE-20260821-004）: 製品head `586e1406b4b7c4c98283ff6aa13bed0cd537687a` のGitHub Actions run `32458072345`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、Excel import Unit 5件、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。公式`入力`は必須4列＋任意4列の8列、`共通データ`は6列、枠線はA1:H201/A1:F201、実例は`入力`2〜3行目と`共通データ`2行目。`使い方`はhidden。旧4列/3列・14列/6列friendly・キー付き形式もUnitで互換確認。Artifact `web-ci-32458072345-1`（ID `9437996267`、SHA256 `b3078b4040775b2b8e0d7cbe9a062a8fc250d14313db83eeb2fc9c2c927a41a3`）。
 
