@@ -217,3 +217,79 @@ GitHub Actions run `32445558693`（製品head `9b624888f5156361eb896762ca231e7b1
 - 解消していない内容: なし。
 - 残るリスク: Excelの表示はExcelクライアント差により細部が異なる可能性があるが、生成ファイル上のborder/note値はUnitで検証済み。
 - 次のタスク: 利用者による実ファイルの見た目確認。必要なら列幅・行高・色などを追加調整する。
+
+## TASK-20260821-002: Excel簡略テンプレートの実セル記入例化と回帰確認
+
+- 開始日時: 2026-08-21 13:43 JST
+- 完了日時: 2026-08-21 14:02 JST
+- 対応課題: ISSUE-20260821-002
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 利用者確認では、以前の「大幅簡略化」が消えたように見え、記入例も実際の入力欄に入っていなかった。
+- 実ソース確認では、公式テンプレートは引き続き`使い方`・`入力`・`共通データ`の3シート構成で、`入力`A1:N201と`共通データ`A1:F201のthin枠線も残っていた。
+- 差異は記入例の置き場所で、前回は`使い方`シートとヘッダー注記に置き、データ行にはサンプルを入れない実装だった。
+
+### 調査内容
+
+- 作業開始head `dee33eb005474e1644a6f211855fb93cc05ac3c8` と`docs/codemap/codemap.lock`を比較した結果、`web/src/server`と依存manifest側に後続修正があり、コードマップ基準が現行headを完全には表していなかったため、製品変更前に`codemap.html`・`codemap.json`・`codemap.lock`を再生成した。
+- コードマップから変更対象を確認:
+  - 呼び出し元: `web/src/server/routes/excel.ts` が`buildCasesTemplate()`後に`decorateCasesTemplate()`を呼ぶ。
+  - 影響先: ダウンロードする公式Excelテンプレートの表示・初期セル値。preview/confirm parserとDB保存処理は変更しない。
+  - テスト: `web/src/server/excelTemplatePresentation.test.ts`, `web/src/server/excelImport.test.ts`, `web/e2e/excel-import.spec.ts`。
+- `web/src/server/excelImport.ts`で、3シート簡略化、14列の利用者向け入力列、内部キー自動生成、旧キー付き形式の互換読込が維持されていることを確認した。
+
+### 実施内容
+
+- `web/src/server/excelTemplatePresentation.ts`:
+  - 3シート簡略構成と既存の枠線範囲を維持。
+  - `入力`2行目へ14項目すべての具体的な記入例を実セルとして配置。
+  - `入力`3行目へ2手順目の継続行例を配置し、テスト名・確認項目名は真の空セルとして空欄継続を例示。
+  - `共通データ`2行目へ6項目すべての記入例を実セルとして配置。
+  - 記入例行を淡色で識別できるようにした。
+  - `使い方`シートに「例を上書きするか削除してからアップロードする」案内を追加。
+- `web/src/server/excelTemplatePresentation.test.ts`:
+  - シートが正確に`使い方`・`入力`・`共通データ`の3枚であることを固定化。
+  - `テストキー`・`確認項目キー`列がないこと、枠線、実セル例、継続行の真の空セルを検証。
+- `web/e2e/excel-import.spec.ts`:
+  - APIから取得した公式テンプレートを最初に読み、3シート簡略構成、技術キー列なし、実セル記入例を確認してからサンプル値を上書きし、preview/confirm/importまで実行するよう強化。
+- DB、Migration、route契約、parserの意味論は変更していない。
+- 製品ソース変更後にコードマップを再生成し、最終製品基準を`42e3a95a5a3e8c1940dda453742a16ece2e7499f`へ更新した。
+
+### 作業中に発生したこと
+
+- 初回実装では継続行のテスト名・確認項目名を空文字列`""`で設定した。
+- GitHub Actions run `32448609709`のUnitで、ExcelJS再読込後のセル値が真の空セル`null`ではなく空文字列`""`になることを検出した。
+- 実際の空欄継続例として曖昧さを残さないため、該当セルを`null`へ変更し、commit `42e3a95a5a3e8c1940dda453742a16ece2e7499f`で修正した。
+
+### 検証
+
+GitHub Actions run `32448865787`（head `b7a170d51167e55b394c2f1994864894d874eedd`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 53件成功、2件skip（19 test files成功、2 files skip）
+- Excel import Unit: 3件成功
+- Excelテンプレート表示Unit: 2件成功
+- MariaDB Integration Test: 2件成功
+- Migration CLI / schema validation: 成功
+- Backup / restore / retention: 成功
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 21件成功（`excel-import.spec.ts`を含む）
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32448865787-1`（ID `9435028667`、SHA256 `6c0d1033ac4d8f94f285b1b5d96d9ff9cc2baa1904f04e1d6124465f6d2a73cd`、449361 bytes）
+
+### 結果
+
+- 簡略化修正は消えておらず、3シート・利用者向け14列・内部キー非表示のまま維持した。
+- 枠線修正も維持した。
+- 記入例は説明文ではなく実際の入力セルへ移動した。
+- UnitとブラウザE2Eで「簡略化・枠線・実セル記入例」を明示的な回帰条件として固定した。
+- 未解決の製品不具合: なし。
