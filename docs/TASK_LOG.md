@@ -369,3 +369,81 @@ GitHub Actions run `32455211801`（製品head `96303f31b8b7cb561a472040da0d6af96
 - 枠線と実セル記入例は維持した。
 - 過去に作成した詳細列付きExcelと旧キー付きExcelの読込互換は維持した。
 - 未解決の製品不具合: なし。
+
+## TASK-20260821-004: Excel参照テンプレート復元・枠線・記入例・案内シート非表示
+
+- 開始日時: 2026-08-21 16:04 JST
+- 完了日時: 2026-08-21 16:22 JST
+- 対応課題: ISSUE-20260821-004
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 利用者が提示した`the-test-design-template.xlsx`の構成が、直前の4列/3列版より分かりやすい基準として指定された。
+- 参照ファイルの`入力`は必須4列＋任意4列の8列、`共通データ`は6列で、必須列を青、任意列を橙に分け、優先度には`高/中/低`の入力規則があった。
+- 参照ファイル自身では案内用`使い方`シートがvisibleで、現行生成処理も同様にvisibleだったため、以前に意図した「作業手順タブを非表示」が保持されていなかった。
+
+### 調査内容
+
+- 作業開始head `b9cd1df93d72dd5c576d7b16ac2174de89158c7f` と`docs/codemap/codemap.lock`の製品基準`96303f31b8b7cb561a472040da0d6af964e9e94d`を比較し、製品モジュール差分がなく、コードマップを変更前調査に利用可能と確認した。
+- コードマップから変更対象を確認:
+  - 呼び出し元: `web/src/server/routes/excel.ts`が`buildCasesTemplate()`、`decorateCasesTemplate()`、`parseCasesWorkbook()`を使用する。
+  - 影響先: 公式Excelテンプレートの生成・表示とExcel preview/confirm解析。DB保存契約、route、Migrationは変更しない。
+  - テスト: `web/src/server/excelImport.test.ts`, `web/src/server/excelTemplatePresentation.test.ts`, `web/e2e/excel-import.spec.ts`。
+- 提示ファイルを確認し、入力8列・共通データ6列、列幅、必須/任意色、優先度ドロップダウンを復元基準にした。
+
+### 実施内容
+
+- `web/src/server/excelImport.ts`:
+  - 公式`入力`を提示ファイルと同じ8列へ復元。
+  - 公式`共通データ`を提示ファイルと同じ6列へ復元。
+  - 必須4列/任意4列の青/橙色分けと、共通データの必須/任意色分け、列幅、優先度`高/中/低`ドロップダウンを復元。
+  - `使い方`は物理シートとして残しつつ`hidden`へ変更。
+  - 旧4列/3列、14列/6列friendly、旧キー付き形式の読込互換を維持。
+- `web/src/server/excelTemplatePresentation.ts`:
+  - `入力`A1:H201、`共通データ`A1:F201へthin枠線を設定。
+  - `入力`2行目へ8列すべての実記入例、3行目へ空欄継続の2手順目例を配置。
+  - `共通データ`2行目へ6列すべての実記入例を配置。
+  - 最終生成物でも`使い方`をhiddenに再設定。
+- Unit/E2E:
+  - 8列/6列、hidden案内シート、色分け、優先度ドロップダウン、枠線、実セル例を固定化。
+  - 4列/3列、14列/6列、キー付き形式の互換読込を回帰確認。
+- DB変更: なし。
+- Migration: なし。
+- API route契約変更: なし。
+- 製品変更後、`docs/codemap/codemap.html`、`codemap.json`、`codemap.lock`を製品head `586e1406b4b7c4c98283ff6aa13bed0cd537687a`基準へ更新した。
+
+### 作業中に発生したこと
+
+- 最初のUnit/E2Eヘッダー検証ではExcelJSの`row.values`の1始まり配列表現に依存した比較になっていたため、ヘッダーの実セルテキストを列番号で取得する検証へ変更した。
+- 製品ロジックの不具合ではなくテスト表現の問題で、修正後に独立CIを再実行した。
+
+### 検証
+
+GitHub Actions run `32458072345`（製品head `586e1406b4b7c4c98283ff6aa13bed0cd537687a`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 55件成功、2件skip（19 test files成功、2 files skip）
+- Excel import Unit: 5件成功
+- Excelテンプレート表示Unit: 2件成功
+- MariaDB Integration Test: 2件成功
+- Migration CLI / schema validation: 成功
+- Backup / restore / retention: 成功
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 21件成功（`excel-import.spec.ts`を含む）
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32458072345-1`（ID `9437996267`、SHA256 `b3078b4040775b2b8e0d7cbe9a062a8fc250d14313db83eeb2fc9c2c927a41a3`、449924 bytes）
+
+### 結果
+
+- 公式テンプレートを提示ファイルと同じ理解しやすい8列/6列構成へ戻し、枠線と実記入例を追加した。
+- 案内用`使い方`シートはブックに保持したまま非表示になった。
+- 以前の4列/3列・14列/6列・キー付きExcelは引き続き読み込める。
+- 未解決の製品不具合: なし。
