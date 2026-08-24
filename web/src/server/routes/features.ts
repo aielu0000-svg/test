@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import multipart from "@fastify/multipart";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../db.js";
+import { registerDestructiveConcurrencyGuard } from "../destructiveConcurrency.js";
 import { registerCaseRoutes } from "./cases.js";
 import { registerDefinitionRoutes } from "./definitions.js";
 import { registerExcelRoutes } from "./excel.js";
@@ -21,6 +22,7 @@ export async function registerFeatureRoutes(app: FastifyInstance, db: Database, 
       parts: 1001,
     },
   });
+  registerDestructiveConcurrencyGuard(app, db, config);
   await registerCaseRoutes(app, db, config);
   await registerDefinitionRoutes(app, db, config);
   await registerScenarioEditorRoutes(app, db, config);
@@ -31,6 +33,4 @@ export async function registerFeatureRoutes(app: FastifyInstance, db: Database, 
   await registerExportRoutes(app, db, config);
   await registerOperationRoutes(app, db, config);
 }
-
-
 

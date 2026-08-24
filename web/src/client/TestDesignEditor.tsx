@@ -333,11 +333,11 @@ export function TestDesignEditor({ projectId, canEdit, scenarios, folders, onCha
   async function deleteExplorerSelection(selection: ExplorerSelection, reason: string) {
     try {
       for (const item of selection.scenarios) {
-        await request(`/api/scenarios/${item.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason }) });
+        await request(`/api/scenarios/${item.id}`, { method: "DELETE", body: JSON.stringify({ projectId, version: item.version, reason }) });
         if (selectedScenarioId === item.id) resetEditor();
       }
       const foldersByDepth = [...selection.folders].sort((left, right) => folderDepth(folders, right.id) - folderDepth(folders, left.id));
-      for (const folder of foldersByDepth) await request(`/api/folders/${folder.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason }) });
+      for (const folder of foldersByDepth) await request(`/api/folders/${folder.id}`, { method: "DELETE", body: JSON.stringify({ projectId, version: folder.version, reason }) });
       await onChanged(); setMessage(`${selection.folders.length + selection.scenarios.length}件を削除しました。`);
     } catch (error) { await onChanged().catch(() => undefined); setMessage(errorText(error, "選択項目を削除できませんでした。最新状態を再読み込みしました。")); throw error; }
   }

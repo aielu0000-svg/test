@@ -1,23 +1,20 @@
 {
-  "current_commit": "5380086bf2e26b3d43e27f6cc0c533f74784bc4c",
+  "current_commit": "same-commit-product-snapshot",
+  "current_tree": "332a4b23769cfda9c4eb35af8367b11791cb207e",
   "working_tree_has_uncommitted_changes": false,
   "generation_time": "2026-08-24T10:39+09:00",
-  "generation_basis": "authoritative GitHub tree at PR head before concurrent-session product changes; regenerated because route/recycle-bin modules were not mapped separately and the previous web/e2e tree SHA was stale.",
-  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","package.json","web/package.json",".github/workflows","import-examples"],
-  "fingerprint_algorithm": {
-    "name": "sha256-git-tree-v3",
-    "description": "Directory modules use SHA-256 of UTF-8 'codemap-module-v3|tree|<module>|<git-tree-sha>'. Tracked-file modules use SHA-256 of UTF-8 'codemap-module-v3|tracked-files|<module>|' plus sorted '<path>=<blob-sha>' entries separated by '|'.",
-    "content_basis": "authoritative GitHub tracked tree and blob SHAs at current_commit"
-  },
+  "generation_basis": "same commit as ISSUE-20260824-001 product changes; source-tree and blob SHAs were built from parent 7789e9326a04cc0459fb40bcfe4664e2deceda71 plus the intended product changes before commit creation. A verification follow-up records the resulting commit SHA after CI.",
+  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/openapi.yaml","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","package.json","web/package.json",".github/workflows","import-examples"],
+  "fingerprint_algorithm": {"name":"sha256-git-tree-v3","description":"Directory modules use SHA-256 of UTF-8 'codemap-module-v3|tree|<module>|<git-tree-sha>'. Tracked-file modules use SHA-256 of UTF-8 'codemap-module-v3|tracked-files|<module>|' plus sorted '<path>=<blob-sha>' entries separated by '|'.","content_basis":"authoritative tracked Git tree/blob SHAs in current_tree"},
   "modules": {
     "src/main": {"mode":"git-tree","source_tree_sha":"5c476d0bf75d645bff64eea8c589c8f74c653956","fingerprint":"f450ea8c1c627404fddf0883514dc8130b70a7bbfc511f44b63f32e4f257ad23"},
     "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3ef59d5f9aa8c0b07b4a7e03e0d86157af5e823701d0739f8434022ac7cb4d51"},
     "src/renderer": {"mode":"git-tree","source_tree_sha":"094202631b8e48e0db00a5308d4e39392e5f7f1f","fingerprint":"7b8e528140e10993680d305c6c7d39436d21ba45dc7e8380e2e108ccfb39730b"},
-    "web/src/client": {"mode":"git-tree","source_tree_sha":"de5fae725bff1aa97ed8ff44a810c35c4332374e","fingerprint":"9a47f003284f9d289ed8d9063a98994eb7525f7eb2b60961799adeb0fc87cdd4"},
-    "web/src/server": {"mode":"git-tree","source_tree_sha":"f1559307229cca0ea83c4a9f460025385fd96454","fingerprint":"b9d9bbda39fac6669ac3fe65d4a82d11ac6adc5b4aaceaaa89ea1c3dc797b9f5"},
+    "web/src/client": {"mode":"git-tree","source_tree_sha":"06a5550310e769cf63788e6102940f39f7f5c791","fingerprint":"a0c15d6a90ef41c8c70dfd83374a687eb2e91774251300c8fe5a8a9e958f8021"},
+    "web/src/server": {"mode":"git-tree","source_tree_sha":"c0ecc2d4d4f2fabdbeeff25dcc3d73227340bec0","fingerprint":"e86d8b0225a2aca31f590f3b1ca8d04e05253db6d1d0c356646737015c357032"},
     "web/src/shared": {"mode":"git-tree","source_tree_sha":"ca86705e76101bfd37b2b15464e5f032ef7bfc4a","fingerprint":"d07b1978ba931892880f2045352e2e5b6f18119a0142f7032673c404ced8ad18"},
     "web/src/tools": {"mode":"git-tree","source_tree_sha":"656b68d6fa24118fe2ccacebedca695fa3c82cd3","fingerprint":"9dadacc6bf897948026efbbc0785e232a215bc23a70a6b2ce666c19b6a7f93c6"},
-    "web/e2e": {"mode":"git-tree","source_tree_sha":"ef5bcccf292892c6c00e18afa5441ef2d1dac280","fingerprint":"c9e702eee5e578e23a359b0092badd00958a2e7b794e3ef23d5dbf44f710136a"},
+    "web/e2e": {"mode":"git-tree","source_tree_sha":"16007255a71747eac02eef36bb6883b62cab398a","fingerprint":"6ddce9d71ec1484ad18214f7b0d36c7eca06c5f43dfdd65ef18f99f2156e2b00"},
     "web/migrations": {"mode":"git-tree","source_tree_sha":"6ad072b65b41f9cc944aa882a61e5ba69e921594","fingerprint":"f5eefeaf25a25d202b727c45f52764d86ea5d9d607c46179e429ca79f5f877ec"},
     "web/ops": {"mode":"git-tree","source_tree_sha":"91a9305bc2bc04ba23374d041ca90b69320cb9d8","fingerprint":"977c52513528731562cf847c8765e1e4b8740031c8c08c09829c59e36b734f2e"},
     "web/scripts": {"mode":"git-tree","source_tree_sha":"ef8f248b3523b7f808efb142e40dac1d263c5eb1","fingerprint":"409dc21ea5b6819207f9b6db4980fbe2a708aa64bf4ad85c052ede4e06cb9dfc"},
@@ -25,10 +22,11 @@
     ".github/workflows": {"mode":"git-tree","source_tree_sha":"dbb6423c5c4989eb7218dca342417cb5f4c5138e","fingerprint":"d5ba41c319f04fbb921268f1fcd0c8a353e7a496de79c8393972846f7178f020"},
     "web/runtime-manifests": {"mode":"tracked-files","paths":["web/Dockerfile","web/kustomization.yaml","web/openshift-build.yaml","web/openshift-operations.yaml","web/openshift-retention.yaml","web/openshift-secrets.example.yaml","web/openshift.yaml"],"fingerprint":"29beccd315563dd5ec780cc5d2bb33f98f84680c366db7bb56f50bce9860b472"},
     "web/ui-foundations": {"mode":"tracked-files","paths":["web/src/client/operations.css","web/src/client/phase25.css","web/src/client/styles.css","web/src/client/test-design.css","web/src/client/workspace.css"],"fingerprint":"ca624434bd24c219a4d3e64e901039b2224fb0b5fd82c7abaea94e3aa9e92902"},
-    "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"9e5b8f464d3869df331afd8db734ed91713150b8ea6e172f3552aa64586c8a3e"}
+    "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"9e5b8f464d3869df331afd8db734ed91713150b8ea6e172f3552aa64586c8a3e"},
+    "web/api-contract": {"mode":"tracked-files","paths":["web/openapi.yaml"],"fingerprint":"012bfa4a0a9c9c634396fdfa0b83f6b594e0fb3ee0872cef7c03ea24a9c0669e"}
   },
-  "previous_lock_commit": "df1ec3b71eab76ffee6b5d6e20b965d98d1f8631",
-  "changed_modules_since_previous_lock": [],
-  "baseline_status": "No product-source changes occurred between df1ec3... and 5380086.... The map now separates test-case routes, definition routes, scenario-editor routes, recycle-bin UI and session storage. Existing optimistic locking covers normal versioned updates, but several delete/restore routes still accept stale requests without the entity version; tracked as ISSUE-20260824-001.",
+  "previous_lock_commit": "7789e9326a04cc0459fb40bcfe4664e2deceda71",
+  "changed_modules_since_previous_lock": ["web/src/client","web/src/server","web/e2e","web/api-contract"],
+  "baseline_status": "Concurrent browser sessions remain independent. A centralized authenticated project-edit preHandler now protects versioned DELETE/restore operations using SELECT ... FOR UPDATE plus client-observed version comparison. TestDesignEditor, RunWorkspace and RecycleBinPanel send entity versions for destructive operations. The OpenAPI contract requires projectId+version for those routes. concurrent-sessions.spec.ts covers same-user and different-user concurrent sessions, same-row 200/409 behavior, independent-row 200/200 behavior, stale delete/restore rejection and logout isolation. No DB schema or migration changed.",
   "excluded_generated_codemap_from_fingerprints": true
 }

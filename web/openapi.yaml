@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: ザ・テスト Web API
-  version: 1.0.0
-  description: 確定仕様書 v1.0.0 Phase 1〜5 API。日時はUTCで保存し、画面ではJST表示する。
+  version: 1.0.1
+  description: 確定仕様書 v1.0.0〜v1.2.0 API。日時はUTCで保存し、画面ではJST表示する。version付きエンティティの更新・削除・復元は楽観ロックする。
 servers:
   - url: /
 security:
@@ -88,7 +88,14 @@ paths:
       responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
     delete:
       tags: [definitions]
-      responses: { '200': { description: Soft deleted } }
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/test-cases/{id}/restore:
+    post:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/test-cases/bulk:
     post:
       tags: [definitions]
@@ -101,6 +108,21 @@ paths:
     post:
       tags: [definitions]
       responses: { '200': { description: Folder created } }
+  /api/folders/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    patch:
+      tags: [definitions]
+      responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [definitions]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/folders/{id}/restore:
+    post:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/scenarios:
     get:
       tags: [definitions]
@@ -120,7 +142,14 @@ paths:
       responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
     delete:
       tags: [definitions]
-      responses: { '200': { description: Soft deleted } }
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/scenarios/{id}/restore:
+    post:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/data-sets:
     get:
       tags: [definitions]
@@ -140,7 +169,14 @@ paths:
       responses: { '200': { description: Updated }, '409': { $ref: '#/components/responses/Conflict' } }
     delete:
       tags: [definitions]
-      responses: { '200': { description: Soft deleted } }
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/data-sets/{id}/restore:
+    post:
+      tags: [definitions]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/markdown/render:
     post:
       tags: [definitions]
@@ -170,7 +206,14 @@ paths:
       responses: { '200': { description: Run updated }, '409': { $ref: '#/components/responses/Conflict' } }
     delete:
       tags: [runs]
-      responses: { '200': { description: Soft deleted } }
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/test-runs/{id}/restore:
+    post:
+      tags: [runs]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/test-runs/{id}/export.xlsx:
     get:
       tags: [exports]
@@ -245,7 +288,14 @@ paths:
     delete:
       tags: [evidence]
       parameters: [{ $ref: '#/components/parameters/id' }]
-      responses: { '200': { description: Soft deleted } }
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/evidence/{id}/restore:
+    post:
+      tags: [evidence]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/evidence/{id}/versions:
     get:
       tags: [evidence]
@@ -292,7 +342,18 @@ paths:
     patch:
       tags: [procedures]
       parameters: [{ $ref: '#/components/parameters/id' }]
-      responses: { '200': { description: Immutable new procedure version } }
+      responses: { '200': { description: Immutable new procedure version }, '409': { $ref: '#/components/responses/Conflict' } }
+    delete:
+      tags: [procedures]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Soft deleted }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/procedures/{id}/restore:
+    post:
+      tags: [procedures]
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { $ref: '#/components/requestBodies/VersionedProjectMutation' }
+      responses: { '200': { description: Restored }, '409': { $ref: '#/components/responses/Conflict' } }
   /api/imports/excel/template:
     get:
       tags: [imports]
@@ -352,10 +413,24 @@ components:
       in: query
       required: true
       schema: { type: string, format: uuid }
+  requestBodies:
+    VersionedProjectMutation:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VersionedProjectMutation'
   schemas:
     Priority:
       type: string
       enum: [high, medium, low]
+    VersionedProjectMutation:
+      type: object
+      required: [projectId, version]
+      properties:
+        projectId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        reason: { type: string, maxLength: 500 }
     TestCaseWrite:
       type: object
       required: [projectId, title, steps]

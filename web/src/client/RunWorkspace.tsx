@@ -311,7 +311,7 @@ export function RunsPanelV2({ projectId, canEdit, cases, scenarios, dataSets, on
     const deleteReason = window.prompt("削除理由を入力してください。");
     if (!deleteReason?.trim()) return;
     try {
-      await api(`/api/test-runs/${detail.run.id}`, { method: "DELETE", body: JSON.stringify({ projectId, reason: deleteReason.trim() }) });
+      await api(`/api/test-runs/${detail.run.id}`, { method: "DELETE", body: JSON.stringify({ projectId, version: detail.run.version, reason: deleteReason.trim() }) });
       setSelectedId(""); setDetail(null); await refreshLists();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
   }
@@ -596,7 +596,7 @@ function SelectionLists({ cases, scenarios, dataSets, selectedCases, selectedSce
 
 interface EvidenceItem {
   id: string; original_filename: string; content_type: string; byte_size: string; sha256: string;
-  current_version: number; description?: string | null;
+  current_version: number; version: number; description?: string | null;
 }
 
 function formatByteSize(byteSize: string): string {
@@ -706,7 +706,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
     const reason = window.prompt("証跡の削除理由を入力してください。");
     if (!reason?.trim()) return;
     try {
-      const result = await api<{ run?: RunUpdate | null }>(`/api/evidence/${item.id}`, { method: "DELETE", body: JSON.stringify({ reason: reason.trim() }) });
+      const result = await api<{ run?: RunUpdate | null }>(`/api/evidence/${item.id}`, { method: "DELETE", body: JSON.stringify({ projectId, version: item.version, reason: reason.trim() }) });
       onRunUpdated?.(result.run);
       setMessage("証跡をごみ箱へ移動しました。"); await refresh();
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
@@ -768,7 +768,7 @@ export function ProceduresPanelV2({ projectId, canEdit }: { projectId: string; c
     const reason = window.prompt("手順書の削除理由を入力してください。");
     if (!reason?.trim()) return;
     try {
-      await api(`/api/procedures/${selectedId}`, { method: "DELETE", body: JSON.stringify({ projectId, reason: reason.trim() }) });
+      await api(`/api/procedures/${selectedId}`, { method: "DELETE", body: JSON.stringify({ projectId, version, reason: reason.trim() }) });
       await select(""); await refresh(); setMessage("手順書をごみ箱へ移動しました。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
   }
