@@ -1,11 +1,15 @@
 {
-  "current_commit": "same-commit-product-snapshot",
-  "current_tree": "332a4b23769cfda9c4eb35af8367b11791cb207e",
+  "current_commit": "b2e4222378cc7bba980a2e76ad66bb07c3c7c412",
+  "current_commit_tree": "d7ec6252ff6a9dd8667e1a590044ae7c4c54c8d4",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-08-24T10:39+09:00",
-  "generation_basis": "same commit as ISSUE-20260824-001 product changes; source-tree and blob SHAs were built from parent 7789e9326a04cc0459fb40bcfe4664e2deceda71 plus the intended product changes before commit creation. A verification follow-up records the resulting commit SHA after CI.",
-  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/openapi.yaml","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","package.json","web/package.json",".github/workflows","import-examples"],
-  "fingerprint_algorithm": {"name":"sha256-git-tree-v3","description":"Directory modules use SHA-256 of UTF-8 'codemap-module-v3|tree|<module>|<git-tree-sha>'. Tracked-file modules use SHA-256 of UTF-8 'codemap-module-v3|tracked-files|<module>|' plus sorted '<path>=<blob-sha>' entries separated by '|'.","content_basis":"authoritative tracked Git tree/blob SHAs in current_tree"},
+  "generation_time": "2026-08-24T12:11+09:00",
+  "generation_basis": "authoritative GitHub tree at verified ISSUE-20260824-001 product head. Generated codemap files are excluded from product fingerprints. Web CI run 32681691135 independently verified this product commit.",
+  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","web/openapi.yaml","package.json","web/package.json",".github/workflows","import-examples"],
+  "fingerprint_algorithm": {
+    "name": "sha256-git-tree-v3",
+    "description": "Directory modules use SHA-256 of UTF-8 'codemap-module-v3|tree|<module>|<git-tree-sha>'. Tracked-file modules use SHA-256 of UTF-8 'codemap-module-v3|tracked-files|<module>|' plus sorted '<path>=<blob-sha>' entries separated by '|'.",
+    "content_basis": "authoritative GitHub tracked tree and blob SHAs at current_commit"
+  },
   "modules": {
     "src/main": {"mode":"git-tree","source_tree_sha":"5c476d0bf75d645bff64eea8c589c8f74c653956","fingerprint":"f450ea8c1c627404fddf0883514dc8130b70a7bbfc511f44b63f32e4f257ad23"},
     "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3ef59d5f9aa8c0b07b4a7e03e0d86157af5e823701d0739f8434022ac7cb4d51"},
@@ -22,11 +26,21 @@
     ".github/workflows": {"mode":"git-tree","source_tree_sha":"dbb6423c5c4989eb7218dca342417cb5f4c5138e","fingerprint":"d5ba41c319f04fbb921268f1fcd0c8a353e7a496de79c8393972846f7178f020"},
     "web/runtime-manifests": {"mode":"tracked-files","paths":["web/Dockerfile","web/kustomization.yaml","web/openshift-build.yaml","web/openshift-operations.yaml","web/openshift-retention.yaml","web/openshift-secrets.example.yaml","web/openshift.yaml"],"fingerprint":"29beccd315563dd5ec780cc5d2bb33f98f84680c366db7bb56f50bce9860b472"},
     "web/ui-foundations": {"mode":"tracked-files","paths":["web/src/client/operations.css","web/src/client/phase25.css","web/src/client/styles.css","web/src/client/test-design.css","web/src/client/workspace.css"],"fingerprint":"ca624434bd24c219a4d3e64e901039b2224fb0b5fd82c7abaea94e3aa9e92902"},
-    "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"9e5b8f464d3869df331afd8db734ed91713150b8ea6e172f3552aa64586c8a3e"},
-    "web/api-contract": {"mode":"tracked-files","paths":["web/openapi.yaml"],"fingerprint":"012bfa4a0a9c9c634396fdfa0b83f6b594e0fb3ee0872cef7c03ea24a9c0669e"}
+    "web/api-contract": {"mode":"tracked-files","paths":["web/openapi.yaml"],"fingerprint":"012bfa4a0a9c9c634396fdfa0b83f6b594e0fb3ee0872cef7c03ea24a9c0669e"},
+    "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"9e5b8f464d3869df331afd8db734ed91713150b8ea6e172f3552aa64586c8a3e"}
   },
-  "previous_lock_commit": "7789e9326a04cc0459fb40bcfe4664e2deceda71",
+  "previous_lock_commit": "5380086bf2e26b3d43e27f6cc0c533f74784bc4c",
   "changed_modules_since_previous_lock": ["web/src/client","web/src/server","web/e2e","web/api-contract"],
-  "baseline_status": "Concurrent browser sessions remain independent. A centralized authenticated project-edit preHandler now protects versioned DELETE/restore operations using SELECT ... FOR UPDATE plus client-observed version comparison. TestDesignEditor, RunWorkspace and RecycleBinPanel send entity versions for destructive operations. The OpenAPI contract requires projectId+version for those routes. concurrent-sessions.spec.ts covers same-user and different-user concurrent sessions, same-row 200/409 behavior, independent-row 200/200 behavior, stale delete/restore rejection and logout isolation. No DB schema or migration changed.",
+  "baseline_status": "ISSUE-20260824-001 is implemented and verified. Versioned DELETE/restore for test cases, folders, scenarios, data sets, test runs, evidence and procedures is guarded inside the request transaction by authentication/project-edit authorization, SELECT ... FOR UPDATE, client-observed version comparison and active/deleted-state comparison. Stale destructive operations return 409. Recycle-bin/UI callers send versions. Multi-BrowserContext E2E verifies same-user and different-user session isolation and destructive conflicts.",
+  "verification": {
+    "workflow": "Web CI",
+    "run_id": 32681691135,
+    "unit_api": "55 passed, 2 skipped",
+    "mariadb_integration": "2 passed",
+    "chromium_e2e": "23 passed including concurrent-sessions.spec.ts",
+    "artifact": "web-ci-32681691135-1",
+    "artifact_id": 9504369544,
+    "artifact_sha256": "73de7d5a885a0525ffb44d0c0c0ef8fe9d9d6fe706b9e459d60675bef1e103fd"
+  },
   "excluded_generated_codemap_from_fingerprints": true
 }

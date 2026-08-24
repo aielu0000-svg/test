@@ -628,3 +628,87 @@ GitHub Actions run `32460494663`（製品head `76548555e7387c1c37c052f9a2d68870e
 - 解消していない内容: なし。
 - 残るリスク: E2E実環境での視覚的な微調整は今後のデザインレビューで確認可能。
 - CI artifact: Web CI run 32481647224の検証artifactを保存済み。
+
+## TASK-20260824-001: 同時接続時のセッション分離・削除復元競合の回帰強化
+
+- 開始日時: 2026-08-24（開始時刻未記録）
+- 完了日時: 2026-08-24 11:04 JST
+- 対応課題: ISSUE-20260824-001
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 通常のPATCH更新にはversionによる楽観ロックがあったが、テストケース、フォルダ、テスト、データセット、テスト実行、証跡、手順書のDELETE/restoreにはクライアントが観測したversionを要求していなかった。
+- そのため、利用者Aが古い画面を保持している間に利用者Bが対象を更新した場合でも、Aの削除・復元操作が最新更新を無視して成立し得た。
+- ログインはセッション行単位で管理されていたが、同一ユーザー複数セッションと別ユーザーを同時に動かす回帰E2Eはなかった。
+
+### 調査内容
+
+- 作業開始時に現headと`docs/codemap/codemap.lock`を比較した。
+- 既存コードマップは`cases.ts` / `definitions.ts`等の破壊的操作を個別モジュールとして十分に追跡しておらず、「何が呼ぶか・何へ影響するか・どのテストか」を十分に回答できなかったため、製品変更前に`codemap.html`・`codemap.json`・`codemap.lock`を再生成した。
+- 再生成したコードマップと実ソースで確認した内容:
+  - `cases.ts`: feature registryと設計／ごみ箱導線から呼ばれ、test_casesと子要素のDELETE/restoreへ影響。MariaDB統合、test-design、requested-improvementsが既存回帰。
+  - `definitions.ts`: feature registry、TestDesignEditor、FolderExplorer、RecycleBinPanelから呼ばれ、folders / scenarios / data_setsへ影響。folder-explorer、test-designが既存回帰。
+  - `runs.ts`: RunWorkspaceから呼ばれ、run snapshot/result/revisionとtest_runs DELETE/restoreへ影響。runDomain、MariaDB統合、run-conflictが既存回帰。
+  - `evidence.ts`: RunWorkspace / RecycleBinPanelから呼ばれ、evidence / proceduresの破壊操作へ影響。evidence、completed-run-evidence、requested-improvementsが既存回帰。
+- request単位DB transactionがFastify request全体で維持されているため、行ロックをpreHandlerで取得してroute処理・監査・commitまで保持できることを確認した。
+
+### 実施内容
+
+- `web/src/server/destructiveConcurrency.ts`を追加:
+  - 対象DELETE/restoreで認証済みユーザーとプロジェクト編集権限を先に確認。
+  - bodyの`projectId`と正の整数`version`を必須化。
+  - 静的ホワイトリストで対象tableを解決し、`SELECT version, deleted_at ... FOR UPDATE`で対象行をrequest transaction内にロック。
+  - client-observed version不一致、またはDELETE/restore時点のactive/deleted状態不一致をHTTP 409として拒否。
+  - route mutationと監査のcommit/rollbackまで行ロックを保持。
+- `web/src/server/routes/features.ts`で共通guardを各feature routeより前に登録。
+- UI:
+  - `TestDesignEditor.tsx`のフォルダ／テスト削除が現在versionを送信。
+  - `RunWorkspace.tsx`の実行／証跡／手順書削除が現在versionを送信。
+  - `RecycleBinPanel.tsx`が削除済み項目のversionを保持しrestore時に送信。
+- API契約:
+  - `web/openapi.yaml`を1.0.1へ更新し、version付きDELETE/restoreを`projectId + version`必須、競合時409として記載。
+- E2E:
+  - `web/e2e/concurrent-sessions.spec.ts`を追加。
+  - 同一管理者2 BrowserContextと、割当済みexecutor 1 BrowserContextを同時使用。
+  - 同じversionの同一行同時PATCHは200/409、別行の別ユーザー同時PATCHは200/200を確認。
+  - 他セッション更新後のstale DELETEは409で対象が残ることを確認。
+  - fresh DELETE→restore成功後のstale restoreは409を確認。
+  - 同一ユーザー片方のlogoutが、もう一方の同一ユーザーセッションと別ユーザーセッションを失効させないことを確認。
+- DBスキーマ変更: なし。
+- Migration: なし。
+
+### 作業中に発生したこと
+
+- 最初の共通guard案ではpreHandlerが各route本体の認証より先に対象行を照会するため、未認証要求へ404/409差を返し得ることを差分確認で検出した。
+- guard自身で認証とプロジェクト編集権限を先に確認してから行ロックする構造へ修正し、対象データの存在・version情報を未認証利用者へ露出しないようにした。
+- 大きいUIファイルの差分を仮tree/commitで比較し、`TestDesignEditor.tsx`はversion送信2行、`RunWorkspace.tsx`はversion送信4行だけの最小変更で、意図しないUI構造変更がないことを確認した。
+
+### 検証
+
+GitHub Actions run `32681691135`（製品head `b2e4222378cc7bba980a2e76ad66bb07c3c7c412`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 55件成功、2件skip（19 test files成功、2 files skip）
+- MariaDB Integration Test: 2件成功
+- Migration CLI / schema validation: 成功
+- Backup / restore / retention: 成功、checksum確認と正常2世代保持を確認
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 23件成功。`concurrent-sessions.spec.ts`を含む。
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32681691135-1`（ID `9504369544`、SHA256 `73de7d5a885a0525ffb44d0c0c0ef8fe9d9d6fe706b9e459d60675bef1e103fd`、473871 bytes）
+
+### 結果
+
+- 同一ユーザー複数セッションと別ユーザー同時接続のセッション分離をブラウザ回帰で固定した。
+- version付き通常更新とDELETE/restoreの競合制御を対称化し、古い画面からの破壊的操作を409で拒否するようにした。
+- DB schema / Migration変更は発生していない。
+- 未解決の製品不具合: なし。
+- GitHub公式ActionのNode.js 20ランタイム廃止警告は既存のAdditional hardening candidateとして継続管理する。

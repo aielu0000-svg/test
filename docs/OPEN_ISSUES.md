@@ -2,6 +2,8 @@
 
 ## Product issues
 
+ISSUE-20260824-001の同時接続時の削除・復元競合は修正・独立検証済みです。version付き通常更新とDELETE/restoreの競合制御を対称化し、古い画面からの破壊的操作は409で拒否します。同一ユーザー2セッションと別ユーザー1セッションを同時に動かすChromium E2Eで、セッション分離、同一行競合、別行並行更新、stale DELETE/restoreを固定しました。DBスキーマ/Migration変更はありません。
+
 ISSUE-20260821-006のWeb UIレイアウト基盤導入は検証済みです。意味ベースの共通トークン、Workspaceとテスト設計画面への初期適用、FolderExplorerのviewport overflow補正を含み、API・DB・業務仕様は変更していません。
 
 2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）、プロジェクト画面の`作業手順`タブ非表示（ISSUE-20260821-005）、Web UIレイアウト基盤（ISSUE-20260821-006）はすべて修正・独立検証済みです。最新のWeb UI変更では、通常表示タブを`テスト設計 / テスト実行 / Excelから追加・エクスポート / 削除済み`の4つに固定し、FolderExplorerの右クリックメニューをviewport内へ補正しました。procedure backend/APIは互換性のため保持しています。2026-08-07の改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
@@ -28,6 +30,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- 同時接続・削除復元競合制御（ISSUE-20260824-001）: 製品head `b2e4222378cc7bba980a2e76ad66bb07c3c7c412` のGitHub Actions run `32681691135`でnpm audit 0件、TypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 23件成功。新規`concurrent-sessions.spec.ts`で同一ユーザー複数セッション、別ユーザー、同一行200/409、別行200/200、stale DELETE/restore 409、片方のlogout後も他セッション維持を確認。Artifact `web-ci-32681691135-1`（ID `9504369544`、SHA256 `73de7d5a885a0525ffb44d0c0c0ef8fe9d9d6fe706b9e459d60675bef1e103fd`）。
 
 - Web UIレイアウト基盤（ISSUE-20260821-006）: 製品head `66ae92c0cd85502a8cb07e4e7de35bd9d0c835de` のGitHub Actions run `32473680363`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元・保持、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 21件を含む全工程成功。初回run `32472543116`では`folder-overlay.spec.ts`がviewport外クリックで失敗したため、FolderExplorerのメニュー位置補正を追加し、再実行で成功。Artifact `web-ci-32473680363-1`（ID `9443553164`、SHA256 `3ad47c33939810100a41f79b8ae5e0e174bda599222dcc92da9d4db5f232415d`）。
 
