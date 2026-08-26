@@ -712,3 +712,70 @@ GitHub Actions run `32681691135`（製品head `b2e4222378cc7bba980a2e76ad66bb07c
 - DB schema / Migration変更は発生していない。
 - 未解決の製品不具合: なし。
 - GitHub公式ActionのNode.js 20ランタイム廃止警告は既存のAdditional hardening candidateとして継続管理する。
+
+## TASK-20260826-001: 証跡アップロードUIの簡潔化
+
+- 開始日時: 2026-08-26 17:44 JST
+- 完了日時: 2026-08-26 18:23 JST
+- 対応課題: ISSUE-20260826-001
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 証跡欄には`EVIDENCE`、`証跡`、`証跡を追加`、補足文が重複して表示され、情報量が多かった。
+- ファイル入力、クリップボード貼り付け、説明が離れ、ファイル枠と説明枠の大きさも揃っていなかった。
+- 利用者確認で「証跡自体は必須ではない」「説明に任意表示は不要」と確定した。
+
+### 調査内容
+
+- 作業開始head `df7a95168fbd7c39970fba6e4f85f347e600a094` と`docs/codemap/codemap.lock`の製品基準`b2e4222378cc7bba980a2e76ad66bb07c3c7c412`を比較し、その差分が管理ドキュメントとコードマップだけで製品コードのドリフトがないことを確認した。
+- コードマップと実ソースから変更対象を確認:
+  - 呼び出し元: `Workspace.tsx`が`RunWorkspace.tsx`をrenderする。
+  - 影響先: `RunWorkspace`内の証跡アップロード表示と操作導線。API・DB・route・証跡保存仕様には影響しない。
+  - 回帰対象: `web/e2e/completed-run-evidence.spec.ts`、`web/e2e/evidence.spec.ts`を中心とする。
+- `RunWorkspace.tsx`が`operations.css`の後に`phase25.css`を読み込むため、機能DOMを変えず後段CSSで安全にレイアウトを整理できることを確認した。
+
+### 実施内容
+
+- 製品commit `e561729681acfa36ed92e2c45bbd415dee28641b`（`証跡アップロード画面を簡潔に再配置`）:
+  - `web/src/client/phase25.css`へ証跡アップロード専用レイアウトを追加。
+  - 重複する英字見出し、説明文、`証跡を追加`見出しを画面上から除去。
+  - 証跡全体を必須と誤解させる必須表示を置かず、説明にも`任意`表示を置かない。
+  - ファイル選択とクリップボードを一つの上段アップロード領域として視覚的に連結。
+  - 説明欄をその下へ配置し、上段領域と同じ全幅へ揃えた。
+  - 追加ボタンの画面上ラベルを簡潔な`追加`へした。DOM上の既存アクセシブル名称と送信処理は維持。
+  - 狭い画面ではファイル→クリップボード→説明→追加の順に1列へ積むレスポンシブ規則を追加。
+- `web/e2e/completed-run-evidence.spec.ts`:
+  - 重複補足・`証跡を追加`・`任意`・`必須`が表示されないことを回帰検証。
+  - ファイル入力とクリップボードが同一段・同高であることをbounding boxで確認。
+  - ファイル/クリップボードを合わせた横幅と説明欄の横幅が一致し、説明が下段にあることを実寸で確認。
+- DB変更: なし。
+- Migration: なし。
+- API/route変更: なし。
+- 証跡の任意/必須という業務意味論は変更せず、既存どおり証跡追加をしなくても実行フローを利用できる。
+
+### 検証
+
+GitHub Actions run `32952480461`（製品head `e561729681acfa36ed92e2c45bbd415dee28641b`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm audit: 成功
+- TypeCheck: 成功
+- Unit/API Test: 成功
+- MariaDB Integration Test: 成功
+- Migration / schema validation: 成功
+- Backup / restore / retention: 成功
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 成功。`completed-run-evidence.spec.ts`の新しいレイアウト回帰assertionを含む。
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-32952480461-1`（ID `9600751681`、SHA256 `fe7c5574a54dafc7591912396eaf8bcb3559f873c75b00ac05cca151d5957e74`、474357 bytes）
+
+### 結果
+
+- 初見で迷いにくい縦方向の情報順序と、反復操作時に素早くファイル/クリップボードを選べる配置を両立した。
+- UI変更は`phase25.css`とE2E回帰だけに限定し、API・DB・Migration・保存処理は変更していない。
+- 未解決の製品不具合: なし。

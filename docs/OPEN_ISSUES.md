@@ -2,6 +2,8 @@
 
 ## Product issues
 
+ISSUE-20260826-001の証跡アップロードUIは修正・独立検証済みです。証跡は必須ではないため必須表示を設けず、説明にも任意表示を置かない簡潔な構成へ変更しました。ファイル選択とクリップボードを同じ上段アップロード領域へまとめ、説明をその下へ同一横幅で配置しています。API・DB・Migration・証跡保存仕様の変更はありません。
+
 ISSUE-20260824-001の同時接続時の削除・復元競合は修正・独立検証済みです。version付き通常更新とDELETE/restoreの競合制御を対称化し、古い画面からの破壊的操作は409で拒否します。同一ユーザー2セッションと別ユーザー1セッションを同時に動かすChromium E2Eで、セッション分離、同一行競合、別行並行更新、stale DELETE/restoreを固定しました。DBスキーマ/Migration変更はありません。
 
 ISSUE-20260821-006のWeb UIレイアウト基盤導入は検証済みです。意味ベースの共通トークン、Workspaceとテスト設計画面への初期適用、FolderExplorerのviewport overflow補正を含み、API・DB・業務仕様は変更していません。
@@ -30,6 +32,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- 証跡アップロードUI簡潔化（ISSUE-20260826-001）: 製品head `e561729681acfa36ed92e2c45bbd415dee28641b` のGitHub Actions run `32952480461`でTypeCheck、Unit/API、MariaDB統合、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E、DB/監査成果物保存まで全工程成功。`completed-run-evidence.spec.ts`で重複文言の非表示、ファイル選択とクリップボードの同一段配置・同高、説明欄が下段で同一全幅になることをブラウザ実寸で回帰確認。Artifact `web-ci-32952480461-1`（ID `9600751681`、SHA256 `fe7c5574a54dafc7591912396eaf8bcb3559f873c75b00ac05cca151d5957e74`、474357 bytes）。
 
 - 同時接続・削除復元競合制御（ISSUE-20260824-001）: 製品head `b2e4222378cc7bba980a2e76ad66bb07c3c7c412` のGitHub Actions run `32681691135`でnpm audit 0件、TypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 23件成功。新規`concurrent-sessions.spec.ts`で同一ユーザー複数セッション、別ユーザー、同一行200/409、別行200/200、stale DELETE/restore 409、片方のlogout後も他セッション維持を確認。Artifact `web-ci-32681691135-1`（ID `9504369544`、SHA256 `73de7d5a885a0525ffb44d0c0c0ef8fe9d9d6fe706b9e459d60675bef1e103fd`）。
 
