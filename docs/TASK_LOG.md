@@ -75,7 +75,7 @@
   - disabledボタンを中立色＋`not-allowed`へ変更し、待機カーソルを廃止。
   - 未実行0件では「保存して次の未実行へ」を非表示。
   - テスト設計の操作を保存／実行／追加／複製／モード／Excelで色・明度・ラベル・記号を併用して区別。
-  - Excel追加／エクスポートを「追加する」「出力する」の2導線へ整理し、通常UIから正式JSONインポートを除外。
+  - Excel追加／エクスポートを「追加する」と「出力する」の2導線へ整理し、通常UIから正式JSONインポートを除外。
 - Excel:
   - 公式テンプレートを`使い方`、`入力`、`共通データ`の3シートへ変更。
   - 主入力はテスト名・確認項目名・操作・期待結果の4列を中心とし、1行1手順と空欄継続から内部キーを自動生成。
@@ -778,4 +778,82 @@ GitHub Actions run `32952480461`（製品head `e561729681acfa36ed92e2c45bbd415de
 
 - 初見で迷いにくい縦方向の情報順序と、反復操作時に素早くファイル/クリップボードを選べる配置を両立した。
 - UI変更は`phase25.css`とE2E回帰だけに限定し、API・DB・Migration・保存処理は変更していない。
+- 未解決の製品不具合: なし。
+
+## TASK-20260831-001: テスト実行の見る場所画像を右側へ再配置
+
+- 開始日時: 2026-08-31 11:01 JST
+- 完了日時: 2026-08-31 11:47 JST
+- 対応課題: ISSUE-20260831-001
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 実行画面の見る場所画像は、操作・期待結果・テストデータや結果入力とは別の全幅ブロックとして後段に表示されていた。
+- 画像が小さくても縦方向に大きな空間を消費し、実行中に参照したい操作内容と画像の距離が離れていた。
+- 利用者とHTMLモックで「広い画面では右側へ置き、狭い画面では縦に戻す」方針を確認した。
+
+### 調査内容
+
+- 作業開始head `066fd16d22ea9656afad1c1cac70d6e7d4afbb4f` と`docs/codemap/codemap.lock`の製品基準`e561729681acfa36ed92e2c45bbd415dee28641b`を比較した。
+- 差分は`ISSUE_LEDGER.md`、`TASK_LOG.md`、`OPEN_ISSUES.md`とコードマップだけで、製品コードはlock基準と一致していた。
+- 既存コードマップと実ソースから変更対象を確認:
+  - 呼び出し元: `Workspace.tsx`が`RunWorkspace.tsx`をrenderし、実行確認項目は`.focused-run-case`内に操作、テストデータ、見る場所、結果入力を持つ。
+  - 影響先: 実行画面の見る場所画像の視覚配置だけ。画像ライトボックス、実行用編集、run API、DB、snapshot、証跡保存には影響しない。
+  - 回帰対象: 既存`requested-improvements.spec.ts`が見る場所画像の編集・拡大をカバーし、新たに専用`run-reference-layout.spec.ts`で配置を検証する。
+- `RunWorkspace.tsx`のDOM順を変更せずCSS Gridで再配置すれば、既存の結果入力・編集・画像処理を保持したまま実現できると判断した。
+
+### 実施内容
+
+- 製品commit `b9b217c239f0b6bfecf243ac4eba04a2d02b7929`（`見る場所画像を実行画面の右側へ再配置`）:
+  - `web/src/client/operations.css`へ、直下に`.run-reference-images`を持つ`.focused-run-case`だけに適用するレイアウト規則を追加。
+  - 広幅時は左`minmax(0, 1fr)`、右`220〜248px`の2列とし、操作・期待結果・テストデータを左、見る場所画像を右へ配置。
+  - 見る場所は右列で軽くstickyにし、画像は`object-fit: contain`で全体を参照しやすくした。
+  - 重複する「画像を選択すると拡大表示します。」の補助文は表示しない。
+  - 既存の画像クリック拡大と「この実行用に編集」はそのまま維持。
+  - 結果、メモ、担当者、証跡等の他の直接子要素は2列をまたぐ全幅のまま維持。
+  - 850px以下では1列へ戻し、`確認項目 → 操作・期待結果 → テストデータ → 見る場所 → 結果等`の順に積む。
+  - `phase25.css`が後から読み込まれる既存構成のため、`.focused-run-case:has(> .run-reference-images)`に限定した高い詳細度で既存汎用規則との競合を避けた。
+- `web/e2e/run-reference-layout.spec.ts`を追加:
+  - テスト・確認項目・操作・期待結果・テストデータ・見る場所画像を作成し、実行開始までブラウザで実施。
+  - 1280px幅で見る場所がテストデータの右側、操作欄と上端整合、幅215〜260pxであることをbounding boxで検証。
+  - 画像クリックで既存ライトボックスが開くことを確認。
+  - 760px幅へ変更し、見る場所がテストデータと同じ横幅で直下へ積まれることを実寸確認。
+- DB変更: なし。
+- Migration: なし。
+- API/route変更: なし。
+- `RunWorkspace.tsx`本体の処理変更: なし。
+
+### 作業中に発生したこと
+
+- 新たな製品エラーは発生しなかった。
+- CSSが`operations.css`→`phase25.css`の順に読み込まれるため、後段の既存汎用`.focused-run-case`規則に負けないよう対象を「見る場所画像を持つ確認項目」に限定したセレクタで実装した。
+- 製品差分を比較し、`operations.css`と新規E2Eの2ファイルだけであることを確認した。
+
+### 検証
+
+GitHub Actions run `33351599395`（製品head `b9b217c239f0b6bfecf243ac4eba04a2d02b7929`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm ci: 396 packages追加、397 packages監査
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 55件成功、2件skip（19 test files成功、2 files skip）
+- MariaDB Integration Test: 2件成功
+- Migration / schema validation: 成功
+- Backup / restore / retention: 成功、checksumと正常2世代保持を確認
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 24件成功。新規`run-reference-layout.spec.ts`を含む。
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-33351599395-1`（ID `9743844273`、SHA256 `b7ef5c56474ea0464383a6af59f95df0313c17fb27c501cdd3f7d81df540cb7e`、485385 bytes）
+- セキュリティ確認: npm audit high以上0件。認証・API・ファイル保存処理は変更していない。
+
+### 結果
+
+- 見る場所画像を操作・テストデータの近くへ置き、縦方向の無駄を減らした。
+- 広幅では右レール、狭幅では自然な縦積みとなり、既存の拡大・実行用編集機能も維持した。
 - 未解決の製品不具合: なし。

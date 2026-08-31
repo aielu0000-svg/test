@@ -2,6 +2,8 @@
 
 ## Product issues
 
+ISSUE-20260831-001のテスト実行「見る場所」画像配置は修正・独立検証済みです。広い画面では操作・期待結果・テストデータを左、見る場所画像を右220〜248pxの参照レールへ配置し、結果入力・証跡等は下段全幅のまま維持します。850px以下では見る場所をテストデータの後へ縦積みします。画像クリック拡大と「この実行用に編集」、API・DB・Migration・run保存仕様は変更していません。
+
 ISSUE-20260826-001の証跡アップロードUIは修正・独立検証済みです。証跡は必須ではないため必須表示を設けず、説明にも任意表示を置かない簡潔な構成へ変更しました。ファイル選択とクリップボードを同じ上段アップロード領域へまとめ、説明をその下へ同一横幅で配置しています。API・DB・Migration・証跡保存仕様の変更はありません。
 
 ISSUE-20260824-001の同時接続時の削除・復元競合は修正・独立検証済みです。version付き通常更新とDELETE/restoreの競合制御を対称化し、古い画面からの破壊的操作は409で拒否します。同一ユーザー2セッションと別ユーザー1セッションを同時に動かすChromium E2Eで、セッション分離、同一行競合、別行並行更新、stale DELETE/restoreを固定しました。DBスキーマ/Migration変更はありません。
@@ -32,6 +34,8 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
   - Kustomize生成、任意UID、読み取り専用root filesystem、Migration、readiness、全回帰試験はCI検証済み。実クラスターではStorageClass、Red Hat Registry pull権限、Route、NetworkPolicyを確認する。
 
 ## Completed verification
+
+- テスト実行「見る場所」画像右配置（ISSUE-20260831-001）: 製品head `b9b217c239f0b6bfecf243ac4eba04a2d02b7929` のGitHub Actions run `33351599395`でnpm audit 0件、TypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 24件成功。新規`run-reference-layout.spec.ts`で1280px時の右配置・220〜248px相当の幅・操作欄との上端整合、既存ライトボックス、760px時のテストデータ直下への縦積みを実寸で確認。Artifact `web-ci-33351599395-1`（ID `9743844273`、SHA256 `b7ef5c56474ea0464383a6af59f95df0313c17fb27c501cdd3f7d81df540cb7e`、485385 bytes）。
 
 - 証跡アップロードUI簡潔化（ISSUE-20260826-001）: 製品head `e561729681acfa36ed92e2c45bbd415dee28641b` のGitHub Actions run `32952480461`でTypeCheck、Unit/API、MariaDB統合、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E、DB/監査成果物保存まで全工程成功。`completed-run-evidence.spec.ts`で重複文言の非表示、ファイル選択とクリップボードの同一段配置・同高、説明欄が下段で同一全幅になることをブラウザ実寸で回帰確認。Artifact `web-ci-32952480461-1`（ID `9600751681`、SHA256 `fe7c5574a54dafc7591912396eaf8bcb3559f873c75b00ac05cca151d5957e74`、474357 bytes）。
 
