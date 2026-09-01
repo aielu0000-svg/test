@@ -857,3 +857,68 @@ GitHub Actions run `33351599395`（製品head `b9b217c239f0b6bfecf243ac4eba04a2d
 - 見る場所画像を操作・テストデータの近くへ置き、縦方向の無駄を減らした。
 - 広幅では右レール、狭幅では自然な縦積みとなり、既存の拡大・実行用編集機能も維持した。
 - 未解決の製品不具合: なし。
+
+## TASK-20260901-001: テスト実行の見る場所画像のスクロール追従解除
+
+- 開始日時: 2026-09-01 18:22 JST
+- 完了日時: 2026-09-01 18:30 JST
+- 対応課題: ISSUE-20260901-001
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- 2026-08-31に実行画面の見る場所画像を右レールへ再配置した際、広幅時の参照レールへ`position: sticky`と`top: .75rem`を指定していた。
+- そのためページを下へスクロールしても見る場所画像がビューポート内へ追従し、利用者が意図する通常の文書スクロールになっていなかった。
+- 利用者から「スクロールしてもついてくるので、ついてこないようにする」と明示された。
+
+### 調査内容
+
+- 作業開始head `17f4a422504a7a1e855d396d29018409cad1e803` と`docs/codemap/codemap.lock`の製品基準`b9b217c239f0b6bfecf243ac4eba04a2d02b7929`を比較した。
+- 差分は`ISSUE_LEDGER.md`、`TASK_LOG.md`、`OPEN_ISSUES.md`、`docs/codemap/*`だけで、対象製品コードはlock基準と一致していた。
+- コードマップから変更対象を確認:
+  - 呼び出し元: `Workspace.tsx`が`RunWorkspace.tsx`をrenderし、`RunWorkspace`の`.run-reference-images`へ`operations.css`の専用レイアウトが適用される。
+  - 影響先: 実行画面の見る場所画像のスクロール挙動だけ。右レール幅、狭幅時の縦積み、ライトボックス、実行用編集、API、DB、run保存には影響しない。
+  - 回帰対象: `web/e2e/run-reference-layout.spec.ts`が右配置・幅・上端整合・ライトボックス・760px縦積みを検証する。
+- 実ソースで追従原因が`operations.css`の`position: sticky; top: .75rem;`であることを確定した。
+
+### 実施内容
+
+- 製品commit `fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4`（`見る場所画像のスクロール追従を解除`）:
+  - `web/src/client/operations.css`の広幅右レールを`position: static`へ変更。
+  - `top: .75rem`を削除。
+  - 右220〜248pxの2列配置、850px以下の1列化、画像サイズ・`object-fit: contain`、補助文非表示は維持。
+  - `RunWorkspace.tsx`、API、DB、Migration、run snapshot/保存処理は変更していない。
+- `web/e2e/run-reference-layout.spec.ts`:
+  - 広幅時の`.run-reference-images`が`position: static`であることを明示的にassert。
+  - 既存の右配置、幅、上端整合、ライトボックス、760px縦積みの回帰条件はそのまま維持。
+- レイアウト変更として`docs/codemap/codemap.html`、`codemap.json`、`codemap.lock`を製品head `fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4`基準へ更新し、右レールが非stickyであることを制約として記録した。
+- DB変更: なし。
+- Migration: なし。
+- API/route変更: なし。
+
+### 検証
+
+GitHub Actions run `33492267567`（製品head `fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4`）:
+
+- Docker Compose validation: 成功
+- OpenShift Kustomize validation: 成功
+- npm audit --audit-level=high: 成功、脆弱性0件
+- TypeCheck: 成功
+- Unit/API Test: 55件成功、2件skip（19 test files成功、2 files skip）
+- MariaDB Integration Test: 2件成功
+- Migration / schema validation: 成功
+- Backup / restore / retention: 成功
+- Production Build: 成功
+- OpenShift-compatible container build: 成功
+- arbitrary UID / read-only root filesystem readiness: 成功
+- Chromium E2E: 24件成功。`run-reference-layout.spec.ts`の`position: static`回帰assertionを含む。
+- DB・監査・Playwright成果物保存: 成功
+- Artifact: `web-ci-33492267567-1`（ID `9794325167`、SHA256 `bdb48fc3269492ad5959bf57721b4f4892f36bc9b10efd083995734d76d672a1`、484162 bytes）
+- セキュリティ確認: npm audit high以上0件。認証・API・ファイル保存処理は変更していない。
+
+### 結果
+
+- 見る場所画像はページスクロールへ追従せず、確認項目の通常フローと一緒にスクロールするようになった。
+- 広幅時の右レール配置と狭幅時の縦積み、既存の画像拡大・実行用編集機能は維持した。
+- 未解決の製品不具合: なし。
