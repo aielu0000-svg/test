@@ -133,8 +133,7 @@
 .focused-run-case:has(> .run-reference-images) > .run-reference-images {
   grid-column: 2;
   grid-row: 2 / span 2;
-  position: sticky;
-  top: .75rem;
+  position: static;
   display: grid;
   gap: .65rem;
   min-width: 0;

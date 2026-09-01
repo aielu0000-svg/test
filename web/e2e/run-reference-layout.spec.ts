@@ -44,6 +44,7 @@ test("実行時の見る場所画像を右側に配置し、狭い画面では�
   await expect(instructions).toBeVisible();
   await expect(testData).toContainText("配置確認データ");
   await expect(reference).toBeVisible();
+  await expect(reference).toHaveCSS("position", "static");
   await expect(reference.getByRole("button", { name: "この実行用に編集" })).toBeVisible();
   await expect(reference.getByText("画像を選択すると拡大表示します。")).toBeHidden();
 
