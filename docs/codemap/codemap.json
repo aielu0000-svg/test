@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-09-02T14:25+09:00",
-  "generated_from_commit": "d20cb107bf450fec4992b7c12924700437f79ce1",
-  "regeneration_reason": "Regenerated before changing RunWorkspace evidence feedback classification. Web CI run 33594352227 proved the forced POST failure reaches the upload path but is rendered with success styling because feedback class is inferred from message.includes('しました').",
+  "generated_at": "2026-09-02T14:32+09:00",
+  "generated_from_commit": "3cccd9185e32ec13952a3f313dbc4969e0323871",
+  "regeneration_reason": "Regenerated from the current product/test head before changing RunWorkspace evidence feedback severity. Web CI run 33594831643 is fully green, while source inspection still shows success/error class inference by message.includes('しました').",
   "nodes": [
     {"id":"web_entry","label":"Web Entry","type":"ui_entry","path":"web/src/client/main.tsx","role":"Loads global styles and evidence-specific overrides, then renders App.","tests":["web/e2e/evidence.spec.ts","web/e2e/workflow-guidance.spec.ts"]},
     {"id":"web_shell","label":"Web App Shell","type":"ui","path":"web/src/client/App.tsx","role":"Authentication/dashboard shell.","tests":["web/e2e/auth.spec.ts"]},
     {"id":"workspace_ui","label":"Project Workspace","type":"ui","path":"web/src/client/Workspace.tsx","role":"Composes project design/run/export/recycle panels and calls RunWorkspace.","tests":["web/e2e/workflow-guidance.spec.ts"]},
-    {"id":"run_ui","label":"Run Workspace","type":"ui","path":"web/src/client/RunWorkspace.tsx","role":"Run execution and evidence UI. EvidencePanel owns upload state, upload XHR, feedback text/class and refresh.","tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts","web/e2e/run-create-start.spec.ts","web/e2e/run-conflict.spec.ts"],"constraints":["Feedback severity must be explicit state, not inferred from Japanese message wording.","Evidence API/storage semantics remain unchanged."]},
+    {"id":"run_ui","label":"Run Workspace","type":"ui","path":"web/src/client/RunWorkspace.tsx","role":"Run execution and evidence UI. EvidencePanel owns upload state, upload XHR, feedback text/class and refresh.","tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts","web/e2e/run-create-start.spec.ts","web/e2e/run-conflict.spec.ts"],"constraints":["Feedback severity should be explicit state rather than inferred from Japanese wording.","Evidence API/storage semantics remain unchanged."]},
     {"id":"shared_ui_style","label":"Shared UI Styles","type":"ui_style","path":"web/src/client/styles.css","role":"Global panel elevation and success/error classes.","tests":["web/e2e/evidence.spec.ts","web/e2e/workflow-guidance.spec.ts"]},
     {"id":"evidence_style","label":"Evidence Follow-up Style","type":"ui_style","path":"web/src/client/evidence-followup.css","role":"Removes evidence panel shadow and applies equal top spacing to direct success/error feedback.","tests":["web/e2e/evidence.spec.ts"]},
     {"id":"evidence_e2e","label":"Evidence Playwright Regression","type":"test","path":"web/e2e/evidence.spec.ts","role":"Verifies upload success, forced upload failure, panel/card shadow and success/error spacing.","tests":["GitHub Actions Web CI / Chromium E2E"]},
@@ -35,7 +35,7 @@
     {"from":"dependency_manifests","to":"web_runtime","type":"requires"}
   ],
   "flows": [
-    {"id":"evidence_feedback_flow","label":"Evidence upload and feedback","steps":["workspace_ui","run_ui","evidence_routes","shared_ui_style","evidence_style","evidence_e2e"],"tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts"],"constraints":["Success/error severity is explicit state.","Outer evidence panel and cards have no shadow.","Both direct feedback kinds have at least the configured top spacing.","No API, DB or evidence storage behavior change."]},
+    {"id":"evidence_feedback_flow","label":"Evidence upload and feedback","steps":["workspace_ui","run_ui","evidence_routes","shared_ui_style","evidence_style","evidence_e2e"],"tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts"],"constraints":["Outer evidence panel and cards have no shadow.","Both direct feedback kinds have at least the configured top spacing.","Current class inference by message wording is the next change target.","No API, DB or evidence storage behavior change."]},
     {"id":"procedure_markdown_security_flow","label":"Procedure Markdown security","steps":["run_ui","api_core","evidence_routes","markdown_sanitizer","dependency_manifests","web_runtime"],"tests":["web/src/server/markdown.test.ts","npm audit --audit-level=moderate","GitHub Actions Web CI"]}
   ]
 }
