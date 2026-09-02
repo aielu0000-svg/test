@@ -1,21 +1,21 @@
 {
-  "generated_at": "2026-09-02T14:15+09:00",
-  "generated_from_commit": "e1218b8e8e90c2775e0ea3a70910bbfd3435caa0",
-  "regeneration_reason": "Regenerated from the current product head before correcting the evidence E2E failure. Product topology is unchanged; Web CI run 33590860184 isolated the remaining failure to the Playwright POST interception pattern for the evidence upload XHR, whose URL includes query parameters.",
+  "generated_at": "2026-09-02T14:25+09:00",
+  "generated_from_commit": "d20cb107bf450fec4992b7c12924700437f79ce1",
+  "regeneration_reason": "Regenerated before changing RunWorkspace evidence feedback classification. Web CI run 33594352227 proved the forced POST failure reaches the upload path but is rendered with success styling because feedback class is inferred from message.includes('しました').",
   "nodes": [
-    {"id":"web_entry","label":"Web Entry","type":"ui_entry","path":"web/src/client/main.tsx","role":"Loads global styles and the evidence-specific follow-up override before rendering App.","tests":["web/e2e/evidence.spec.ts","web/e2e/workflow-guidance.spec.ts"]},
-    {"id":"web_shell","label":"Web App Shell","type":"ui","path":"web/src/client/App.tsx","role":"Authentication, dashboard, projects and user-administration shell.","tests":["web/e2e/auth.spec.ts","web/e2e/user-project-assignment.spec.ts"]},
-    {"id":"workspace_ui","label":"Project Workspace","type":"ui","path":"web/src/client/Workspace.tsx","role":"Project tabs and composition of design, run, Excel/export and recycle-bin panels.","tests":["web/e2e/workflow-guidance.spec.ts","web/e2e/excel-import.spec.ts"]},
-    {"id":"run_ui","label":"Run Workspace","type":"ui","path":"web/src/client/RunWorkspace.tsx","role":"Run execution and evidence UI. Evidence upload uses XMLHttpRequest POST /api/evidence with projectId/testRunId/runCaseSnapshotId query parameters.","tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts","web/e2e/run-create-start.spec.ts","web/e2e/run-conflict.spec.ts"]},
-    {"id":"shared_ui_style","label":"Shared UI Styles","type":"ui_style","path":"web/src/client/styles.css","role":"Global tokens and generic .panel elevation used across the product.","tests":["web/e2e/workflow-guidance.spec.ts","web/e2e/evidence.spec.ts"]},
-    {"id":"evidence_style","label":"Evidence Follow-up Style","type":"ui_style","path":"web/src/client/evidence-followup.css","role":"Overrides the generic .panel shadow only for .evidence-panel and applies the same top margin to direct success and error feedback.","tests":["web/e2e/evidence.spec.ts"],"constraints":["Evidence panel uses border without shadow.","Direct success and error feedback use the same top spacing.","Evidence API/storage behavior is unchanged."]},
-    {"id":"evidence_e2e","label":"Evidence Playwright Regression","type":"test","path":"web/e2e/evidence.spec.ts","role":"Drives the evidence upload UI and verifies panel/card shadow plus success/error spacing. The forced-error interceptor must match the query-bearing POST /api/evidence?... XHR.","tests":["GitHub Actions Web CI / Chromium E2E"]},
-    {"id":"evidence_routes","label":"Evidence and Procedure Routes","type":"route","path":"web/src/server/routes/evidence.ts","role":"Evidence CRUD and retained procedure CRUD. GET /api/procedures/:id renders stored Markdown with renderSafeMarkdown before returning preview HTML.","tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts","web/src/server/featureRegistration.test.ts"]},
-    {"id":"markdown_sanitizer","label":"Markdown Sanitizer","type":"service","path":"web/src/server/markdown.ts","role":"Renders Markdown with marked then sanitizes HTML with sanitize-html. SVG and SMIL animation tags are not allowlisted and only http/https schemes are accepted.","tests":["web/src/server/markdown.test.ts"],"constraints":["Script, iframe, images and dangerous URL schemes are removed.","SVG SMIL advisory payloads must not survive sanitization."]},
-    {"id":"dependency_manifests","label":"Web Dependency Manifests","type":"dependency","path":"web/package.json; web/package-lock.json","role":"Locks sanitize-html to the patched 2.17.7 line. The package engine requires Node >=22.12.0.","tests":["npm ci","npm audit --audit-level=moderate","npm run typecheck","npm test","npm run build"]},
-    {"id":"web_runtime","label":"Web Node Runtime","type":"runtime","path":"web/.nvmrc; web/Dockerfile; .github/workflows/web-ci.yaml; web/package.json","role":"Pins local, CI and container runtime to Node 22.12.0 and uses the moderate dependency audit gate.","tests":["GitHub Actions Web CI","OpenShift-compatible container readiness","Chromium E2E"]},
-    {"id":"api_core","label":"Fastify API Core","type":"service","path":"web/src/server/app.ts","role":"Core HTTP application, authentication and request transaction hooks.","tests":["web/src/server/app.test.ts","web/src/server/mariaDb.integration.test.ts"]},
-    {"id":"mariadb","label":"MariaDB Persistence","type":"database","path":"web/src/server/db.ts","role":"MariaDB pool and request-local transaction boundary.","tests":["web/src/server/mariaDb.integration.test.ts"]}
+    {"id":"web_entry","label":"Web Entry","type":"ui_entry","path":"web/src/client/main.tsx","role":"Loads global styles and evidence-specific overrides, then renders App.","tests":["web/e2e/evidence.spec.ts","web/e2e/workflow-guidance.spec.ts"]},
+    {"id":"web_shell","label":"Web App Shell","type":"ui","path":"web/src/client/App.tsx","role":"Authentication/dashboard shell.","tests":["web/e2e/auth.spec.ts"]},
+    {"id":"workspace_ui","label":"Project Workspace","type":"ui","path":"web/src/client/Workspace.tsx","role":"Composes project design/run/export/recycle panels and calls RunWorkspace.","tests":["web/e2e/workflow-guidance.spec.ts"]},
+    {"id":"run_ui","label":"Run Workspace","type":"ui","path":"web/src/client/RunWorkspace.tsx","role":"Run execution and evidence UI. EvidencePanel owns upload state, upload XHR, feedback text/class and refresh.","tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts","web/e2e/run-create-start.spec.ts","web/e2e/run-conflict.spec.ts"],"constraints":["Feedback severity must be explicit state, not inferred from Japanese message wording.","Evidence API/storage semantics remain unchanged."]},
+    {"id":"shared_ui_style","label":"Shared UI Styles","type":"ui_style","path":"web/src/client/styles.css","role":"Global panel elevation and success/error classes.","tests":["web/e2e/evidence.spec.ts","web/e2e/workflow-guidance.spec.ts"]},
+    {"id":"evidence_style","label":"Evidence Follow-up Style","type":"ui_style","path":"web/src/client/evidence-followup.css","role":"Removes evidence panel shadow and applies equal top spacing to direct success/error feedback.","tests":["web/e2e/evidence.spec.ts"]},
+    {"id":"evidence_e2e","label":"Evidence Playwright Regression","type":"test","path":"web/e2e/evidence.spec.ts","role":"Verifies upload success, forced upload failure, panel/card shadow and success/error spacing.","tests":["GitHub Actions Web CI / Chromium E2E"]},
+    {"id":"evidence_routes","label":"Evidence Routes","type":"route","path":"web/src/server/routes/evidence.ts","role":"Evidence CRUD and procedure routes.","tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts","web/src/server/featureRegistration.test.ts"]},
+    {"id":"markdown_sanitizer","label":"Markdown Sanitizer","type":"service","path":"web/src/server/markdown.ts","role":"marked + sanitize-html rendering with restricted allowlist.","tests":["web/src/server/markdown.test.ts"]},
+    {"id":"dependency_manifests","label":"Web Dependencies","type":"dependency","path":"web/package.json; web/package-lock.json","role":"sanitize-html 2.17.7 and Node >=22.12 requirement.","tests":["npm audit --audit-level=moderate","npm run typecheck","npm test","npm run build"]},
+    {"id":"web_runtime","label":"Web Node Runtime","type":"runtime","path":"web/.nvmrc; web/Dockerfile; .github/workflows/web-ci.yaml; web/package.json","role":"Node 22.12.0 in local/CI/container and moderate audit gate.","tests":["GitHub Actions Web CI","OpenShift-compatible container readiness","Chromium E2E"]},
+    {"id":"api_core","label":"Fastify API Core","type":"service","path":"web/src/server/app.ts","role":"HTTP app/auth/request transactions.","tests":["web/src/server/app.test.ts","web/src/server/mariaDb.integration.test.ts"]},
+    {"id":"mariadb","label":"MariaDB Persistence","type":"database","path":"web/src/server/db.ts","role":"MariaDB persistence and request transactions.","tests":["web/src/server/mariaDb.integration.test.ts"]}
   ],
   "edges": [
     {"from":"web_entry","to":"web_shell","type":"renders"},
@@ -23,20 +23,19 @@
     {"from":"web_entry","to":"evidence_style","type":"loads"},
     {"from":"web_shell","to":"workspace_ui","type":"renders"},
     {"from":"workspace_ui","to":"run_ui","type":"renders"},
-    {"from":"run_ui","to":"shared_ui_style","type":"inherits_style_from"},
+    {"from":"run_ui","to":"shared_ui_style","type":"uses_success_error_classes"},
     {"from":"run_ui","to":"evidence_style","type":"styled_by"},
-    {"from":"run_ui","to":"api_core","type":"calls"},
-    {"from":"web_runtime","to":"evidence_e2e","type":"runs"},
+    {"from":"run_ui","to":"evidence_routes","type":"calls_via_xhr_and_api"},
     {"from":"evidence_e2e","to":"run_ui","type":"drives"},
     {"from":"evidence_e2e","to":"evidence_style","type":"verifies"},
     {"from":"api_core","to":"evidence_routes","type":"registers"},
     {"from":"evidence_routes","to":"markdown_sanitizer","type":"calls_for_procedure_preview"},
     {"from":"evidence_routes","to":"mariadb","type":"reads_writes"},
-    {"from":"markdown_sanitizer","to":"dependency_manifests","type":"uses_sanitize_html"},
-    {"from":"dependency_manifests","to":"web_runtime","type":"requires_node_22_12"}
+    {"from":"markdown_sanitizer","to":"dependency_manifests","type":"uses"},
+    {"from":"dependency_manifests","to":"web_runtime","type":"requires"}
   ],
   "flows": [
-    {"id":"evidence_feedback_flow","label":"Evidence feedback presentation","steps":["web_entry","workspace_ui","run_ui","shared_ui_style","evidence_style","evidence_e2e"],"tests":["web/e2e/evidence.spec.ts"],"constraints":["Outer evidence panel and evidence cards have no shadow.","Success and error feedback both have at least the evidence feedback top spacing.","Forced POST failure interception must match /api/evidence with query parameters.","No API, DB or upload semantics change."]},
-    {"id":"procedure_markdown_security_flow","label":"Procedure Markdown security","steps":["run_ui","api_core","evidence_routes","markdown_sanitizer","dependency_manifests","web_runtime"],"tests":["web/src/server/markdown.test.ts","npm audit --audit-level=moderate","GitHub Actions Web CI"],"constraints":["sanitize-html 2.17.7 is used.","Node 22.12.0 is used in CI and production container.","SVG SMIL URL-scheme bypass payloads are removed by the configured allowlist."]}
+    {"id":"evidence_feedback_flow","label":"Evidence upload and feedback","steps":["workspace_ui","run_ui","evidence_routes","shared_ui_style","evidence_style","evidence_e2e"],"tests":["web/e2e/evidence.spec.ts","web/e2e/completed-run-evidence.spec.ts"],"constraints":["Success/error severity is explicit state.","Outer evidence panel and cards have no shadow.","Both direct feedback kinds have at least the configured top spacing.","No API, DB or evidence storage behavior change."]},
+    {"id":"procedure_markdown_security_flow","label":"Procedure Markdown security","steps":["run_ui","api_core","evidence_routes","markdown_sanitizer","dependency_manifests","web_runtime"],"tests":["web/src/server/markdown.test.ts","npm audit --audit-level=moderate","GitHub Actions Web CI"]}
   ]
 }

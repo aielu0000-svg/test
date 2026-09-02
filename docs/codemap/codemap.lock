@@ -1,35 +1,22 @@
 {
-  "current_commit": "e1218b8e8e90c2775e0ea3a70910bbfd3435caa0",
-  "current_commit_tree": "af499a5110cbb1bc2b6c0117e06aace7d7481665",
+  "current_commit": "d20cb107bf450fec4992b7c12924700437f79ce1",
+  "current_commit_tree": "bf8a80b31cacf6a35c84b62ee5f80641ef2442dc",
   "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-09-02T14:15+09:00",
-  "generation_basis": "Regenerated from the current product head after Web CI run 33590860184. Product/runtime changes are present; the sole failing check is isolated to the evidence Playwright forced-error interception pattern, not product behavior.",
-  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/.nvmrc","web/kustomization.yaml","web/openshift*.yaml","web/openapi.yaml","web/package.json","web/package-lock.json","package.json","package-lock.json",".github/workflows","import-examples"],
-  "dependency_boundary": {
-    "sanitize-html": "2.17.7",
-    "node": "22.12.0",
-    "audit_level": "moderate"
-  },
+  "generation_time": "2026-09-02T14:25+09:00",
+  "generation_basis": "Regenerated before correcting evidence feedback severity. Web CI run 33594352227 shows all checks pass except the forced-error evidence E2E; source inspection identified message.includes('しました') as the classification defect.",
+  "dependency_boundary": {"sanitize-html":"2.17.7","node":"22.12.0","audit_level":"moderate"},
   "evidence_ui_behavior": {
     "evidence_panel_shadow": "none",
     "evidence_card_shadow": "none",
     "direct_success_message_margin_top": "var(--space-4, 1rem)",
-    "direct_error_message_margin_top": "var(--space-4, 1rem)"
+    "direct_error_message_margin_top": "var(--space-4, 1rem)",
+    "feedback_severity_current_defect": "message.includes('しました') misclassifies 'アップロードに失敗しました。' as success"
   },
-  "previous_lock_commit": "9a93fd2fef278d5a179f6d9539250a90dde9e723",
+  "previous_lock_commit": "e1218b8e8e90c2775e0ea3a70910bbfd3435caa0",
   "latest_verification": {
-    "workflow": "Web CI",
-    "run_id": 33590860184,
-    "audit_moderate": "passed; 0 vulnerabilities",
-    "typecheck": "passed",
-    "unit_api": "56 passed, 2 skipped",
-    "mariadb_integration": "2 passed",
-    "migration_schema": "passed",
-    "backup_restore_retention": "passed",
-    "build": "passed",
-    "container": "passed",
-    "chromium_e2e": "23 passed, 1 failed",
-    "failure_scope": "web/e2e/evidence.spec.ts forced-error interceptor did not match query-bearing POST /api/evidence XHR"
+    "workflow":"Web CI","run_id":33594352227,
+    "audit_moderate":"passed; 0 vulnerabilities","typecheck":"passed","unit_api":"56 passed, 2 skipped","mariadb_integration":"2 passed","migration_schema":"passed","backup_restore_retention":"passed","build":"passed","container":"passed","chromium_e2e":"23 passed, 1 failed",
+    "failure_scope":"evidence feedback error is rendered with success-message because severity is inferred from wording"
   },
   "excluded_generated_codemap_from_fingerprints": true
 }
