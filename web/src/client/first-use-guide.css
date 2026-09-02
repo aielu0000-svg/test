@@ -1,0 +1,124 @@
+.first-use-guide-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  pointer-events: auto;
+}
+
+.first-use-guide-layer.no-target {
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.first-use-guide-highlight {
+  position: fixed;
+  z-index: 3001;
+  border: 3px solid var(--color-accent, #2563eb);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.58);
+  pointer-events: none;
+  transition: top 120ms ease, left 120ms ease, width 120ms ease, height 120ms ease;
+}
+
+.first-use-guide-card {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 3002;
+  width: min(520px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 20px;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 14px;
+  background: var(--color-surface, #ffffff);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.28);
+}
+
+.first-use-guide-card h2 {
+  margin: 4px 0 8px;
+}
+
+.first-use-guide-card p {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.first-use-guide-progress {
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.first-use-guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.first-use-guide-actions > div {
+  display: flex;
+  gap: 8px;
+}
+
+.first-use-guide-pending {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2500;
+  display: grid;
+  gap: 6px;
+  width: min(420px, calc(100vw - 40px));
+  padding: 14px 16px;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 12px;
+  background: var(--color-surface, #ffffff);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.first-use-guide-pending span {
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.92rem;
+}
+
+.first-use-guide-pending button {
+  justify-self: start;
+}
+
+.first-use-guide-error {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  z-index: 3100;
+  max-width: min(620px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #9f1239;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+@media (max-width: 650px) {
+  .first-use-guide-card {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100vw - 20px);
+    padding: 16px;
+  }
+
+  .first-use-guide-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .first-use-guide-actions > div {
+    justify-content: flex-end;
+  }
+
+  .first-use-guide-pending {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+  }
+}

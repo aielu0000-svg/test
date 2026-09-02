@@ -1,22 +1,58 @@
 {
-  "current_commit": "3cccd9185e32ec13952a3f313dbc4969e0323871",
-  "current_commit_tree": "3b166f84355fd4c73c89de50579da08f3fef12b5",
-  "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-09-02T14:32+09:00",
-  "generation_basis": "Regenerated before replacing evidence feedback wording inference with explicit success/error state. Current merge-result Web CI run 33594831643 is fully green.",
-  "dependency_boundary": {"sanitize-html":"2.17.7","node":"22.12.0","audit_level":"moderate"},
-  "evidence_ui_behavior": {
-    "evidence_panel_shadow": "none",
-    "evidence_card_shadow": "none",
-    "direct_success_message_margin_top": "var(--space-4, 1rem)",
-    "direct_error_message_margin_top": "var(--space-4, 1rem)",
-    "feedback_severity_current_defect": "message.includes('しました') can classify failure wording as success"
+  "version": 1,
+  "generated_at": "2026-09-02T15:02+09:00",
+  "generation_basis": {
+    "base_branch": "codex/web-review",
+    "base_commit": "9d430454e54f995b6edf48fe7d223abde51c0184",
+    "feature_branch": "agent/first-use-guide",
+    "feature_commit": "81379a32daca0a820cf72ec1990779854de62e8e",
+    "reason": "Integrate PR #3 after PR #2 merge while preserving parallel evidence/runtime fixes and adding onboarding UI/API/auth/DB/schema boundaries."
   },
-  "previous_lock_commit": "d20cb107bf450fec4992b7c12924700437f79ce1",
-  "latest_verification": {
-    "workflow":"Web CI","run_id":33594831643,
-    "audit_moderate":"passed; 0 vulnerabilities","typecheck":"passed","unit_api":"56 passed, 2 skipped","mariadb_integration":"2 passed","migration_schema":"passed","backup_restore_retention":"passed","build":"passed","container":"passed","chromium_e2e":"24 passed",
-    "artifact":"web-ci-33594831643-1","artifact_id":9833079825,"artifact_sha256":"c94b733b00d00c34bf20768b5f1aab3ca7b98f67175e82df4b9d3ac2a7c9e64d","artifact_size":484818
+  "mapped_boundaries": [
+    "web entry -> App + FirstUseGuideController",
+    "FirstUseGuideController -> client api -> POST /api/auth/onboarding/complete",
+    "app.ts -> feature registry -> onboarding route",
+    "onboarding route -> auth service -> users + audit_logs",
+    "migration 014 -> users.onboarding_completed_at -> schema validation/readiness",
+    "workspace -> RunWorkspace -> evidence routes/styles",
+    "procedure routes -> markdown sanitizer -> Node/dependency runtime"
+  ],
+  "module_questions": {
+    "first_use_guide": {
+      "what_calls_it": ["web/src/client/main.tsx"],
+      "what_does_it_affect": ["authenticated dashboard/workspace guide overlay", "POST /api/auth/onboarding/complete", "per-user onboarding completion"],
+      "tests": ["web/e2e/first-use-guide.spec.ts"]
+    },
+    "onboarding_route": {
+      "what_calls_it": ["web/src/server/routes/features.ts", "web/src/client/api.ts"],
+      "what_does_it_affect": ["users.onboarding_completed_at", "AuthUser.onboardingCompleted", "audit_logs"],
+      "tests": ["web/src/server/onboarding.test.ts", "web/e2e/first-use-guide.spec.ts"]
+    },
+    "auth_mapping": {
+      "what_calls_it": ["app auth/session routes", "onboarding route", "authenticated feature routes"],
+      "what_does_it_affect": ["login/session/me user payload", "guide visibility"],
+      "tests": ["web/src/server/app.test.ts", "web/src/server/onboarding.test.ts", "web/e2e/auth.spec.ts", "web/e2e/first-use-guide.spec.ts"]
+    },
+    "onboarding_schema": {
+      "what_calls_it": ["migration runner", "server schema validation/readiness"],
+      "what_does_it_affect": ["users table", "deployment readiness", "auth queries"],
+      "tests": ["web/src/server/schemaValidation.test.ts", "web/src/server/mariaDb.integration.test.ts", "web/e2e/migration-schema.spec.ts"]
+    }
   },
-  "excluded_generated_codemap_from_fingerprints": true
+  "preserved_parallel_changes": {
+    "evidence_feedback": "explicit success/error state in RunWorkspace with evidence.spec.ts coverage",
+    "runtime": "Node 22.12.0, sanitize-html 2.17.7, moderate audit gate"
+  },
+  "required_checks_after_integration": [
+    "npm audit --audit-level=moderate",
+    "TypeCheck",
+    "Unit/API",
+    "MariaDB integration",
+    "Migration/Schema validation",
+    "Backup/restore/retention",
+    "Production Build",
+    "OpenShift-compatible container",
+    "arbitrary UID/read-only root filesystem",
+    "Chromium E2E including first-use-guide.spec.ts and evidence.spec.ts"
+  ]
 }

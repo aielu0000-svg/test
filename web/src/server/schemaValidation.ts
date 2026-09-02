@@ -4,6 +4,7 @@ type ColumnRule = readonly [table: string, column: string, type: string, nullabl
 type IndexRule = readonly [table: string, name: string, columns: readonly string[], unique?: boolean];
 
 const requiredColumns: readonly ColumnRule[] = [
+  ["users", "onboarding_completed_at", "datetime(6)", "YES"],
   ["scenarios", "folder_id", "char(36)", "YES"],
   ["run_case_snapshots", "notes", "longtext", "YES"],
   ["test_cases", "view_images_json", "longtext", "YES"],

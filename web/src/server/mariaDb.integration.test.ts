@@ -204,7 +204,7 @@ describe.runIf(enabled)("MariaDB migrations and scenario editor", () => {
       await copyMigrations(partialDirectory, ["001", "002", "003", "004", "005", "006", "007", "009", "010"]);
       await runMigrations(repair.db, partialDirectory);
       await repair.db.execute("INSERT INTO schema_migrations (id) VALUES ('008_ui_workflow.sql')");
-      await copyMigrations(partialDirectory, ["011", "012", "013"]);
+      await copyMigrations(partialDirectory, ["011", "012", "013", "014"]);
       await runMigrations(repair.db, partialDirectory);
       await validateSchema(repair.db, repairedName);
       const firstVersion = await repair.db.query<{ applied_at: string }>("SELECT applied_at FROM schema_migrations WHERE id = '011_repair_ui_workflow_columns.sql'");

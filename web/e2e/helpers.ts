@@ -24,6 +24,10 @@ export async function login(page: Page): Promise<void> {
     throw new Error("E2E用ユーザーは初回パスワード変更を完了した専用アカウントにしてください。単独specの認証情報を変更しません。");
   }
   await expect(page.getByRole("button", { name: "プロジェクト", exact: true })).toBeVisible();
+  const onboarding = await page.request.post("/api/auth/onboarding/complete", { headers: { "X-The-Test-Request": "1" } });
+  if (!onboarding.ok()) throw new Error(`E2E用ユーザーの初回ガイド完了状態を準備できませんでした: ${onboarding.status()}`);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "プロジェクト", exact: true })).toBeVisible();
 }
 
 export async function createProject(page: Page, projectName = unique("E2E プロジェクト")): Promise<string> {
