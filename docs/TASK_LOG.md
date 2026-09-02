@@ -136,7 +136,6 @@ GitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip�
 ### 検証
 
 GitHub Actions run `33592597851`:
-
 - npm audit (`--audit-level=moderate`): 成功、0 vulnerabilities
 - TypeCheck: 成功
 - Unit/API: 成功
@@ -222,3 +221,62 @@ GitHub Actions run `33592597851`:
 - 統合時にcodemapを最新複合ツリーへ再同期し、全Web CI greenを確認した。
 - OpenShiftへ実際に適用するための新規構築・更新・復旧runbookを、環境固有Secret/PV値を含めず作成した。
 - 実OpenShiftクラスターへのデプロイ自体は本タスクでは実行していない。
+
+## TASK-20260902-005: OpenShift運用ガイドへユーザー管理・復元手順を追加
+
+- 開始日時: 2026-09-02 JST
+- 完了日時: 2026-09-02 JST
+- 対応課題: ISSUE-20260902-005
+- 担当: ChatGPT
+- 状態: Completed / Source Verified（push後Web CI確認待ち）
+
+### 作業前の状態
+
+- PR #4の`web/OPENSHIFT.md`には初回ログイン、配備、アップグレード、ロールバックの手順はあるが、管理者が日常運用で使うユーザー管理の具体的な画面操作はまとまっていなかった。
+- 復元はロールバック方針と`web/OPERATIONS.md`への参照だけで、管理画面から成功済み世代を選び、IDを確認して要求し、workerと復元後状態を確認する一連の手順がrunbook内に不足していた。
+
+### 調査内容
+
+- 作業開始時のPR #4 head `9db7fcb7802de024a1fefdcfa9aa0e8d16597e70` と `docs/codemap/codemap.lock` を比較した。PR #4差分は`web/OPENSHIFT.md`と台帳だけで、アプリコード境界は統合時codemapから変化していないことを確認した。
+- `docs/codemap/codemap.json`で初回ガイドの呼び出し元・影響先・テストが `main.tsx → FirstUseGuide → client api → onboarding route` と `web/e2e/first-use-guide.spec.ts` で追跡できることを確認した。
+- `web/src/client/FirstUseGuide.tsx`と`web/e2e/first-use-guide.spec.ts`を確認し、管理者向けの「ユーザー管理」「バックアップ・復元」案内自体は既に実装・E2E化されていることを確認した。
+- `web/src/client/App.tsx`で、ユーザー作成、ユーザー編集、仮パスワード再設定、ロック解除、複数ユーザー/複数プロジェクト割当、成功済みバックアップ選択、バックアップID完全一致入力、復元要求のUI仕様を確認した。
+- `web/src/server/app.ts`で、自分自身を無効化できないこと、最後の有効な管理者を無効化/実行者化できないこと、パスワード再設定時に対象ユーザーの既存セッションを破棄することを確認した。
+- `web/OPERATIONS.md`で、復元元検証、復元前自動バックアップ、更新停止、DB/証跡同一backup ID復元、復元後2世代保持、監査記録の意味論を確認した。
+
+### 実施内容
+
+- `web/OPENSHIFT.md`の第6章を「初回ログイン・管理者運用ガイド」へ拡張した。
+- ユーザー管理ガイドを追加した。
+  - ユーザー作成
+  - 権限/有効状態の変更
+  - 自分自身と最後の有効管理者に対する保護
+  - 仮パスワード再設定と次回変更
+  - ロック解除
+  - 複数ユーザー・複数プロジェクトの割当/解除
+  - 権限の基本と作成後確認
+- バックアップ・復元ガイドを追加した。
+  - 手動バックアップ要求と処理状態確認
+  - 成功済み世代の選択
+  - バックアップID完全一致確認
+  - 復元要求
+  - 復元前自動バックアップ、更新停止、DB/証跡同一世代復元
+  - workerログ確認
+  - 復元後の`/healthz`、`/readyz`、画面データ確認
+  - Migrationをまたぐ場合のschema互換性注意
+- Go-liveチェックリストへユーザー管理と復元運用の確認項目を追加した。
+- `docs/ISSUE_LEDGER.md`へISSUE-20260902-005を登録した。
+- アプリコード、DB、Migration、API、OpenShift manifest、deploy scriptは変更していないため、codemapは追加更新していない。
+
+### 検証
+
+- Source照合: `web/src/client/App.tsx`, `web/src/server/app.ts`, `web/OPERATIONS.md`, `web/src/client/FirstUseGuide.tsx`, `web/e2e/first-use-guide.spec.ts`
+- DB/API/manifest変更: なし
+- Secret実値: 追加なし
+- Web CI: push後に最新headで確認する
+
+### 結果
+
+- OpenShift配備runbookだけで、初回管理者の作成後に必要となるユーザー管理と、障害時/復旧時に必要な管理画面からの復元操作まで辿れるようになった。
+- 実OpenShiftクラスターでのユーザー作成・復元実行は行っていない。
+- 次の確認: PR #4最新headのWeb CIを確認し、結果を台帳/PRへ反映する。
