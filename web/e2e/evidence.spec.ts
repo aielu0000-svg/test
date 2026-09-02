@@ -19,7 +19,7 @@ test("証跡追加が独立実行で成功する", async ({ page }) => {
   if (!cardBox || !successBox) throw new Error("証跡カードと成功メッセージの配置を取得できませんでした。");
   expect(successBox.y - (cardBox.y + cardBox.height)).toBeGreaterThanOrEqual(12);
 
-  await page.route("**/api/evidence", async (route) => {
+  await page.route(/\/api\/evidence\?.*$/, async (route) => {
     if (route.request().method() === "POST") {
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { message: "E2E forced upload failure" } }) });
       return;
