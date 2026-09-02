@@ -19,6 +19,7 @@ interface UserRow {
   role: Role;
   enabled: number;
   must_change_password: number;
+  onboarding_completed_at: string | Date | null;
   failed_login_count: number;
   locked_until: string | Date | null;
   version: number;
@@ -35,6 +36,7 @@ export function publicUser(row: UserRow): AuthUser {
     displayName: row.display_name,
     role: row.role,
     mustChangePassword: Boolean(row.must_change_password),
+    onboardingCompleted: Boolean(row.onboarding_completed_at),
   };
 }
 
@@ -73,7 +75,7 @@ export async function verifyPassword(hash: string, password: string): Promise<bo
 export async function findUserByUsername(db: Database, username: string): Promise<UserRow | null> {
   const rows = await db.query<UserRow>(
     `SELECT id, username, username_normalized, display_name, password_hash, role,
-            enabled, must_change_password, failed_login_count, locked_until, version
+            enabled, must_change_password, onboarding_completed_at, failed_login_count, locked_until, version
        FROM users WHERE username_normalized = ? LIMIT 1`,
     [normalizeUsername(username)],
   );
@@ -83,7 +85,7 @@ export async function findUserByUsername(db: Database, username: string): Promis
 export async function findUserById(db: Database, id: string): Promise<UserRow | null> {
   const rows = await db.query<UserRow>(
     `SELECT id, username, username_normalized, display_name, password_hash, role,
-            enabled, must_change_password, failed_login_count, locked_until, version
+            enabled, must_change_password, onboarding_completed_at, failed_login_count, locked_until, version
        FROM users WHERE id = ? LIMIT 1`,
     [id],
   );
@@ -100,7 +102,7 @@ export async function loadSessionUser(
   const rows = await db.query<SessionRow>(
     `SELECT s.id AS session_id, u.id, u.username, u.username_normalized,
             u.display_name, u.password_hash, u.role, u.enabled,
-            u.must_change_password, u.failed_login_count, u.locked_until, u.version
+            u.must_change_password, u.onboarding_completed_at, u.failed_login_count, u.locked_until, u.version
        FROM user_sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP(6)
       LIMIT 1`,
