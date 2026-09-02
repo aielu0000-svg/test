@@ -136,7 +136,6 @@ GitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip�
 ### 検証
 
 GitHub Actions run `33592597851`:
-
 - npm audit (`--audit-level=moderate`): 成功、0 vulnerabilities
 - TypeCheck: 成功
 - Unit/API: 成功
@@ -158,3 +157,126 @@ GitHub Actions run `33592597851`:
 - 解消していない内容: 全Chromium suiteの既存`evidence.spec.ts` 1件。変更前baseでも再現するため本タスク対象外。
 - 残るリスク: 並走ブランチ側の変更と統合時に競合する可能性がある。codemapは利用者指示により本タスクでは再生成していないため、統合時に最新HEAD基準で再同期が必要。
 - 次のタスク: 並走PR側の変更を取り込む段階で競合確認・codemap再同期・全CI再実行を行う。
+
+## TASK-20260902-004: 初回利用ガイド統合とOpenShift配備runbook整備
+
+- 開始日時: 2026-09-02 JST
+- 完了日時: 2026-09-02 JST
+- 対応課題: ISSUE-20260902-003, ISSUE-20260902-004
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- PR #2は並走スレッドで既に`codex/web-review`へマージ済みで、PR #3は旧`agent/folder-explorer-p2`をbaseにしたDraftのままだった。
+- PR #3作業時は利用者指示でcodemap再生成を省略していたため、DB/API/UI境界を追加した初回ガイドを統合する前に最新親branch基準のcodemap再同期が必要だった。
+- `web/OPENSHIFT.md`には英日重複、旧branch固定、バックアップ容量150/220GiBの不一致、実装と異なる「3世代保持」、環境固定NFS例が混在していた。
+
+### 調査内容
+
+- `codex/web-review`の最新headと`docs/codemap/codemap.lock`を比較し、初回ガイド境界を回答できないため統合前にcodemap 3ファイルを再生成した。
+- PR #2統合後の変更とPR #3を比較し、並走側の追加変更は証跡UI/E2Eとcodemapで、初回ガイド実装ファイルとは競合しないことを確認した。
+- 初回ガイドの呼び出し元・影響先・テストを `main.tsx → FirstUseGuide → client api → onboarding route → auth/users/audit` と `migration 014 → schema validation/readiness` までmapへ反映した。
+- OpenShift手順は `web/scripts/openshift/deploy.sh`、`web/openshift-build.yaml`、`web/openshift.yaml`、`web/openshift-operations.yaml`、`web/openshift-retention.yaml`、`web/kustomization.yaml`、`web/ops/backup.sh`、`web/OPERATIONS.md`、`web/src/server/server.ts` を正本として照合した。
+
+### 実施内容
+
+- PR #3を`codex/web-review`へretargetし、最新親branchと初回ガイドを2-parent統合したcommit `759b0b758ab9df8ffb5a65967839807f678ecce5`を作成した。
+- 統合ツリーと同じGitHub生成merge commit `40ecd27967b066c174cab4cfb53c51b26bfbc9d8`を`codex/web-review`へfast-forwardし、PR #3をmerged状態にした。
+- `agent/openshift-deployment-runbook`をmerge commit `40ecd279...`から分岐した。
+- `web/OPENSHIFT.md`を現行実装に合わせた日本語runbookへ全面整理した。
+  - exact commit/tagで配備対象を固定
+  - Secret実値をリポジトリへ保存しない
+  - evidence 100Gi RWX / backup 220Gi RWX / MariaDB 20Gi RWO
+  - backup通常2世代
+  - 新規配備と配備後health/ready確認
+  - 初回管理者・初回利用ガイド確認
+  - 既存環境の配備前backup
+  - Recreate + 起動時Migration/schema validation
+  - Migration適用後を考慮したrollback方針
+  - 定常CronJob、トラブルシューティング、Go-live checklist
+- 環境固定のnamespace、NFS IP、export path例を削除した。
+- OpenShift manifest、deploy script、DB/API/アプリコードは変更していないため、このrunbook PRではcodemap追加更新は不要と判断した。
+
+### 検証
+
+統合Web CI run `33597274615`:
+
+- npm audit (`--audit-level=moderate`): 成功、0 vulnerabilities
+- TypeCheck: 成功
+- Unit/API: 57件成功、2件skip
+- MariaDB Integration: 2件成功
+- Migration/Schema validation: 成功
+- Backup/restore/retention: 成功
+- Build: 成功
+- OpenShift-compatible container: 成功
+- 任意UID/read-only root filesystem: 成功
+- Chromium E2E: 25件成功（`first-use-guide.spec.ts`、`evidence.spec.ts`を含む）
+- OpenShift runbook: 現行manifest/script/sourceとコマンド・容量・schedule・Migration順序を突合済み
+- DB/API/manifest変更: runbook PRではなし
+
+### 結果
+
+- 初回利用ガイドは並走側の証跡修正を保持した状態で`codex/web-review`へ統合済み。
+- 統合時にcodemapを最新複合ツリーへ再同期し、全Web CI greenを確認した。
+- OpenShiftへ実際に適用するための新規構築・更新・復旧runbookを、環境固有Secret/PV値を含めず作成した。
+- 実OpenShiftクラスターへのデプロイ自体は本タスクでは実行していない。
+
+## TASK-20260902-005: OpenShift運用ガイドへユーザー管理・復元手順を追加
+
+- 開始日時: 2026-09-02 JST
+- 完了日時: 2026-09-02 JST
+- 対応課題: ISSUE-20260902-005
+- 担当: ChatGPT
+- 状態: Completed / Source Verified（push後Web CI確認待ち）
+
+### 作業前の状態
+
+- PR #4の`web/OPENSHIFT.md`には初回ログイン、配備、アップグレード、ロールバックの手順はあるが、管理者が日常運用で使うユーザー管理の具体的な画面操作はまとまっていなかった。
+- 復元はロールバック方針と`web/OPERATIONS.md`への参照だけで、管理画面から成功済み世代を選び、IDを確認して要求し、workerと復元後状態を確認する一連の手順がrunbook内に不足していた。
+
+### 調査内容
+
+- 作業開始時のPR #4 head `9db7fcb7802de024a1fefdcfa9aa0e8d16597e70` と `docs/codemap/codemap.lock` を比較した。PR #4差分は`web/OPENSHIFT.md`と台帳だけで、アプリコード境界は統合時codemapから変化していないことを確認した。
+- `docs/codemap/codemap.json`で初回ガイドの呼び出し元・影響先・テストが `main.tsx → FirstUseGuide → client api → onboarding route` と `web/e2e/first-use-guide.spec.ts` で追跡できることを確認した。
+- `web/src/client/FirstUseGuide.tsx`と`web/e2e/first-use-guide.spec.ts`を確認し、管理者向けの「ユーザー管理」「バックアップ・復元」案内自体は既に実装・E2E化されていることを確認した。
+- `web/src/client/App.tsx`で、ユーザー作成、ユーザー編集、仮パスワード再設定、ロック解除、複数ユーザー/複数プロジェクト割当、成功済みバックアップ選択、バックアップID完全一致入力、復元要求のUI仕様を確認した。
+- `web/src/server/app.ts`で、自分自身を無効化できないこと、最後の有効な管理者を無効化/実行者化できないこと、パスワード再設定時に対象ユーザーの既存セッションを破棄することを確認した。
+- `web/OPERATIONS.md`で、復元元検証、復元前自動バックアップ、更新停止、DB/証跡同一backup ID復元、復元後2世代保持、監査記録の意味論を確認した。
+
+### 実施内容
+
+- `web/OPENSHIFT.md`の第6章を「初回ログイン・管理者運用ガイド」へ拡張した。
+- ユーザー管理ガイドを追加した。
+  - ユーザー作成
+  - 権限/有効状態の変更
+  - 自分自身と最後の有効管理者に対する保護
+  - 仮パスワード再設定と次回変更
+  - ロック解除
+  - 複数ユーザー・複数プロジェクトの割当/解除
+  - 権限の基本と作成後確認
+- バックアップ・復元ガイドを追加した。
+  - 手動バックアップ要求と処理状態確認
+  - 成功済み世代の選択
+  - バックアップID完全一致確認
+  - 復元要求
+  - 復元前自動バックアップ、更新停止、DB/証跡同一世代復元
+  - workerログ確認
+  - 復元後の`/healthz`、`/readyz`、画面データ確認
+  - Migrationをまたぐ場合のschema互換性注意
+- Go-liveチェックリストへユーザー管理と復元運用の確認項目を追加した。
+- `docs/ISSUE_LEDGER.md`へISSUE-20260902-005を登録した。
+- アプリコード、DB、Migration、API、OpenShift manifest、deploy scriptは変更していないため、codemapは追加更新していない。
+
+### 検証
+
+- Source照合: `web/src/client/App.tsx`, `web/src/server/app.ts`, `web/OPERATIONS.md`, `web/src/client/FirstUseGuide.tsx`, `web/e2e/first-use-guide.spec.ts`
+- DB/API/manifest変更: なし
+- Secret実値: 追加なし
+- Web CI: push後に最新headで確認する
+
+### 結果
+
+- OpenShift配備runbookだけで、初回管理者の作成後に必要となるユーザー管理と、障害時/復旧時に必要な管理画面からの復元操作まで辿れるようになった。
+- 実OpenShiftクラスターでのユーザー作成・復元実行は行っていない。
+- 次の確認: PR #4最新headのWeb CIを確認し、結果を台帳/PRへ反映する。
