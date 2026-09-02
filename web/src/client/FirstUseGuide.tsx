@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import type { AuthUser } from "../shared/types.js";
 import { api } from "./api.js";
 import "./first-use-guide.css";
@@ -30,6 +31,7 @@ function FirstUseGuide({ steps, completeLabel, onComplete, onSkip }: {
   const [index, setIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [busy, setBusy] = useState(false);
+  const cardRef = useRef<HTMLElement>(null);
   const nextButtonRef = useRef<HTMLButtonElement>(null);
   const step = steps[index]!;
 
@@ -70,6 +72,21 @@ function FirstUseGuide({ steps, completeLabel, onComplete, onSkip }: {
     try { await onSkip(); } finally { setBusy(false); }
   }
 
+  function keepFocusInside(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Tab") return;
+    const focusable = [...(cardRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   const highlightStyle = targetRect ? {
     top: Math.max(4, targetRect.top - 6),
     left: Math.max(4, targetRect.left - 6),
@@ -77,9 +94,9 @@ function FirstUseGuide({ steps, completeLabel, onComplete, onSkip }: {
     height: Math.max(0, targetRect.height + 12),
   } : undefined;
 
-  return <div className={`first-use-guide-layer${targetRect ? "" : " no-target"}`} aria-hidden="false">
+  return <div className={`first-use-guide-layer${targetRect ? "" : " no-target"}`}>
     {targetRect && <div className="first-use-guide-highlight" style={highlightStyle} aria-hidden="true" />}
-    <section className="first-use-guide-card" role="dialog" aria-modal="true" aria-labelledby="first-use-guide-title" aria-describedby="first-use-guide-description">
+    <section ref={cardRef} className="first-use-guide-card" role="dialog" aria-modal="true" aria-labelledby="first-use-guide-title" aria-describedby="first-use-guide-description" onKeyDown={keepFocusInside}>
       <div className="first-use-guide-progress" aria-label={`ガイド ${index + 1} / ${steps.length}`}>{index + 1} / {steps.length}</div>
       <h2 id="first-use-guide-title">{step.title}</h2>
       <p id="first-use-guide-description">{step.description}</p>
