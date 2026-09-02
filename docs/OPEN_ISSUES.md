@@ -2,24 +2,18 @@
 
 ## Product issues
 
-ISSUE-20260901-001のテスト実行「見る場所」画像のスクロール追従は修正・独立検証済みです。右220〜248pxの参照レール配置は維持したまま`position: sticky`を解除し、画像は確認項目の通常スクロールと一緒に流れるようにしました。850px以下の縦積み、画像クリック拡大、「この実行用に編集」、API・DB・Migration・run保存仕様は変更していません。
+現在追加された未解決の製品不具合はありません。
 
-ISSUE-20260831-001のテスト実行「見る場所」画像配置は修正・独立検証済みです。広い画面では操作・期待結果・テストデータを左、見る場所画像を右220〜248pxの参照レールへ配置し、結果入力・証跡等は下段全幅のまま維持します。850px以下では見る場所をテストデータの後へ縦積みします。画像クリック拡大と「この実行用に編集」、API・DB・Migration・run保存仕様は変更していません。
+ISSUE-20260902-001の証跡成功メッセージ余白・カード影は修正・独立検証済みです。証跡登録後の緑色成功メッセージへ1remの上余白を設け、証跡カード固有のshadowを除去してborderだけを維持しました。API、DB、Migration、証跡保存仕様は変更していません。
 
-ISSUE-20260826-001の証跡アップロードUIは修正・独立検証済みです。証跡は必須ではないため必須表示を設けず、説明にも任意表示を置かない簡潔な構成へ変更しました。ファイル選択とクリップボードを同じ上段アップロード領域へまとめ、説明をその下へ同一横幅で配置しています。API・DB・Migration・証跡保存仕様の変更はありません。
-
-ISSUE-20260824-001の同時接続時の削除・復元競合は修正・独立検証済みです。version付き通常更新とDELETE/restoreの競合制御を対称化し、古い画面からの破壊的操作は409で拒否します。同一ユーザー2セッションと別ユーザー1セッションを同時に動かすChromium E2Eで、セッション分離、同一行競合、別行並行更新、stale DELETE/restoreを固定しました。DBスキーマ/Migration変更はありません。
-
-ISSUE-20260821-006のWeb UIレイアウト基盤導入は検証済みです。意味ベースの共通トークン、Workspaceとテスト設計画面への初期適用、FolderExplorerのviewport overflow補正を含み、API・DB・業務仕様は変更していません。
-
-2026-08-21のExcel公式テンプレート改善（ISSUE-20260821-001〜004）、プロジェクト画面の`作業手順`タブ非表示（ISSUE-20260821-005）、Web UIレイアウト基盤（ISSUE-20260821-006）はすべて修正・独立検証済みです。最新のWeb UI変更では、通常表示タブを`テスト設計 / テスト実行 / Excelから追加・エクスポート / 削除済み`の4つに固定し、FolderExplorerの右クリックメニューをviewport内へ補正しました。procedure backend/APIは互換性のため保持しています。2026-08-07の改善（ISSUE-20260807-001〜003）も修正・独立検証済みで、現在追加された未解決の製品不具合はありません。
-
-Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポジトリ構成整理（ISSUE-20260806-005）も修正・独立検証済みです。
+2026-09-01以前の製品課題・完了検証の詳細は `OPEN_ISSUES_ARCHIVE_20260901.md`、`ISSUE_LEDGER_ARCHIVE_20260901.md` と既存archiveを参照してください。
 
 ## Additional hardening candidates
 
-以下は既知の不具合ではなく、追加の堅牢化・保守候補として管理する。
+以下は既知の製品不具合ではなく、追加の堅牢化・保守候補として管理する。
 
+- `sanitize-html` のmoderate advisory 1件
+  - 2026-09-02のWeb CIで`npm audit --audit-level=high`自体は成功したが、moderate advisoryが1件報告された。今回のUI変更とは無関係。依存関係と実利用箇所への影響を確認したうえで更新を検討する。
 - OS権限を操作したファイル削除失敗の強制注入
   - 現在の実装は回収失敗を構造化ログへ記録し、黙って成功扱いにしない。
 - JPEG、WebP、SVG、破損画像を組み合わせた形式別API試験の拡張
@@ -27,7 +21,7 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
 - 全種類の部分破損DBを対象とするスキーマ検証試験の拡張
   - 型、NULL、default、索引順、FK、ON DELETEの構造検証は実装済み。
 - GitHub公式ActionのNode.js 20ランタイム廃止警告への追随
-  - アプリ自体はNode.js 20.20.0で検証済み。Actionの次期メジャー版公開後に更新する。
+  - アプリ自体はNode.js 20系で検証済み。Actionの次期メジャー版公開後に更新する。
 - `TestDesignEditor.tsx`の通信エラー型統合
   - 画面固有request helperは400/409の編集競合情報を扱うため維持している。共通化する場合は、競合情報を保持できる共通エラー型の導入を先に行う。
 - 既存MariaDBボリュームの認証修復を使うDocker統合試験
@@ -37,72 +31,9 @@ Review 10で検出した製品不具合（ISSUE-20260806-001〜004）とリポ�
 
 ## Completed verification
 
-- テスト実行「見る場所」画像のスクロール追従解除（ISSUE-20260901-001）: 製品head `fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4` のGitHub Actions run `33492267567`でnpm audit 0件、TypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 24件成功。`run-reference-layout.spec.ts`で1280px時も参照レールが`position: static`であること、右配置・幅・上端整合・ライトボックス、760px時の縦積みを確認。Artifact `web-ci-33492267567-1`（ID `9794325167`、SHA256 `bdb48fc3269492ad5959bf57721b4f4892f36bc9b10efd083995734d76d672a1`、484162 bytes）。
-
-- テスト実行「見る場所」画像右配置（ISSUE-20260831-001）: 製品head `b9b217c239f0b6bfecf243ac4eba04a2d02b7929` のGitHub Actions run `33351599395`でnpm audit 0件、TypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 24件成功。新規`run-reference-layout.spec.ts`で1280px時の右配置・220〜248px相当の幅・操作欄との上端整合、既存ライトボックス、760px時のテストデータ直下への縦積みを実寸で確認。Artifact `web-ci-33351599395-1`（ID `9743844273`、SHA256 `b7ef5c56474ea0464383a6af59f95df0313c17fb27c501cdd3f7d81df540cb7e`、485385 bytes）。
-
-- 証跡アップロードUI簡潔化（ISSUE-20260826-001）: 製品head `e561729681acfa36ed92e2c45bbd415dee28641b` のGitHub Actions run `32952480461`でTypeCheck、Unit/API、MariaDB統合、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E、DB/監査成果物保存まで全工程成功。`completed-run-evidence.spec.ts`で重複文言の非表示、ファイル選択とクリップボードの同一段配置・同高、説明欄が下段で同一全幅になることをブラウザ実寸で回帰確認。Artifact `web-ci-32952480461-1`（ID `9600751681`、SHA256 `fe7c5574a54dafc7591912396eaf8bcb3559f873c75b00ac05cca151d5957e74`、474357 bytes）。
-
-- 同時接続・削除復元競合制御（ISSUE-20260824-001）: 製品head `b2e4222378cc7bba980a2e76ad66bb07c3c7c412` のGitHub Actions run `32681691135`でnpm audit 0件、TypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 23件成功。新規`concurrent-sessions.spec.ts`で同一ユーザー複数セッション、別ユーザー、同一行200/409、別行200/200、stale DELETE/restore 409、片方のlogout後も他セッション維持を確認。Artifact `web-ci-32681691135-1`（ID `9504369544`、SHA256 `73de7d5a885a0525ffb44d0c0c0ef8fe9d9d6fe706b9e459d60675bef1e103fd`）。
-
-- Web UIレイアウト基盤（ISSUE-20260821-006）: 製品head `66ae92c0cd85502a8cb07e4e7de35bd9d0c835de` のGitHub Actions run `32473680363`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元・保持、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 21件を含む全工程成功。初回run `32472543116`では`folder-overlay.spec.ts`がviewport外クリックで失敗したため、FolderExplorerのメニュー位置補正を追加し、再実行で成功。Artifact `web-ci-32473680363-1`（ID `9443553164`、SHA256 `3ad47c33939810100a41f79b8ae5e0e174bda599222dcc92da9d4db5f232415d`）。
-
-- プロジェクト作業手順タブ非表示（ISSUE-20260821-005）: 製品head `76548555e7387c1c37c052f9a2d68870e50eef90` のGitHub Actions run `32460494663`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。`workflow-guidance.spec.ts`でプロジェクトを開いた際に`作業手順`ボタンが存在しないことを明示確認。procedure backend/APIと互換用コンポーネントは保持。Artifact `web-ci-32460494663-1`（ID `9438819309`、SHA256 `46bddb6b005427e75b8cfb0827705e79ddab7fd34d5e16f122f873ba8a4bcfce`）。
-
-- Excel参照テンプレート復元・枠線・実セル記入例・案内シート非表示（ISSUE-20260821-004）: 製品head `586e1406b4b7c4c98283ff6aa13bed0cd537687a` のGitHub Actions run `32458072345`でnpm audit 0件、TypeCheck、Unit/API 55件（2件skip）、Excel import Unit 5件、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。公式`入力`は必須4列＋任意4列の8列、`共通データ`は6列、枠線はA1:H201/A1:F201、実例は`入力`2〜3行目と`共通データ`2行目。`使い方`はhidden。旧4列/3列・14列/6列friendly・キー付き形式もUnitで互換確認。Artifact `web-ci-32458072345-1`（ID `9437996267`、SHA256 `b3078b4040775b2b8e0d7cbe9a062a8fc250d14313db83eeb2fc9c2c927a41a3`）。
-
-- Excel公式テンプレートの最小列化（ISSUE-20260821-003）: GitHub Actions run `32455211801`でnpm audit 0件、TypeCheck、Unit/API 54件（2件skip）、Excel import Unit 4件、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、Build、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。公式`入力`は4列のみ、`共通データ`は3列のみとし、枠線はA1:D201/A1:C201、実セル記入例を維持。従来14列/6列friendly形式と旧キー付き形式の読込互換もUnitで確認。Artifact `web-ci-32455211801-1`（ID `9437062798`、SHA256 `07d40d5e29a0472a82fdfb495b448db0ba9f1efcc172a65940dd1037c812d665`）。
-
-- Excel公式テンプレートの簡略3シート・枠線維持と実セル記入例（ISSUE-20260821-002）: GitHub Actions run `32448865787`でnpm audit 0件、TypeCheck、Unit/API 53件（2件skip）、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。`入力`2〜3行目と`共通データ`2行目を実例とし、継続行のテスト名・確認項目名は真の空セルで確認。Artifact `web-ci-32448865787-1`（ID `9435028667`、SHA256 `6c0d1033ac4d8f94f285b1b5d96d9ff9cc2baa1904f04e1d6124465f6d2a73cd`）。
-
-- Excel公式テンプレートの枠線・全項目記入例（ISSUE-20260821-001）: GitHub Actions run `32445558693`でnpm audit 0件、TypeCheck、Unit/API 53件（2件skip）、Excel表示Unit 2件、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。Artifact `web-ci-32445558693-1`（ID `9433980395`、SHA256 `cc63d38f0d3c8a08a0d5913652aa71d5f994a90e4ddaca298085d568ebbd4701`）。
-
-- テスト複製・実行画像・証跡・テスト設計・Excel導線改善（ISSUE-20260807-001〜003）: GitHub Actions run `31169231328`でnpm audit 0件、TypeCheck、Unit/API 52件（2件skip）、MariaDB統合2件、Migration/Schema validation、バックアップ・復元、OpenShift互換起動、Chromium E2E 21件を含む全工程成功。Artifact `web-ci-31169231328-1`（ID `9007154348`、SHA256 `f3f392f083c939bd1356398085459549832afb6901da00427978e1db74e5b028`）。
-
-- リポジトリ構成整理（ISSUE-20260806-005）: GitHub Actions run `31067948455`でTypeCheck、Unit/API、MariaDB統合、バックアップ・復元、OpenShift互換起動、Chromium E2Eを含む全工程成功。Artifact `web-ci-31067948455-1`（ID `8954562403`）。
-
-- Review 10（ISSUE-20260806-001〜004）: GitHub Actions run `31062560323`でUnit/API 49件、MariaDB統合2件、バックアップ・復元・正常2世代保持、OpenShift任意UID起動、Chromium E2E 19件を含む全工程成功。Artifact ID `8952679751`。
-
-- 管理・テスト設計・実行・エクスポート改善（ISSUE-20260805-003〜006）: GitHub Actions run `30997068195`でUnit/API 43件、MariaDB統合2件、OpenShift任意UID起動、Chromium E2E 19件を含む全工程成功。
-
-- OpenShiftコンテナ・運用基盤（ISSUE-20260805-002）: GitHub Actions run `30976592066`でKustomize生成、任意UID・read-only root filesystem起動、Unit/API 43件、MariaDB統合2件、Chromium E2E 16件を含む全工程成功。
-
-- 業務導線改善（ISSUE-20260805-001）: GitHub Actions run `30973373586`でUnit/API 42件、MariaDB統合2件、Chromium E2E 16件を含む全工程成功。
-
-- Review 9: GitHub Actions run `30804989151`
-  - TypeCheck、Unit/API 29件、MariaDB統合2件、Build、Web起動、Chromium E2E 11件が成功。
-- P2フォルダ操作: GitHub Actions run `30808270002`
-  - TypeCheck、Unit/API 32件、MariaDB統合2件、Build、Web起動、Chromium E2E 12件が成功。
-  - 右クリック、F2、キーボード、複数選択・移動、パンくず、DnD、循環移動防止、削除理由入力を確認。
-- Excel確定・フォルダ表示修正: GitHub Actions run `30841994179`
-  - TypeCheck、Unit/API 35件、MariaDB統合2件、Build、Web起動、Chromium E2E 14件が成功。
-- Excelテスト設計全体取込・保守整理: GitHub Actions run `30844134585`
-  - TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 14件が成功。
-  - 最新テンプレートの生成、旧テンプレート拒否、テスト・確認項目・手順・フォルダ・タグ・個別データ・共通データの登録と画面復元を確認。
-  - 未使用`objectBody` import、旧フォルダUI用CSS、補正専用CSSファイルを削除・統合した。
-  - Artifact: `web-ci-30844134585-1`（ID `8868021343`）。
-- 完了済み実行の証跡表示・依存監査: GitHub Actions run `30848395288`
-  - `npm ci`と`npm audit --audit-level=high`は脆弱性0件。
-  - TypeCheck、Unit/API 37件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。
-  - 完了済み実行間の切替で以前のrun case IDを使用しないことを確認。
-  - Artifact: `web-ci-30848395288-1`（ID `8869654688`）。
-- Docker MariaDB認証: GitHub Actions run `30853941396`
-  - Compose構文・環境変数展開と既存ボリューム修復スクリプト構文が成功。
-  - `npm ci`と`npm audit --audit-level=high`は脆弱性0件。
-  - TypeCheck、Unit/API 40件、MariaDB統合2件、Build、Web起動、Chromium E2E 15件が成功。
-  - DBポート・Webポートのlocalhost限定、非空DBパスワード、認証付きhealthcheck、空パスワード拒否を確認。
+- 証跡成功メッセージ余白・カード影（ISSUE-20260902-001）: 製品head `9a93fd2fef278d5a179f6d9539250a90dde9e723` のGitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件成功、Migration/Schema validation、Backup/restore/retention、Production Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 24件成功。`evidence.spec.ts`でカードのcomputed `boxShadow`が`none`、成功メッセージとの間隔が12px以上であることを実寸回帰確認。Artifact `web-ci-33583803359-1`（ID `9829383625`、SHA256 `328808b259051f2e78055986f637a3a18f865210d4172398c6ab86e8dad27c91`、485452 bytes）。
 
 ## Review policy
 
 - 本環境では`codex-review`を使用しない。
 - ローカル差分確認、仕様照合、静的解析、自動テスト、実MariaDB・Chromiumを使う独立CIを代替レビューとする。
-
-### siji.md対応（完了）
-
-- [x] ISSUE-20260821-007 実行開始時の担当者を確認項目へ初期反映
-- [x] ISSUE-20260821-008 証跡項目の視線誘導を整理
-- [x] ISSUE-20260821-009 確認項目一覧の右クリック複製・削除
-- [x] ISSUE-20260821-010 「既存からコピー」導線を削除
-
-Web CI run 32481647224（TypeCheck、Unit/API、MariaDB統合、Build、OpenShift互換コンテナ、Chromium E2E）で独立検証済みです。
-
