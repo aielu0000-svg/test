@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-02T15:02+09:00",
+  "generation_basis": {
+    "base_branch": "codex/web-review",
+    "base_commit": "9d430454e54f995b6edf48fe7d223abde51c0184",
+    "feature_branch": "agent/first-use-guide",
+    "feature_commit": "81379a32daca0a820cf72ec1990779854de62e8e",
+    "reason": "Integrate PR #3 after PR #2 merge while preserving parallel evidence/runtime fixes and adding onboarding UI/API/auth/DB/schema boundaries."
+  },
+  "mapped_boundaries": [
+    "web entry -> App + FirstUseGuideController",
+    "FirstUseGuideController -> client api -> POST /api/auth/onboarding/complete",
+    "app.ts -> feature registry -> onboarding route",
+    "onboarding route -> auth service -> users + audit_logs",
+    "migration 014 -> users.onboarding_completed_at -> schema validation/readiness",
+    "workspace -> RunWorkspace -> evidence routes/styles",
+    "procedure routes -> markdown sanitizer -> Node/dependency runtime"
+  ],
+  "module_questions": {
+    "first_use_guide": {
+      "what_calls_it": ["web/src/client/main.tsx"],
+      "what_does_it_affect": ["authenticated dashboard/workspace guide overlay", "POST /api/auth/onboarding/complete", "per-user onboarding completion"],
+      "tests": ["web/e2e/first-use-guide.spec.ts"]
+    },
+    "onboarding_route": {
+      "what_calls_it": ["web/src/server/routes/features.ts", "web/src/client/api.ts"],
+      "what_does_it_affect": ["users.onboarding_completed_at", "AuthUser.onboardingCompleted", "audit_logs"],
+      "tests": ["web/src/server/onboarding.test.ts", "web/e2e/first-use-guide.spec.ts"]
+    },
+    "auth_mapping": {
+      "what_calls_it": ["app auth/session routes", "onboarding route", "authenticated feature routes"],
+      "what_does_it_affect": ["login/session/me user payload", "guide visibility"],
+      "tests": ["web/src/server/app.test.ts", "web/src/server/onboarding.test.ts", "web/e2e/auth.spec.ts", "web/e2e/first-use-guide.spec.ts"]
+    },
+    "onboarding_schema": {
+      "what_calls_it": ["migration runner", "server schema validation/readiness"],
+      "what_does_it_affect": ["users table", "deployment readiness", "auth queries"],
+      "tests": ["web/src/server/schemaValidation.test.ts", "web/src/server/mariaDb.integration.test.ts", "web/e2e/migration-schema.spec.ts"]
+    }
+  },
+  "preserved_parallel_changes": {
+    "evidence_feedback": "explicit success/error state in RunWorkspace with evidence.spec.ts coverage",
+    "runtime": "Node 22.12.0, sanitize-html 2.17.7, moderate audit gate"
+  },
+  "required_checks_after_integration": [
+    "npm audit --audit-level=moderate",
+    "TypeCheck",
+    "Unit/API",
+    "MariaDB integration",
+    "Migration/Schema validation",
+    "Backup/restore/retention",
+    "Production Build",
+    "OpenShift-compatible container",
+    "arbitrary UID/read-only root filesystem",
+    "Chromium E2E including first-use-guide.spec.ts and evidence.spec.ts"
+  ]
+}

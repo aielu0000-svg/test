@@ -1,0 +1,333 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: the-test
+  labels:
+    app.kubernetes.io/part-of: the-test
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: the-test-config
+  labels:
+    app.kubernetes.io/part-of: the-test
+data:
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: "3000"
+  TRUST_PROXY: "true"
+  COOKIE_SECURE: "true"
+  SESSION_TTL_SECONDS: "28800"
+  DB_HOST: mariadb
+  DB_PORT: "3306"
+  DB_NAME: the_test
+  DB_USER: the_test
+  DB_CONNECTION_LIMIT: "10"
+  EVIDENCE_STORAGE_PATH: /var/lib/the-test/evidence
+  VIEW_IMAGE_PENDING_TTL_SECONDS: "86400"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: the-test-evidence
+  labels:
+    app.kubernetes.io/part-of: the-test
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-data
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: the-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: the-test
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: the-test
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mariadb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mariadb
+        app.kubernetes.io/part-of: the-test
+    spec:
+      serviceAccountName: the-test
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mariadb
+          image: registry.redhat.io/rhel9/mariadb-1011:1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: the-test-config
+                  key: DB_NAME
+            - name: MYSQL_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: the-test-config
+                  key: DB_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: the-test-db
+                  key: DB_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: the-test-db
+                  key: MARIADB_ROOT_PASSWORD
+          ports:
+            - name: mysql
+              containerPort: 3306
+          startupProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mariadb-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: the-test-web
+  labels:
+    app.kubernetes.io/name: the-test-web
+    app.kubernetes.io/part-of: the-test
+  annotations:
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"the-test-web:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"web\")].image"}]
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: the-test-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: the-test-web
+        app.kubernetes.io/part-of: the-test
+    spec:
+      serviceAccountName: the-test
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: the-test-web:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: the-test-config
+            - secretRef:
+                name: the-test-db
+            - secretRef:
+                name: the-test-admin
+          ports:
+            - name: http
+              containerPort: 3000
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: evidence
+              mountPath: /var/lib/the-test/evidence
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: evidence
+          persistentVolumeClaim:
+            claimName: the-test-evidence
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: the-test-web
+  labels:
+    app.kubernetes.io/name: the-test-web
+    app.kubernetes.io/part-of: the-test
+spec:
+  selector:
+    app.kubernetes.io/name: the-test-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: the-test-web
+  labels:
+    app.kubernetes.io/name: the-test-web
+    app.kubernetes.io/part-of: the-test
+  annotations:
+    haproxy.router.openshift.io/timeout: 5m
+spec:
+  to:
+    kind: Service
+    name: the-test-web
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: the-test-web-ingress
+  labels:
+    app.kubernetes.io/part-of: the-test
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: the-test-web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: ingress
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mariadb-ingress
+  labels:
+    app.kubernetes.io/part-of: the-test
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mariadb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: the-test
+      ports:
+        - protocol: TCP
+          port: 3306

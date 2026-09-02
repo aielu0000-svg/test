@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - openshift-build.yaml
+  - openshift.yaml
+  - openshift-operations.yaml
+  - openshift-retention.yaml
+configMapGenerator:
+  - name: the-test-retention
+    files:
+      - purge.sh=ops/purge-v2.sh
+      - purge.sql=ops/purge-v2.sql
+  - name: the-test-operations
+    files:
+      - backup.sh=ops/backup.sh
+      - restore.sh=ops/restore.sh
+      - operations-worker.sh=ops/operations-worker.sh
