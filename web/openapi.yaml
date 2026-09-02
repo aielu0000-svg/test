@@ -48,6 +48,13 @@ paths:
     get:
       tags: [auth]
       responses: { '200': { description: Current user }, '401': { $ref: '#/components/responses/Unauthorized' } }
+  /api/auth/onboarding/complete:
+    post:
+      tags: [auth]
+      description: 現在ログインしているユーザーの初回利用ガイドを完了済みにする。既に完了済みの場合も成功する。
+      responses:
+        '200': { description: Onboarding completion saved and current user returned }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/auth/logout:
     post:
       tags: [auth]
