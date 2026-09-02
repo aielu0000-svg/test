@@ -12,6 +12,7 @@ import { registerEvidenceDerivedRoutes } from "./evidenceDerived.js";
 import { registerExportRoutes } from "./exports.js";
 import { registerScenarioEditorRoutes } from "./scenarioEditor.js";
 import { registerOperationRoutes } from "./operations.js";
+import { registerOnboardingRoutes } from "./onboarding.js";
 
 export async function registerFeatureRoutes(app: FastifyInstance, db: Database, config: AppConfig): Promise<void> {
   await app.register(multipart, {
@@ -23,6 +24,7 @@ export async function registerFeatureRoutes(app: FastifyInstance, db: Database, 
     },
   });
   registerDestructiveConcurrencyGuard(app, db, config);
+  await registerOnboardingRoutes(app, db, config);
   await registerCaseRoutes(app, db, config);
   await registerDefinitionRoutes(app, db, config);
   await registerScenarioEditorRoutes(app, db, config);
