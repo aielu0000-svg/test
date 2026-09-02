@@ -611,6 +611,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
   const refreshSequence = useRef(0);
   const [loadError, setLoadError] = useState("");
   const [message, setMessage] = useState("");
+  const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   useEffect(() => { onUploadingChange?.(uploading); return () => onUploadingChange?.(false); }, [uploading, onUploadingChange]);
@@ -678,8 +679,8 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
     const caseId = activeCaseId;
     try {
       await uploadEvidence(form, caseId);
-      formElement.reset(); setMessage("証跡を登録しました。"); await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "アップロードに失敗しました。"); }
+      formElement.reset(); setMessageKind("success"); setMessage("証跡を登録しました。"); await refresh();
+    } catch (cause) { setMessageKind("error"); setMessage(cause instanceof Error ? cause.message : "アップロードに失敗しました。"); }
   }
   async function pasteFromClipboard() {
     try {
@@ -692,12 +693,15 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
       const form = new FormData();
       form.append("file", blob, "clipboard.png");
       await uploadEvidence(form, activeCaseId);
+      setMessageKind("success");
       setMessage("クリップボード画像を登録しました。");
       await refresh();
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "NotAllowedError") {
+        setMessageKind("error");
         setMessage("クリップボードの読み取りが許可されませんでした。ブラウザの権限とHTTPS接続を確認してください。");
       } else {
+        setMessageKind("error");
         setMessage(cause instanceof Error ? cause.message : "クリップボードからの貼り付けに失敗しました。");
       }
     }
@@ -708,8 +712,8 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
     try {
       const result = await api<{ run?: RunUpdate | null }>(`/api/evidence/${item.id}`, { method: "DELETE", body: JSON.stringify({ projectId, version: item.version, reason: reason.trim() }) });
       onRunUpdated?.(result.run);
-      setMessage("証跡をごみ箱へ移動しました。"); await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
+      setMessageKind("success"); setMessage("証跡をごみ箱へ移動しました。"); await refresh();
+    } catch (cause) { setMessageKind("error"); setMessage(cause instanceof Error ? cause.message : "削除に失敗しました。"); }
   }
   return <section className="panel evidence-panel">
     <div className="section-heading evidence-heading"><div><p className="eyebrow">EVIDENCE</p><h2>証跡</h2><p className="muted">画像やファイルを証跡として追加できます。説明は任意です。</p></div>{evidence.length > 0 && <span className="evidence-count">{evidence.length}件</span>}</div>
@@ -719,7 +723,7 @@ export function EvidencePanelV2({ projectId, canEdit, runCases, runId, onRunUpda
     {!evidence.length && !loadError && <p className="evidence-empty">まだ証跡はありません。上のフォームから追加できます。</p>}
     {evidence.length > 0 && <div className="evidence-grid">{evidence.map((item) => <article className="evidence-card" key={item.id}><div className="evidence-card-head"><div><p className="evidence-card-kicker">EVIDENCE</p><h3>{item.original_filename}</h3></div><span className="evidence-card-type">{item.content_type}</span></div><a className="evidence-preview" aria-label={`${item.original_filename}をダウンロード`} href={`/api/evidence/${item.id}/download`}><img src={`/api/evidence/${item.id}/thumbnail`} alt={`証跡 ${item.original_filename}`} onError={(event) => { event.currentTarget.hidden = true; }} /><span>ファイルを開く</span></a><div className="evidence-card-body">{item.description?.trim() && <details className="evidence-description"><summary>説明を見る</summary><p>{item.description}</p></details>}<details className="evidence-file-info"><summary>ファイル情報</summary><small>{formatByteSize(item.byte_size)} bytes / v{item.current_version} / SHA-256 {item.sha256.slice(0, 12)}…</small></details></div>{canEdit && <div className="evidence-actions">{item.content_type.startsWith("image/") && <button type="button" onClick={() => setEditing(item)}>画像編集</button>}<button type="button" className="danger" onClick={() => void remove(item)}>削除</button></div>}</article>)}</div>}
     {editing && <EvidenceImageEditor projectId={projectId} evidenceId={editing.id} filename={editing.original_filename} onClose={() => setEditing(null)} onSaved={async (run) => { onRunUpdated?.(run); await refresh(); }} />}
-    {loadError && <p className="error-message">{loadError}</p>}{message && <p className={message.includes("しました") ? "success-message" : "error-message"}>{message}</p>}
+    {loadError && <p className="error-message">{loadError}</p>}{message && <p className={messageKind === "success" ? "success-message" : "error-message"}>{message}</p>}
   </section>;
 }
 

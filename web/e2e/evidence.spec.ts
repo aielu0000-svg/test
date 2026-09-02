@@ -19,9 +19,10 @@ test("証跡追加が独立実行で成功する", async ({ page }) => {
   if (!cardBox || !successBox) throw new Error("証跡カードと成功メッセージの配置を取得できませんでした。");
   expect(successBox.y - (cardBox.y + cardBox.height)).toBeGreaterThanOrEqual(12);
 
-  await page.route("**/api/evidence", async (route) => {
+  // 500応答の一般向け失敗文でも、文言に依存せずエラー表示と同じ余白になることを確認する。
+  await page.route(/\/api\/evidence\?.*$/, async (route) => {
     if (route.request().method() === "POST") {
-      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { message: "E2E forced upload failure" } }) });
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { message: "forced server failure" } }) });
       return;
     }
     await route.continue();
@@ -32,7 +33,7 @@ test("証跡追加が独立実行で成功する", async ({ page }) => {
   });
   await execution.getByRole("button", { name: "ファイルを追加" }).click();
   const errorMessage = page.locator(".evidence-panel > .error-message");
-  await expect(errorMessage).toBeVisible();
+  await expect(errorMessage).toHaveText("アップロードに失敗しました。");
   const errorBox = await errorMessage.boundingBox();
   if (!errorBox) throw new Error("証跡エラーメッセージの配置を取得できませんでした。");
   expect(errorBox.y - (cardBox.y + cardBox.height)).toBeGreaterThanOrEqual(12);
