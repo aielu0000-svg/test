@@ -7,6 +7,7 @@ export interface AuthUser {
   displayName: string | null;
   role: Role;
   mustChangePassword: boolean;
+  onboardingCompleted: boolean;
 }
 
 export interface ProjectSummary {
