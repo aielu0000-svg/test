@@ -158,3 +158,67 @@ GitHub Actions run `33592597851`:
 - 解消していない内容: 全Chromium suiteの既存`evidence.spec.ts` 1件。変更前baseでも再現するため本タスク対象外。
 - 残るリスク: 並走ブランチ側の変更と統合時に競合する可能性がある。codemapは利用者指示により本タスクでは再生成していないため、統合時に最新HEAD基準で再同期が必要。
 - 次のタスク: 並走PR側の変更を取り込む段階で競合確認・codemap再同期・全CI再実行を行う。
+
+## TASK-20260902-004: 初回利用ガイド統合とOpenShift配備runbook整備
+
+- 開始日時: 2026-09-02 JST
+- 完了日時: 2026-09-02 JST
+- 対応課題: ISSUE-20260902-003, ISSUE-20260902-004
+- 担当: ChatGPT
+- 状態: Completed / Verified
+
+### 作業前の状態
+
+- PR #2は並走スレッドで既に`codex/web-review`へマージ済みで、PR #3は旧`agent/folder-explorer-p2`をbaseにしたDraftのままだった。
+- PR #3作業時は利用者指示でcodemap再生成を省略していたため、DB/API/UI境界を追加した初回ガイドを統合する前に最新親branch基準のcodemap再同期が必要だった。
+- `web/OPENSHIFT.md`には英日重複、旧branch固定、バックアップ容量150/220GiBの不一致、実装と異なる「3世代保持」、環境固定NFS例が混在していた。
+
+### 調査内容
+
+- `codex/web-review`の最新headと`docs/codemap/codemap.lock`を比較し、初回ガイド境界を回答できないため統合前にcodemap 3ファイルを再生成した。
+- PR #2統合後の変更とPR #3を比較し、並走側の追加変更は証跡UI/E2Eとcodemapで、初回ガイド実装ファイルとは競合しないことを確認した。
+- 初回ガイドの呼び出し元・影響先・テストを `main.tsx → FirstUseGuide → client api → onboarding route → auth/users/audit` と `migration 014 → schema validation/readiness` までmapへ反映した。
+- OpenShift手順は `web/scripts/openshift/deploy.sh`、`web/openshift-build.yaml`、`web/openshift.yaml`、`web/openshift-operations.yaml`、`web/openshift-retention.yaml`、`web/kustomization.yaml`、`web/ops/backup.sh`、`web/OPERATIONS.md`、`web/src/server/server.ts` を正本として照合した。
+
+### 実施内容
+
+- PR #3を`codex/web-review`へretargetし、最新親branchと初回ガイドを2-parent統合したcommit `759b0b758ab9df8ffb5a65967839807f678ecce5`を作成した。
+- 統合ツリーと同じGitHub生成merge commit `40ecd27967b066c174cab4cfb53c51b26bfbc9d8`を`codex/web-review`へfast-forwardし、PR #3をmerged状態にした。
+- `agent/openshift-deployment-runbook`をmerge commit `40ecd279...`から分岐した。
+- `web/OPENSHIFT.md`を現行実装に合わせた日本語runbookへ全面整理した。
+  - exact commit/tagで配備対象を固定
+  - Secret実値をリポジトリへ保存しない
+  - evidence 100Gi RWX / backup 220Gi RWX / MariaDB 20Gi RWO
+  - backup通常2世代
+  - 新規配備と配備後health/ready確認
+  - 初回管理者・初回利用ガイド確認
+  - 既存環境の配備前backup
+  - Recreate + 起動時Migration/schema validation
+  - Migration適用後を考慮したrollback方針
+  - 定常CronJob、トラブルシューティング、Go-live checklist
+- 環境固定のnamespace、NFS IP、export path例を削除した。
+- OpenShift manifest、deploy script、DB/API/アプリコードは変更していないため、このrunbook PRではcodemap追加更新は不要と判断した。
+
+### 検証
+
+統合Web CI run `33597274615`:
+
+- npm audit (`--audit-level=moderate`): 成功、0 vulnerabilities
+- TypeCheck: 成功
+- Unit/API: 57件成功、2件skip
+- MariaDB Integration: 2件成功
+- Migration/Schema validation: 成功
+- Backup/restore/retention: 成功
+- Build: 成功
+- OpenShift-compatible container: 成功
+- 任意UID/read-only root filesystem: 成功
+- Chromium E2E: 25件成功（`first-use-guide.spec.ts`、`evidence.spec.ts`を含む）
+- OpenShift runbook: 現行manifest/script/sourceとコマンド・容量・schedule・Migration順序を突合済み
+- DB/API/manifest変更: runbook PRではなし
+
+### 結果
+
+- 初回利用ガイドは並走側の証跡修正を保持した状態で`codex/web-review`へ統合済み。
+- 統合時にcodemapを最新複合ツリーへ再同期し、全Web CI greenを確認した。
+- OpenShiftへ実際に適用するための新規構築・更新・復旧runbookを、環境固有Secret/PV値を含めず作成した。
+- 実OpenShiftクラスターへのデプロイ自体は本タスクでは実行していない。
