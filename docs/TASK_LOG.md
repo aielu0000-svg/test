@@ -92,14 +92,14 @@ GitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip�
 ## TASK-20260902-003: ユーザー初回利用ガイドの追加
 
 - 開始日時: 2026-09-02 JST
-- 完了日時: 未完了
+- 完了日時: 2026-09-02 JST
 - 対応課題: ISSUE-20260902-003
 - 担当: ChatGPT
-- 状態: In Progress
+- 状態: Completed / Verified（全Chromium suiteの既存1件失敗はbaseでも再現）
 
 ### 作業前の状態
 
-- Web版には主要機能を順に説明する初回ガイドが存在しない。
+- Web版には主要機能を順番に説明する初回ガイドが存在しない。
 - `AuthUser`は初回パスワード変更状態のみを持ち、ガイド完了状態はDB・API・UIのいずれにも存在しない。
 - 利用者指示により、並走作業でHEADが進んでいることを前提とし、本タスクではcodemap再生成を行わない。
 
@@ -109,35 +109,52 @@ GitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip�
 - 利用者の明示指示により再生成は省略し、既存`codemap.json`と現行ソースで呼び出し元・影響先・テスト範囲を確認した。
 - UI: `main.tsx` → `App.tsx` → `Workspace.tsx`。認証後の画面遷移と主要ナビゲーションへ影響する。
 - API/DB: `app.ts` → `auth.ts` → `users`。ユーザー公開情報とセッション読込へ影響する。
-- テスト: auth/API、MariaDB integration、schema validation、workflow-guidance系E2Eを中心に確認する。
+- テスト: auth/API、MariaDB integration、schema validation、workflow-guidance系E2Eを中心に確認した。
 
 ### 実施内容
 
-- 進行中。新規Migrationでユーザー単位の完了状態を追加し、認証済み完了API、初回ガイドUI、回帰テストを追加する。
-- DB変更: 予定あり。
-- Migration: 新規連番を追加予定。
-- API変更: 認証済みユーザー自身のガイド完了APIを追加予定。
-- UI変更: 初回パスワード変更後に主要機能を順番に説明するガイドを追加予定。
-- テスト追加: 予定あり。
+- 新規Migration `014_user_onboarding.sql`で`users.onboarding_completed_at`を追加した。適用済みMigrationは変更していない。
+- `AuthUser`へ`onboardingCompleted`を追加し、ログイン・セッション復元・`/api/auth/me`でユーザー単位の完了状態を返すようにした。
+- `POST /api/auth/onboarding/complete`を追加した。ログイン中の本人だけを対象にし、初回状態遷移時だけDB更新・監査ログ記録を行う冪等処理とした。
+- 初回パスワード変更後、未完了ユーザーへ主要機能を1項目ずつスポットライトする`FirstUseGuide`を追加した。
+- ダッシュボード／プロジェクトは全ユーザーへ、ユーザー管理／バックアップ・復元は管理者だけへ案内する。
+- 任意のプロジェクトを開いた後、テスト設計／テスト実行／Excelから追加・エクスポート／削除済みを案内する。
+- 最終OKまたは「今後表示しない」で完了状態を保存し、以後は同一ユーザーへ再表示しない。
+- モーダル内のTab/Shift+Tabフォーカスを閉じ込め、モバイル幅の表示調整を追加した。
+- OpenAPI、Schema Validation、Unit、MariaDB integration、既存E2E helper、新規`first-use-guide.spec.ts`を更新した。
+- DB変更: あり。
+- Migration: `014_user_onboarding.sql`。
+- API変更: `POST /api/auth/onboarding/complete`。
 
 ### 作業中に発生したこと
 
-- 並走スレッドとの競合を避けるため、PR #2の作業開始時HEADから`agent/first-use-guide`ブランチを分離した。
+- 並走スレッドとの競合を避けるため、PR #2の作業開始時HEADから`agent/first-use-guide`ブランチを分離し、Draft PR #3を作成した。
+- 初回CIではSchema Validation Unitの成功fixtureに新列を追加し忘れていたため失敗した。fixtureを更新して解消した。
+- 次のCIではMariaDB修復テストの部分Migration一覧が013まで固定されていたため014列がなく失敗した。修復経路にも014を追加して解消した。
+- 最新CIでは全Chromium E2E中`evidence.spec.ts` 1件のみ失敗した。base commit `e1218b8e...`のrun `33590860184`でも同じテスト・同じ待機箇所で失敗しており、初回ガイド変更による回帰ではないことを確認した。並走中の証跡追修正タスクへ干渉しないため本ブランチでは修正していない。
 
 ### 検証
 
-- TypeCheck: 未実施
-- Unit Test: 未実施
-- Integration Test: 未実施
-- Build: 未実施
-- E2E: 未実施
-- 手動確認: 未実施
-- DB確認: 未実施
-- セキュリティ確認: 未実施
+GitHub Actions run `33592597851`:
+
+- npm audit (`--audit-level=moderate`): 成功、0 vulnerabilities
+- TypeCheck: 成功
+- Unit/API: 成功
+- MariaDB Integration: 成功
+- Migration/Schema validation: 成功
+- Backup/restore/retention: 成功
+- Build: 成功
+- OpenShift-compatible container: 成功
+- 任意UID/read-only root filesystem container: 成功
+- Chromium E2E: 新規`first-use-guide.spec.ts`を含むガイド関連は成功。全suiteは既存`evidence.spec.ts` 1件のみ失敗
+- 比較確認: base run `33590860184`でも同じ`evidence.spec.ts` 1件が同一内容で失敗
+- 手動確認: 実施していない
+- DB確認: MariaDB IntegrationとSchema Validationで014適用を確認
+- セキュリティ確認: npm audit成功。完了APIは認証必須・本人固定・冪等更新
 
 ### 結果
 
-- 解消した内容: 実装中
-- 解消していない内容: 初回ガイド実装・検証
-- 残るリスク: 並走ブランチ側の変更と統合時に競合する可能性がある
-- 次のタスク: 実装とCI検証
+- 解消した内容: ユーザー単位の初回ガイド、権限別案内、初回パスワード変更後の表示、完了/スキップ後の再表示抑止、DB/API/UI/テスト契約を実装した。
+- 解消していない内容: 全Chromium suiteの既存`evidence.spec.ts` 1件。変更前baseでも再現するため本タスク対象外。
+- 残るリスク: 並走ブランチ側の変更と統合時に競合する可能性がある。codemapは利用者指示により本タスクでは再生成していないため、統合時に最新HEAD基準で再同期が必要。
+- 次のタスク: 並走PR側の変更を取り込む段階で競合確認・codemap再同期・全CI再実行を行う。
