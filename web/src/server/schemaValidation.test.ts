@@ -3,6 +3,7 @@ import type { Database } from "./db.js";
 import { SchemaValidationError, validateSchema } from "./schemaValidation.js";
 
 const columnRows = [
+  ["users", "onboarding_completed_at", "datetime(6)", "YES", null],
   ["scenarios", "folder_id", "char(36)", "YES", null],
   ["run_case_snapshots", "notes", "longtext", "YES", null],
   ["test_cases", "view_images_json", "longtext", "YES", null],
