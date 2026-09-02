@@ -21,7 +21,7 @@ test("証跡追加が独立実行で成功する", async ({ page }) => {
 
   await page.route(/\/api\/evidence\?.*$/, async (route) => {
     if (route.request().method() === "POST") {
-      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { message: "E2E forced upload failure" } }) });
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { message: "アップロードできません。" } }) });
       return;
     }
     await route.continue();
@@ -32,7 +32,7 @@ test("証跡追加が独立実行で成功する", async ({ page }) => {
   });
   await execution.getByRole("button", { name: "ファイルを追加" }).click();
   const errorMessage = page.locator(".evidence-panel > .error-message");
-  await expect(errorMessage).toBeVisible();
+  await expect(errorMessage).toHaveText("アップロードできません。");
   const errorBox = await errorMessage.boundingBox();
   if (!errorBox) throw new Error("証跡エラーメッセージの配置を取得できませんでした。");
   expect(errorBox.y - (cardBox.y + cardBox.height)).toBeGreaterThanOrEqual(12);
