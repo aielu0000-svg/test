@@ -19,7 +19,7 @@
 .evidence-form { align-items: end; }
 .evidence-entry > button { justify-self: start; }
 .evidence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
-.evidence-card { display: grid; gap: 0; min-width: 0; border: 1px solid var(--border, #dce3ed); border-radius: 14px; overflow: hidden; background: var(--surface, #fff); box-shadow: 0 4px 14px rgb(23 32 51 / 6%); }
+.evidence-card { display: grid; gap: 0; min-width: 0; border: 1px solid var(--border, #dce3ed); border-radius: 14px; overflow: hidden; background: var(--surface, #fff); }
 .evidence-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .65rem; min-width: 0; padding: .8rem .85rem .65rem; }
 .evidence-card-kicker { margin: 0 0 .2rem; color: var(--muted, #667085); font-size: .68rem; font-weight: 800; letter-spacing: .12em; }
 .evidence-card-head h3 { overflow: hidden; color: var(--text, #172033); font-size: .95rem; text-overflow: ellipsis; overflow-wrap: anywhere; }
@@ -37,6 +37,7 @@
 .evidence-description, .evidence-file-info { margin: 0; }
 .evidence-description p { margin: .35rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #344157; font-size: .85rem; }
 .evidence-file-info small { display: block; padding: .35rem 0 0; color: #778195; overflow-wrap: anywhere; }
+.evidence-panel > .success-message { margin-top: var(--space-4, 1rem); }
 .markdown-editor, .json-import { min-height: 360px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .markdown-preview { margin-top: 1rem; padding: 1rem; border: 1px solid #dce3ed; border-radius: 9px; background: #fbfcfe; overflow: auto; }
 .markdown-preview table { border-collapse: collapse; }
