@@ -33,6 +33,7 @@ export const api = {
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST", keepalive: true }),
   changePassword: (currentPassword: string, newPassword: string, confirmation: string) =>
     request<{ user: AuthUser }>("/api/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword, confirmation }) }),
+  completeOnboarding: () => request<{ user: AuthUser }>("/api/auth/onboarding/complete", { method: "POST" }),
   projects: () => request<{ projects: ProjectSummary[] }>("/api/projects"),
   dashboard: () => request<{
     metrics: { testCases: number; scenarios: number; runningTests: number; passRate: number | null };
