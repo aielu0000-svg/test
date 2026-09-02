@@ -1,52 +1,31 @@
 {
   "current_commit": "9a93fd2fef278d5a179f6d9539250a90dde9e723",
   "current_commit_tree": "65409845870c9ea5930df56322eadd4e390496ad",
-  "working_tree_has_uncommitted_changes": false,
-  "generation_time": "2026-09-02T13:30+09:00",
-  "generation_basis": "authoritative GitHub tree at the latest verified product head before the sanitize-html and evidence-panel follow-up. Generated codemap files are excluded from product fingerprints. Web CI run 33583803359 verified this product state; subsequent docs-only commit 8b6c986 does not alter product fingerprints.",
-  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/kustomization.yaml","web/openshift*.yaml","web/openapi.yaml","web/.nvmrc","web/package.json","web/package-lock.json","package.json","package-lock.json",".github/workflows","import-examples"],
-  "fingerprint_algorithm": {
-    "name": "sha256-git-tree-v3",
-    "description": "Directory modules use SHA-256 of UTF-8 'codemap-module-v3|tree|<module>|<git-tree-sha>'. Tracked-file modules use SHA-256 of UTF-8 'codemap-module-v3|tracked-files|<module>|' plus sorted '<path>=<blob-sha>' entries separated by '|'.",
-    "content_basis": "authoritative GitHub tracked tree and blob SHAs at current_commit"
+  "working_tree_has_uncommitted_changes": true,
+  "generation_time": "2026-09-02T13:35+09:00",
+  "generation_basis": "Generated from the latest verified product source plus the planned evidence-panel and dependency/runtime changes before commit. A post-verification regeneration will advance current_commit to the resulting product commit.",
+  "scanned_scope": ["src/main","src/preload","src/renderer","web/src/client","web/src/server","web/src/shared","web/src/tools","web/e2e","web/migrations","web/ops","web/scripts","web/Dockerfile","web/.nvmrc","web/kustomization.yaml","web/openshift*.yaml","web/openapi.yaml","web/package.json","web/package-lock.json","package.json","package-lock.json",".github/workflows","import-examples"],
+  "planned_changed_modules": ["web/src/client","web/src/server","web/e2e","web/runtime-manifests","web/ui-foundations","dependency-manifests",".github/workflows"],
+  "planned_dependency_boundary": {
+    "sanitize-html": "2.17.7",
+    "node": "22.12.0",
+    "audit_level": "moderate"
   },
-  "modules": {
-    "src/main": {"mode":"git-tree","source_tree_sha":"5c476d0bf75d645bff64eea8c589c8f74c653956","fingerprint":"f450ea8c1c627404fddf0883514dc8130b70a7bbfc511f44b63f32e4f257ad23"},
-    "src/preload": {"mode":"git-tree","source_tree_sha":"3541ccaf51641af47f1bf5ca0839782039e9c335","fingerprint":"3ef59d5f9aa8c0b07b4a7e03e0d86157af5e823701d0739f8434022ac7cb4d51"},
-    "src/renderer": {"mode":"git-tree","source_tree_sha":"094202631b8e48e0db00a5308d4e39392e5f7f1f","fingerprint":"7b8e528140e10993680d305c6c7d39436d21ba45dc7e8380e2e108ccfb39730b"},
-    "web/src/client": {"mode":"git-tree","source_tree_sha":"bb06ab1885c26c320c956066021c46331f9308c7","fingerprint":"f10c35fbca47d3ea264d4c75e1b0e8c6341a23e6d9ea8607f1a3d88267db4f9b"},
-    "web/src/server": {"mode":"git-tree","source_tree_sha":"c0ecc2d4d4f2fabdbeeff25dcc3d73227340bec0","fingerprint":"e86d8b0225a2aca31f590f3b1ca8d04e05253db6d1d0c356646737015c357032"},
-    "web/src/shared": {"mode":"git-tree","source_tree_sha":"ca86705e76101bfd37b2b15464e5f032ef7bfc4a","fingerprint":"d07b1978ba931892880f2045352e2e5b6f18119a0142f7032673c404ced8ad18"},
-    "web/src/tools": {"mode":"git-tree","source_tree_sha":"656b68d6fa24118fe2ccacebedca695fa3c82cd3","fingerprint":"9dadacc6bf897948026efbbc0785e232a215bc23a70a6b2ce666c19b6a7f93c6"},
-    "web/e2e": {"mode":"git-tree","source_tree_sha":"ce87cda7b15216bb158988e66658da8120be13ce","fingerprint":"676e8bba2db0364a4a920a3948ee21cdcdb39d1ec6764b925c8817ad1bb0f6f3"},
-    "web/migrations": {"mode":"git-tree","source_tree_sha":"6ad072b65b41f9cc944aa882a61e5ba69e921594","fingerprint":"f5eefeaf25a25d202b727c45f52764d86ea5d9d607c46179e429ca79f5f877ec"},
-    "web/ops": {"mode":"git-tree","source_tree_sha":"91a9305bc2bc04ba23374d041ca90b69320cb9d8","fingerprint":"977c52513528731562cf847c8765e1e4b8740031c8c08c09829c59e36b734f2e"},
-    "web/scripts": {"mode":"git-tree","source_tree_sha":"ef8f248b3523b7f808efb142e40dac1d263c5eb1","fingerprint":"409dc21ea5b6819207f9b6db4980fbe2a708aa64bf4ad85c052ede4e06cb9dfc"},
-    "import-examples": {"mode":"git-tree","source_tree_sha":"2d8e9dbf04c70fa72ee9c44a88ca004a66659a3f","fingerprint":"5348a6561e041a66dbb387653e85074129ad20209cbf2608f4b3a22899193b11"},
-    ".github/workflows": {"mode":"git-tree","source_tree_sha":"dbb6423c5c4989eb7218dca342417cb5f4c5138e","fingerprint":"d5ba41c319f04fbb921268f1fcd0c8a353e7a496de79c8393972846f7178f020"},
-    "web/runtime-manifests": {"mode":"tracked-files","paths":["web/Dockerfile","web/kustomization.yaml","web/openshift-build.yaml","web/openshift-operations.yaml","web/openshift-retention.yaml","web/openshift-secrets.example.yaml","web/openshift.yaml"],"fingerprint":"29beccd315563dd5ec780cc5d2bb33f98f84680c366db7bb56f50bce9860b472"},
-    "web/ui-foundations": {"mode":"tracked-files","paths":["web/src/client/operations.css","web/src/client/phase25.css","web/src/client/styles.css","web/src/client/test-design.css","web/src/client/workspace.css"],"fingerprint":"63277a5053a62b24294ed1d4c50893c02158d4a2ad979aa2fc182dc022026e11"},
-    "web/api-contract": {"mode":"tracked-files","paths":["web/openapi.yaml"],"fingerprint":"012bfa4a0a9c9c634396fdfa0b83f6b594e0fb3ee0872cef7c03ea24a9c0669e"},
-    "dependency-manifests": {"mode":"tracked-files","paths":["package-lock.json","package.json","web/package-lock.json","web/package.json"],"fingerprint":"9e5b8f464d3869df331afd8db734ed91713150b8ea6e172f3552aa64586c8a3e"}
+  "planned_ui_behavior": {
+    "evidence_panel_shadow": "none",
+    "direct_success_message_margin_top": "var(--space-4, 1rem)",
+    "direct_error_message_margin_top": "var(--space-4, 1rem)"
   },
   "previous_lock_commit": "fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4",
-  "changed_modules_since_previous_lock": ["web/src/client","web/e2e","web/ui-foundations"],
-  "baseline_status": "At product head 9a93fd2, evidence-card-specific shadow is removed and success feedback has top spacing, but section.panel.evidence-panel still inherits the shared .panel shadow and direct error feedback does not have the same spacing. sanitize-html remains locked to 2.17.5; current CI reports GHSA-g8qq-57p8-ggw5 as a moderate advisory. The patched 2.17.7 release requires Node >=22.12.0, so remediation affects dependency and Web runtime manifests.",
-  "verification": {
+  "baseline_verification": {
     "workflow": "Web CI",
     "run_id": 33583803359,
     "typecheck": "passed",
     "unit_api": "55 passed, 2 skipped",
     "mariadb_integration": "2 passed",
-    "migration_schema": "passed",
-    "backup_restore_retention": "passed",
     "build": "passed",
     "chromium_e2e": "24 passed",
-    "security_audit": "high gate passed; 1 moderate sanitize-html advisory remains",
-    "artifact": "web-ci-33583803359-1",
-    "artifact_id": 9829383625,
-    "artifact_sha256": "328808b259051f2e78055986f637a3a18f865210d4172398c6ab86e8dad27c91",
-    "artifact_size_bytes": 485452
+    "security_audit": "high gate passed; 1 moderate sanitize-html advisory remained"
   },
   "excluded_generated_codemap_from_fingerprints": true
 }

@@ -8,7 +8,7 @@
 - 完了日時: 2026-09-02 11:40 JST
 - 対応課題: ISSUE-20260902-001
 - 担当: ChatGPT
-- 状態: Completed / Verified
+- 状態: Completed / Verified（利用者確認で追修正が必要となりTASK-20260902-002へ継続）
 
 ### 作業前の状態
 
@@ -19,52 +19,72 @@
 ### 調査内容
 
 - 作業開始時に製品基準commit `fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4` とbranch headを比較し、差分が課題管理・コードマップだけで製品コードのドリフトがないことを確認した。
-- `docs/codemap/codemap.json`と実ソースから変更対象を確認:
-  - 呼び出し元: `Workspace.tsx` → `RunWorkspace.tsx`。
-  - 影響先: 証跡カードと証跡登録成功メッセージのブラウザ表示のみ。API、DB、route、証跡保存処理には影響しない。
-  - 回帰対象: `web/e2e/evidence.spec.ts`、`web/e2e/completed-run-evidence.spec.ts`。
-- `operations.css`で`.evidence-card`に独自`box-shadow`があり、共通`.success-message`には証跡専用の上余白がないことを確認した。
-- `docs/WEB_DESIGN_GUIDELINES.md`の、周辺と異なる独立したshadow表現を避ける方針とも整合することを確認した。
+- `docs/codemap/codemap.json`と実ソースから変更対象を確認した。
 
 ### 実施内容
 
-- 製品commit `9a93fd2fef278d5a179f6d9539250a90dde9e723`（`証跡カードの影と成功メッセージ余白を調整`）:
-  - `web/src/client/operations.css`の`.evidence-card`から独自`box-shadow`を削除し、border・背景・角丸は維持した。
-  - `.evidence-panel > .success-message`へ`margin-top: var(--space-4, 1rem)`を追加した。
-  - `web/e2e/evidence.spec.ts`へ、証跡カードのcomputed `boxShadow`が`none`であることと、カード下端から成功メッセージまで12px以上空くことを追加した。
-- DB変更: なし。
-- Migration: なし。
-- API/route変更: なし。
-- モジュール境界・依存関係・主要データフロー変更: なし。コードマップのトポロジー再生成対象外。
-
-### 作業中に発生したこと
-
-- GitHubへのファイル更新操作中、一時的に`operations.css`へ誤ったプレースホルダー内容を入れた未採用commitが作成された。
-- CI実行前にbranch refを意図したclean product commit `9a93fd2fef278d5a179f6d9539250a90dde9e723`へ戻し、最終branch差分が`operations.css`と`evidence.spec.ts`の2ファイルだけであることを再確認した。誤commitはbranch履歴に残していない。
+- 製品commit `9a93fd2fef278d5a179f6d9539250a90dde9e723`（`証跡カードの影と成功メッセージ余白を調整`）で`.evidence-card`のshadowを削除し、`.evidence-panel > .success-message`へ上余白を追加した。
+- DB/Migration/API変更なし。
 
 ### 検証
 
-GitHub Actions run `33583803359`（製品head `9a93fd2fef278d5a179f6d9539250a90dde9e723`）:
-
-- Docker Compose validation: 成功
-- OpenShift Kustomize validation: 成功
-- npm ci: 396 packages追加、397 packages監査
-- npm audit --audit-level=high: 成功。high以上のゲートは通過。moderateの`sanitize-html` advisoryが1件残存しているため、追加hardening候補として管理する。
-- TypeCheck: 成功
-- Unit/API Test: 55件成功、2件skip（19 files成功、2 files skip）
-- MariaDB Integration Test: 2件成功
-- Migration CLI / schema validation: 成功
-- Backup / restore / retention: 成功
-- Production Build: 成功
-- OpenShift-compatible container build: 成功
-- arbitrary UID / read-only root filesystem readiness: 成功
-- Chromium E2E: 24件成功。更新した`evidence.spec.ts`を含む。
-- DB・監査・Playwright成果物保存: 成功
-- Artifact: `web-ci-33583803359-1`（ID `9829383625`、SHA256 `328808b259051f2e78055986f637a3a18f865210d4172398c6ab86e8dad27c91`、485452 bytes）
+GitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件、Migration/Schema validation、Backup/restore/retention、Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 24件が成功した。
 
 ### 結果
 
-- 緑色成功メッセージの上側に1remの余白を設け、証跡カード固有の影を除去した。
-- 証跡カードの境界線や操作機能は維持した。
-- API、DB、Migration、証跡保存仕様への影響はない。
-- 未解決の製品不具合: なし。
+- 初回自動検証は成功したが、利用者確認で外側の`.evidence-panel`に共通`.panel`由来のshadowが残っていること、エラー文へ同じ余白が適用されていないことが判明したため追修正する。
+
+## TASK-20260902-002: sanitize-html advisory解消と証跡表示追修正
+
+- 開始日時: 2026-09-02 13:20 JST
+- 完了日時: 未完了
+- 対応課題: ISSUE-20260902-001, ISSUE-20260902-002
+- 担当: ChatGPT
+- 状態: In Progress
+
+### 作業前の状態
+
+- Web CIの`npm audit`で`sanitize-html` 2.17.5にGHSA-g8qq-57p8-ggw5（moderate）が1件残っていた。
+- 証跡カード自体のshadowは除去済みだが、外側の`section.panel.evidence-panel`が共通`.panel`のshadowを継承していた。
+- 証跡パネル直下の成功メッセージだけに1remの上余白があり、同位置に表示されるエラー文には余白がなかった。
+
+### 調査内容
+
+- 作業開始時にbranchと`docs/codemap/codemap.lock`を比較し、lockが`fbfd40a...`を指しており現製品headとの差分を答えられないため、コード変更前にcodemap 3ファイルを再生成した。
+- コードマップと実ソースで変更対象を確認した。
+  - UI呼び出し元: `Workspace.tsx` → `RunWorkspace.tsx` → EvidencePanel。`main.tsx`がCSSをロードする。
+  - UI影響先: 証跡パネルのshadowと直下success/error messageの余白のみ。証跡API/DB/保存処理には影響しない。
+  - UIテスト: `web/e2e/evidence.spec.ts`, `web/e2e/completed-run-evidence.spec.ts`。
+  - sanitizer呼び出し元: `web/src/server/routes/evidence.ts`の`GET /api/procedures/:id`が`renderSafeMarkdown`を呼び、クライアントの手順書プレビューへ安全化済みHTMLを返す。
+  - sanitizer影響先: `web/src/server/markdown.ts`, dependency manifests, Web Node runtime。
+  - sanitizerテスト: `web/src/server/markdown.test.ts`とWeb CI全工程。
+- 修正版`sanitize-html` 2.17.7がNode >=22.12.0を要求することを確認したため、Web runtimeをNode 22.12.0へ同時更新する方針とした。
+
+### 実施内容
+
+- 進行中。`sanitize-html` 2.17.7へのlock生成、Node 22.12.0へのruntime更新、証跡パネル専用CSS、Unit/E2E回帰追加を同一製品変更としてまとめる。
+- DB変更: なし。
+- Migration: なし。
+- API契約変更: なし。
+
+### 作業中に発生したこと
+
+- 正しいnpm lockfile生成のため一時GitHub Actions workflowを利用した。一時workflow/生成commitは最終branch履歴へ残さず、コードマップ再同期commitを親にしたclean product commitへ履歴を整理する予定。
+
+### 検証
+
+- TypeCheck: 未実施
+- Unit Test: 未実施
+- Integration Test: 未実施
+- Build: 未実施
+- E2E: 未実施
+- 手動確認: 未実施
+- DB確認: DB変更なし
+- セキュリティ確認: 実装後に`npm audit --audit-level=moderate`で確認予定
+
+### 結果
+
+- 解消した内容: 実装・検証中
+- 解消していない内容: CIによる最終検証
+- 残るリスク: Node major更新を含むため全Web CI工程の確認が必要
+- 次のタスク: 製品commit作成後に独立CIを確認し、課題台帳・codemap lockを確定する

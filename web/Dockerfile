@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:20.20.0-bookworm-slim AS build
+FROM node:22.12.0-bookworm-slim AS build
 
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
@@ -9,7 +9,7 @@ RUN npm run build \
   && npm prune --omit=dev \
   && npm cache clean --force
 
-FROM node:20.20.0-bookworm-slim AS runtime
+FROM node:22.12.0-bookworm-slim AS runtime
 
 LABEL org.opencontainers.image.title="The Test Web" \
       org.opencontainers.image.description="Web-based test management application" \

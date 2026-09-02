@@ -4,7 +4,7 @@
 
 ## 必要環境
 
-- Node.js 20.19以上
+- Node.js 22.12以上
 - npm 10以上
 - MariaDB 11.4
 
