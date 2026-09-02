@@ -5,10 +5,16 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "compose.yaml"
+      - ".env.example"
+      - ".dockerignore"
       - ".github/workflows/web-ci.yaml"
   pull_request:
     paths:
       - "web/**"
+      - "compose.yaml"
+      - ".env.example"
+      - ".dockerignore"
       - ".github/workflows/web-ci.yaml"
   workflow_dispatch:
 
@@ -22,7 +28,7 @@ concurrency:
 jobs:
   verify-web:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     services:
       mariadb:
@@ -60,6 +66,7 @@ jobs:
       DB_ROOT_PORT: "3306"
       DB_ROOT_USER: root
       DB_ROOT_PASSWORD: ci-root-password
+      MARIADB_ROOT_PASSWORD: ci-root-password
       INITIAL_ADMIN_USERNAME: ci-e2e-admin
       INITIAL_ADMIN_PASSWORD: ci-e2e-password
       E2E_USERNAME: ci-e2e-admin
@@ -72,10 +79,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Docker Compose
+        run: docker compose -f ../compose.yaml config
+
+      - name: Validate OpenShift Kustomize output
+        run: |
+          mkdir -p .ci/artifacts
+          kubectl kustomize . > .ci/artifacts/openshift-rendered.yaml
+          grep -q 'kind: Route' .ci/artifacts/openshift-rendered.yaml
+          grep -q 'kind: StatefulSet' .ci/artifacts/openshift-rendered.yaml
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20.20.0"
+          node-version: "22.12.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -86,6 +103,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Validate password repair script
+        run: node --check scripts/configure-local-mariadb-password.mjs
+
+      - name: Validate OpenShift deployment script
+        run: bash -n scripts/openshift/deploy.sh
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
@@ -109,8 +135,81 @@ jobs:
           src/server/mariaDb.integration.test.ts
           src/server/migrationCollation.integration.test.ts
 
+      - name: Recreate migrated database for backup integration
+        run: npm run db:migrate
+
+      - name: Backup, restore, and retention integration
+        run: |
+          set -euo pipefail
+          sh -n ops/backup.sh ops/restore.sh ops/operations-worker.sh ops/purge-v2.sh
+          rm -rf .ci/backup-evidence .ci/backups
+          mkdir -p .ci/backup-evidence .ci/backups
+          printf 'backup-evidence\n' > .ci/backup-evidence/probe.txt
+          export BACKUP_STORAGE_PATH="$PWD/.ci/backups"
+          export BACKUP_EVIDENCE_PATH="$PWD/.ci/backup-evidence"
+          export OPERATIONS_DIR="$PWD/ops"
+          export APP_VERSION="ci-${GITHUB_SHA}"
+          ops/backup.sh >/dev/null
+          ops/backup.sh >/dev/null
+          ops/backup.sh >/dev/null
+          test "$(find .ci/backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l)" -eq 2
+          target_backup="$(find .ci/backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort | head -n 1)"
+          test -n "$target_backup"
+          (cd ".ci/backups/$target_backup" && sha256sum -c SHA256SUMS)
+          grep -q '"status": "succeeded"' ".ci/backups/$target_backup/manifest.json"
+          printf 'changed-after-backup\n' > .ci/backup-evidence/probe.txt
+          mariadb --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" \
+            -e "INSERT INTO system_state (state_key, state_value) VALUES ('restore_probe','present') ON DUPLICATE KEY UPDATE state_value='present'"
+          ops/restore.sh "$target_backup" >/dev/null
+          grep -qx 'backup-evidence' .ci/backup-evidence/probe.txt
+          test "$(find .ci/backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l)" -eq 2
+          test "$(mariadb --batch --skip-column-names --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" -e "SELECT COUNT(*) FROM backup_catalog")" -eq 2
+          test "$(mariadb --batch --skip-column-names --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" -e "SELECT COUNT(*) FROM system_state WHERE state_key='restore_probe'")" -eq 0
+          mariadb --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --password="$DB_PASSWORD" "$DB_NAME" < ops/purge-v2.sql
+
       - name: Build
         run: npm run build
+
+      - name: Build OpenShift-compatible container
+        run: docker build -f Dockerfile -t the-test-web:ci ..
+
+      - name: Run container as arbitrary OpenShift UID
+        run: |
+          docker run -d --name the-test-web-container \
+            --network host \
+            --user 1000780000:0 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=1g,uid=1000780000,gid=0,mode=0770 \
+            --tmpfs /var/lib/the-test/evidence:rw,noexec,nosuid,size=1g,uid=1000780000,gid=0,mode=0770 \
+            -e NODE_ENV=production \
+            -e HOST=127.0.0.1 \
+            -e PORT=3100 \
+            -e COOKIE_SECURE=false \
+            -e TRUST_PROXY=true \
+            -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 \
+            -e DB_NAME=the_test_ci \
+            -e DB_USER=the_test \
+            -e DB_PASSWORD=ci-db-password \
+            -e INITIAL_ADMIN_USERNAME=ci-e2e-admin \
+            -e INITIAL_ADMIN_PASSWORD=ci-e2e-password \
+            the-test-web:ci
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3100/readyz >/dev/null; then
+              exit 0
+            fi
+            if ! docker inspect -f '{{.State.Running}}' the-test-web-container 2>/dev/null | grep -q true; then
+              docker logs the-test-web-container
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs the-test-web-container
+          exit 1
+
+      - name: Stop arbitrary-UID container
+        if: always()
+        run: docker rm -f the-test-web-container 2>/dev/null || true
 
       - name: Start web application
         run: |

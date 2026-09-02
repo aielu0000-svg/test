@@ -1,62 +1,65 @@
 {
-    "name": "the-test-web",
-    "private": true,
-    "type": "module",
-    "scripts": {
-        "dev": "tsx src/server/server.ts",
-        "build": "npm run build:ui && npm run build:api",
-        "build:ui": "vite build --config vite.config.ts",
-        "build:api": "tsc -p tsconfig.server.json",
-        "start": "node ../dist-web/server/server.js",
-        "test": "vitest run --config vitest.config.ts",
-        "migrate:sqlite": "tsx src/tools/sqlite-export-v2.ts",
-        "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
-        "test:e2e": "playwright test"
-    },
-    "dependencies": {
-        "@fastify/cookie": "10.0.1",
-        "@fastify/multipart": "^9.0.0",
-        "@fastify/static": "^10.1.2",
-        "argon2": "0.41.1",
-        "better-sqlite3": "^11.10.0",
-        "exceljs": "4.4.0",
-        "fastify": "^5.10.0",
-        "mariadb": "^3.4.0",
-        "marked": "^15.0.12",
-        "react": "^18.2.0",
-        "react-dom": "^18.2.0",
-        "react-markdown": "^10.1.0",
-        "rehype-sanitize": "^6.0.0",
-        "remark-gfm": "^4.0.1",
-        "sanitize-html": "^2.17.5",
-        "sharp": "^0.35.3"
-    },
-    "devDependencies": {
-        "@playwright/test": "^1.55.1",
-        "@types/better-sqlite3": "^7.6.13",
-        "@types/node": "^20.11.17",
-        "@types/react": "^18.2.45",
-        "@types/react-dom": "^18.2.18",
-        "@types/sanitize-html": "^2.16.1",
-        "@vitejs/plugin-react": "^6.0.4",
-        "tsx": "^4.19.2",
-        "typescript": "^5.3.3",
-        "vite": "^8.1.5",
-        "vitest": "^4.1.10"
-    },
-    "overrides": {
-        "archiver": "8.0.0",
-        "archiver-utils": "5.0.2",
-        "zip-stream": "7.0.5",
-        "readdir-glob": "3.0.0",
-        "glob": "13.0.6",
-        "minimatch": "10.2.6",
-        "brace-expansion": "5.0.8",
-        "uuid": "11.1.1",
-        "tmp": "0.2.7",
-        "fast-csv": "5.0.7"
-    },
-    "engines": {
-        "node": "^20.19.0"
-    }
+  "name": "the-test-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server/server.ts",
+    "build": "npm run build:ui && npm run build:api",
+    "build:ui": "vite build --config vite.config.ts",
+    "build:api": "tsc -p tsconfig.server.json",
+    "start": "node ../dist-web/server/server/server.js",
+    "test": "vitest run --config vitest.config.ts",
+    "db:migrate": "tsx src/tools/migrate-database.ts",
+    "migrate:sqlite": "tsx src/tools/sqlite-export.ts",
+    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
+    "test:e2e": "playwright test",
+    "db:password": "node scripts/configure-local-mariadb-password.mjs"
+  },
+  "dependencies": {
+    "@fastify/cookie": "10.0.1",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/static": "^10.1.2",
+    "argon2": "0.41.1",
+    "better-sqlite3": "^11.10.0",
+    "exceljs": "4.4.0",
+    "fastify": "^5.10.0",
+    "mariadb": "^3.4.0",
+    "marked": "^15.0.12",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "sanitize-html": "^2.17.7",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.11.17",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@types/sanitize-html": "^2.16.1",
+    "@vitejs/plugin-react": "^6.0.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.3.3",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "archiver": "8.0.0",
+    "archiver-utils": "5.0.2",
+    "zip-stream": "7.0.5",
+    "readdir-glob": "3.0.0",
+    "glob": "13.0.6",
+    "minimatch": "10.2.6",
+    "brace-expansion": "5.0.9",
+    "uuid": "11.1.1",
+    "tmp": "0.2.7",
+    "fast-csv": "5.0.7",
+    "nanoid": "3.3.18"
+  },
+  "engines": {
+    "node": "^22.12.0"
+  }
 }

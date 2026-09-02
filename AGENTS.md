@@ -4,10 +4,13 @@
 
 - `docs/codex-development-operation-rules.md`
 - `SPEC.md`
-- `the-test-web-confirmed-spec-v1.0.0.md`
+- `docs/the-test-web-confirmed-spec-v1.0.0.md`
+- `docs/the-test-web-confirmed-spec-v1.1.0.md`
+- `docs/the-test-web-confirmed-spec-v1.2.0.md`
 - `docs/ISSUE_LEDGER.md`
 - `docs/OPEN_ISSUES.md`
 - `docs/AI_REVIEW_HISTORY.md`
+- `docs/SECURITY_ASSESSMENT.md`
 
 ## 必須ルール
 
@@ -23,3 +26,8 @@
 10. コード変更だけで完了とせず、受け入れ条件と実動作を確認する。
 
 詳細なルールは`docs/codex-development-operation-rules.md`を正とする。
+
+## Web UI変更時の追加ルール
+
+- `web/src/client`の画面・CSSを変更する前に`docs/WEB_DESIGN_GUIDELINES.md`を読む。
+- 共通トークン、主操作、現在地、レスポンシブ、キーボード操作の基準を守り、変更画面の回帰テストを更新する。

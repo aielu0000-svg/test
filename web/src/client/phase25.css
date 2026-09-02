@@ -82,3 +82,187 @@
 .run-reference-images h3 { margin: 0; font-size: 1rem; }
 .run-reference-images > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .6rem; }
 .run-reference-images img { width: 100%; max-height: 220px; object-fit: contain; border: 1px solid #dfe5ee; border-radius: 8px; background: #f7f8fa; }
+
+/* Evidence upload: compact, scan-first layout. Evidence itself remains optional. */
+.evidence-heading { align-items: center; margin-bottom: var(--space-4, 1rem); }
+.evidence-heading .eyebrow,
+.evidence-heading .muted { display: none; }
+.evidence-help { margin: 0 0 var(--space-4, 1rem); background: var(--color-bg-subtle, #f8faff); }
+.evidence-help summary { padding: var(--space-3, .75rem) var(--space-4, 1rem); }
+.evidence-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13rem;
+  grid-template-areas:
+    "context context"
+    "file clipboard"
+    "description description"
+    ". submit";
+  column-gap: 0;
+  row-gap: var(--space-4, 1rem);
+  margin-top: 0;
+  padding: var(--space-4, 1rem);
+  border-color: var(--color-border-brand, #cad9ff);
+  background: var(--color-bg-surface, #fff);
+}
+.evidence-entry-heading { display: none; }
+.evidence-form { display: contents; }
+.evidence-form > :first-child {
+  grid-area: context;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, .75rem);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3, .75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-border-subtle, #d8e4f5);
+  border-radius: var(--radius-control, 8px);
+  background: var(--color-bg-subtle, #f8faff);
+  color: var(--color-text-secondary, #667085);
+  font-size: .85rem;
+  font-weight: 600;
+}
+.evidence-form > :first-child strong { color: var(--color-text-primary, #172033); }
+.evidence-form > :first-child select {
+  min-width: min(22rem, 58%);
+  margin-left: auto;
+}
+.evidence-form > label:has(input[name="file"]) {
+  grid-area: file;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 156px;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2, .5rem);
+  margin: 0;
+  padding: var(--space-4, 1rem) var(--space-4, 1rem) var(--space-4, 1rem) 4.9rem;
+  border: 2px dashed #8bb2eb;
+  border-right: 0;
+  border-radius: var(--radius-panel, 12px) 0 0 var(--radius-panel, 12px);
+  background: linear-gradient(180deg, #fbfdff 0%, #f4f8ff 100%);
+  font-size: 0;
+}
+.evidence-form > label:has(input[name="file"])::before {
+  content: "⇧";
+  position: absolute;
+  top: 50%;
+  left: var(--space-4, 1rem);
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: var(--radius-panel, 12px);
+  background: var(--color-bg-brand-subtle, #edf4ff);
+  color: var(--color-brand-foreground, #2864c7);
+  font-size: 1.45rem;
+  font-weight: 850;
+  transform: translateY(-50%);
+}
+.evidence-form > label:has(input[name="file"])::after {
+  content: "ここにファイルをドロップ";
+  color: var(--color-text-primary, #172033);
+  font-size: 1rem;
+  font-weight: 800;
+}
+.evidence-form input[name="file"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary, #667085);
+  font-size: .85rem;
+}
+.evidence-form input[name="file"]::file-selector-button {
+  min-height: 38px;
+  margin-right: var(--space-3, .75rem);
+  border: 1px solid var(--color-brand-border, #2864c7);
+  border-radius: var(--radius-control, 8px);
+  padding: 0 var(--space-4, 1rem);
+  background: var(--color-brand-background, #2864c7);
+  color: #fff;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.evidence-entry > button {
+  grid-area: clipboard;
+  align-self: stretch;
+  min-width: 13rem;
+  margin: 0;
+  border: 2px dashed #8bb2eb;
+  border-left: 0;
+  border-radius: 0 var(--radius-panel, 12px) var(--radius-panel, 12px) 0;
+  background: linear-gradient(180deg, #fbfdff 0%, #f4f8ff 100%);
+  color: var(--color-brand-foreground, #1f57b7);
+  font-size: 0;
+  font-weight: 750;
+}
+.evidence-entry > button::before {
+  content: "クリップボード";
+  font-size: .9rem;
+}
+.evidence-entry > button:hover { background: var(--color-bg-brand-subtle, #edf4ff); }
+.evidence-form > label:has(input[name="description"]) {
+  grid-area: description;
+  display: grid;
+  gap: var(--space-2, .5rem);
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary, #172033);
+  font-weight: 750;
+}
+.evidence-form input[name="description"] {
+  width: 100%;
+  min-height: 64px;
+  padding: var(--space-3, .75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-border-strong, #b9c8dc);
+  border-radius: var(--radius-control, 8px);
+  background: var(--color-bg-surface, #fff);
+}
+.evidence-form > button[type="submit"] {
+  grid-area: submit;
+  justify-self: end;
+  min-width: 8rem;
+  margin: 0;
+  font-size: 0;
+}
+.evidence-form > button[type="submit"]::before {
+  content: "追加";
+  font-size: .9rem;
+}
+@media (max-width: 650px) {
+  .evidence-entry {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "context"
+      "file"
+      "clipboard"
+      "description"
+      "submit";
+    column-gap: var(--space-3, .75rem);
+  }
+  .evidence-form > :first-child {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .evidence-form > :first-child select {
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+  }
+  .evidence-form > label:has(input[name="file"]) {
+    border-right: 2px dashed #8bb2eb;
+    border-radius: var(--radius-panel, 12px);
+  }
+  .evidence-entry > button {
+    min-width: 0;
+    min-height: 40px;
+    border: 1px solid var(--color-brand-border, #a9c4ee);
+    border-radius: var(--radius-control, 8px);
+    background: var(--color-bg-surface, #fff);
+  }
+  .evidence-form > button[type="submit"] { width: 100%; }
+}

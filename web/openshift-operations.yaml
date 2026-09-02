@@ -2,104 +2,188 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: the-test-backups
+  labels:
+    app.kubernetes.io/part-of: the-test
 spec:
-  accessModes: [ReadWriteMany]
+  accessModes:
+    - ReadWriteMany
   resources:
     requests:
-      storage: 150Gi
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: the-test-operations
-data:
-  backup.sh: |
-    #!/bin/sh
-    set -eu
-    generation="$(date -u +%Y%m%dT%H%M%SZ)"
-    temporary="/backups/.${generation}.creating"
-    destination="/backups/${generation}"
-    mkdir -p "${temporary}"
-    mariadb-dump --single-transaction --skip-lock-tables --host="${DB_HOST}" --port="${DB_PORT}" --user="${DB_USER}" --password="${DB_PASSWORD}" "${DB_NAME}" > "${temporary}/database.sql"
-    tar -C /evidence -czf "${temporary}/evidence.tar.gz" .
-    (cd "${temporary}" && sha256sum database.sql evidence.tar.gz > SHA256SUMS)
-    mv "${temporary}" "${destination}"
-    find /backups -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort -r | awk 'NR > 3' | while IFS= read -r expired; do
-      case "${expired}" in
-        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) rm -rf -- "/backups/${expired}" ;;
-      esac
-    done
-  purge.sql: |
-    START TRANSACTION;
-    DELETE FROM import_previews WHERE expires_at < UTC_TIMESTAMP(6);
-    DELETE FROM sessions WHERE expires_at < UTC_TIMESTAMP(6);
-    DELETE FROM audit_logs WHERE created_at < DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 365 DAY);
-    COMMIT;
+      storage: 220Gi
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: the-test-daily-backup
+  labels:
+    app.kubernetes.io/name: the-test-backup
+    app.kubernetes.io/part-of: the-test
 spec:
   schedule: "0 2 * * *"
+  timeZone: Asia/Tokyo
   concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: the-test-backup
+            app.kubernetes.io/part-of: the-test
         spec:
+          serviceAccountName: the-test
+          automountServiceAccountToken: false
+          enableServiceLinks: false
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
-            seccompProfile: { type: RuntimeDefault }
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: backup
-              image: mariadb:11.4
-              command: ["/bin/sh", "/operations/backup.sh"]
+              image: registry.redhat.io/rhel9/mariadb-1011:1
+              command:
+                - /bin/sh
+                - /operations/backup.sh
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: BACKUP_STORAGE_PATH
+                  value: /backups
+                - name: BACKUP_EVIDENCE_PATH
+                  value: /evidence
               envFrom:
-                - configMapRef: { name: the-test-config }
-                - secretRef: { name: the-test-db }
+                - configMapRef:
+                    name: the-test-config
+                - secretRef:
+                    name: the-test-db
               securityContext:
                 allowPrivilegeEscalation: false
-                capabilities: { drop: [ALL] }
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
               volumeMounts:
-                - { name: operations, mountPath: /operations }
-                - { name: evidence, mountPath: /evidence, readOnly: true }
-                - { name: backups, mountPath: /backups }
+                - name: operations
+                  mountPath: /operations
+                  readOnly: true
+                - name: evidence
+                  mountPath: /evidence
+                  readOnly: true
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
           volumes:
-            - { name: operations, configMap: { name: the-test-operations, defaultMode: 365 } }
-            - { name: evidence, persistentVolumeClaim: { claimName: the-test-evidence } }
-            - { name: backups, persistentVolumeClaim: { claimName: the-test-backups } }
+            - name: operations
+              configMap:
+                name: the-test-operations
+                defaultMode: 365
+            - name: evidence
+              persistentVolumeClaim:
+                claimName: the-test-evidence
+            - name: backups
+              persistentVolumeClaim:
+                claimName: the-test-backups
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: the-test-daily-purge
+  name: the-test-operation-worker
+  labels:
+    app.kubernetes.io/name: the-test-operation-worker
+    app.kubernetes.io/part-of: the-test
 spec:
-  schedule: "30 3 * * *"
+  schedule: "*/2 * * * *"
+  timeZone: Asia/Tokyo
   concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 2
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: the-test-operation-worker
+            app.kubernetes.io/part-of: the-test
         spec:
+          serviceAccountName: the-test
+          automountServiceAccountToken: false
+          enableServiceLinks: false
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
-            seccompProfile: { type: RuntimeDefault }
+            seccompProfile:
+              type: RuntimeDefault
           containers:
-            - name: purge
-              image: mariadb:11.4
-              command: ["/bin/sh", "-c", "mariadb --host=\"$DB_HOST\" --port=\"$DB_PORT\" --user=\"$DB_USER\" --password=\"$DB_PASSWORD\" \"$DB_NAME\" < /operations/purge.sql"]
+            - name: worker
+              image: registry.redhat.io/rhel9/mariadb-1011:1
+              command:
+                - /bin/sh
+                - /operations/operations-worker.sh
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: BACKUP_STORAGE_PATH
+                  value: /backups
+                - name: BACKUP_EVIDENCE_PATH
+                  value: /evidence
               envFrom:
-                - configMapRef: { name: the-test-config }
-                - secretRef: { name: the-test-db }
+                - configMapRef:
+                    name: the-test-config
+                - secretRef:
+                    name: the-test-db
               securityContext:
                 allowPrivilegeEscalation: false
-                capabilities: { drop: [ALL] }
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
               volumeMounts:
-                - { name: operations, mountPath: /operations }
+                - name: operations
+                  mountPath: /operations
+                  readOnly: true
+                - name: evidence
+                  mountPath: /evidence
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
           volumes:
-            - { name: operations, configMap: { name: the-test-operations, defaultMode: 365 } }
+            - name: operations
+              configMap:
+                name: the-test-operations
+                defaultMode: 365
+            - name: evidence
+              persistentVolumeClaim:
+                claimName: the-test-evidence
+            - name: backups
+              persistentVolumeClaim:
+                claimName: the-test-backups
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi

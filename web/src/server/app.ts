@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
@@ -6,6 +6,8 @@ import fastifyStatic from "@fastify/static";
 import type { AppConfig } from "./config.js";
 import type { Database } from "./db.js";
 import { writeAudit } from "./audit.js";
+import { deleteProjectPermanently } from "./projectDeletion.js";
+import { processFileCleanupQueue } from "./fileCleanup.js";
 import {
   assertValidPasswordPair,
   clearSessionCookie,
@@ -143,6 +145,73 @@ function versionFrom(input: unknown): number {
   return input;
 }
 
+function isDuplicateEntry(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ER_DUP_ENTRY");
+}
+
+async function ensureProjectNameAvailable(db: Database, name: string, excludedId?: string): Promise<void> {
+  const rows = await db.query<{ id: string }>(
+    `SELECT id FROM projects
+      WHERE name = ? AND deleted_at IS NULL ${excludedId ? "AND id <> ?" : ""}
+      LIMIT 1`,
+    excludedId ? [name, excludedId] : [name],
+  );
+  if (rows[0]) throw new ApiError(409, "PROJECT_NAME_TAKEN", "同じ名前のプロジェクトが既に存在します。");
+}
+
+function mutatesApi(request: FastifyRequest): boolean {
+  return request.url.startsWith("/api/") && ["POST", "PUT", "PATCH", "DELETE"].includes(request.method);
+}
+
+function verifyBrowserWriteRequest(request: FastifyRequest): void {
+  if (!mutatesApi(request)) return;
+  const origin = request.headers.origin;
+  const fetchSite = request.headers["sec-fetch-site"];
+  if (!origin && !fetchSite) return;
+  if (request.headers["x-the-test-request"] !== "1") {
+    throw new ApiError(403, "CSRF_REJECTED", "不正な送信元からの要求を拒否しました。");
+  }
+  if (fetchSite === "cross-site") throw new ApiError(403, "CSRF_REJECTED", "不正な送信元からの要求を拒否しました。");
+  if (origin) {
+    let originHost = "";
+    try { originHost = new URL(origin).host; } catch { throw new ApiError(403, "CSRF_REJECTED", "送信元情報が不正です。"); }
+    if (originHost !== request.headers.host) throw new ApiError(403, "CSRF_REJECTED", "不正な送信元からの要求を拒否しました。");
+  }
+}
+
+
+async function registerActiveWrite(db: Database, requestId: string): Promise<void> {
+  if (db.withConnection) {
+    await db.withConnection(async (connection) => {
+      await connection.beginTransaction();
+      try {
+        const rows = await connection.query<Array<{ state_value: string }>>(
+          "SELECT state_value FROM system_state WHERE state_key = 'writes_paused' FOR UPDATE",
+        );
+        if (rows[0]?.state_value === "1") {
+          throw new ApiError(503, "WRITES_PAUSED", "バックアップまたは復元処理中のため、更新操作を一時停止しています。");
+        }
+        await connection.query("INSERT INTO active_write_requests (id) VALUES (?)", [requestId]);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback().catch(() => undefined);
+        throw error;
+      }
+    });
+    return;
+  }
+  const rows = await db.query<{ state_value: string }>("SELECT state_value FROM system_state WHERE state_key = 'writes_paused' LIMIT 1").catch(() => []);
+  if (rows[0]?.state_value === "1") throw new ApiError(503, "WRITES_PAUSED", "バックアップまたは復元処理中のため、更新操作を一時停止しています。");
+}
+
+async function clearActiveWrite(db: Database, requestId: string | undefined): Promise<void> {
+  if (!requestId) return;
+  const execute = db.executeIndependent?.bind(db) ?? db.execute.bind(db);
+  await execute("DELETE FROM active_write_requests WHERE id = ?", [requestId]).catch((error) => {
+    console.error(JSON.stringify({ level: "error", message: "active_write_cleanup_failed", requestId, error: String(error) }));
+  });
+}
+
 async function recordLoginFailure(db: Database, request: FastifyRequest, user: UserSummaryRow | null, usernameNormalized: string | null): Promise<void> {
   if (user) {
     const nextCount = Number(user.failed_login_count) + 1;
@@ -184,11 +253,45 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     requestIdHeader: false,
     genReqId: () => randomUUID(),
     bodyLimit: 25 * 1024 * 1024,
+    trustProxy: config.trustProxy,
   });
   await app.register(cookie);
   if (fs.existsSync(config.staticDir)) {
     await app.register(fastifyStatic, { root: config.staticDir, wildcard: true });
   }
+
+  app.addHook("onRequest", (_request, _reply, done) => {
+    if (db.runWithRequestContext) db.runWithRequestContext(done);
+    else done();
+  });
+
+  app.addHook("preHandler", async (request) => {
+    verifyBrowserWriteRequest(request);
+    if (!mutatesApi(request) || request.url.startsWith("/api/auth/login") || request.url.startsWith("/api/auth/logout")) return;
+    if (!db.beginRequestTransaction || !db.withConnection) return;
+    request.writeRegistrationId = randomUUID();
+    await registerActiveWrite(db, request.writeRegistrationId);
+    await db.beginRequestTransaction?.();
+  });
+  app.addHook("onError", async (request) => {
+    await db.rollbackRequestTransaction?.();
+    await clearActiveWrite(db, request.writeRegistrationId);
+  });
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply
+      .header("X-Content-Type-Options", "nosniff")
+      .header("Referrer-Policy", "no-referrer")
+      .header("X-Frame-Options", "DENY")
+      .header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+      .header("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; form-action 'self'");
+    if (reply.statusCode >= 400) await db.rollbackRequestTransaction?.();
+    else await db.commitRequestTransaction?.();
+    return payload;
+  });
+  app.addHook("onResponse", async (request) => {
+    await db.rollbackRequestTransaction?.().catch(() => undefined);
+    await clearActiveWrite(db, request.writeRegistrationId);
+  });
 
   app.setErrorHandler((error, request, reply) => {
     const apiError = error instanceof ApiError ? error : null;
@@ -227,32 +330,39 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
 
   app.post("/api/auth/login", async (request, reply) => {
     const input = body(request);
-    const username = typeof input.username === "string" ? input.username.trim() : "";
-    const password = typeof input.password === "string" ? input.password.trim() : "";
-    const row = username ? await findUserByUsername(db, username) : null;
-    if (await isIpRateLimited(db, request.ip)) {
-      await writeAudit(db, request, null, {
-        action: "login_failed",
-        entityType: "session",
-        success: false,
-        errorCode: "IP_RATE_LIMITED",
-      });
-      throw new ApiError(401, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
-    }
-    const validPassword = row ? await verifyPassword(row.password_hash, password) : await verifyPassword(DUMMY_PASSWORD_HASH, password);
-    if (!row || !row.enabled || isLoginLocked(row) || !validPassword) {
-      await recordLoginFailure(db, request, row as UserSummaryRow | null, row?.username_normalized ?? (username ? normalizeUsername(username) : null));
-      throw new ApiError(401, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
-    }
-    await db.execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = UTC_TIMESTAMP(6) WHERE id = ?", [row.id]);
-    const session = await createSession(db, row.id, config);
-    setSessionCookie(reply, config, session.token);
-    const user = loginUserSummary(row as unknown as UserSummaryRow);
-    request.user = user;
-    request.sessionId = session.sessionId;
-    await writeAudit(db, request, user, { action: "login_success", entityType: "session", entityId: session.sessionId });
-    await recordIpLoginAttempt(db, request.ip, row.username_normalized, true);
-    return { user };
+    const rawUsername = typeof input.username === "string" ? input.username : "";
+    const rawPassword = typeof input.password === "string" ? input.password : "";
+    const inputWithinLimits = rawUsername.length <= 100 && rawPassword.length <= 128;
+    const username = inputWithinLimits ? rawUsername.trim() : "";
+    const password = inputWithinLimits ? rawPassword.trim() : "";
+    const outcome = await db.withTransaction(async () => {
+      const row = username ? await findUserByUsername(db, username) : null;
+      if (await isIpRateLimited(db, request.ip)) {
+        await writeAudit(db, request, null, {
+          action: "login_failed",
+          entityType: "session",
+          success: false,
+          errorCode: "IP_RATE_LIMITED",
+        });
+        return { ok: false as const };
+      }
+      const validPassword = row ? await verifyPassword(row.password_hash, password) : await verifyPassword(DUMMY_PASSWORD_HASH, password);
+      if (!row || !row.enabled || isLoginLocked(row) || !validPassword) {
+        await recordLoginFailure(db, request, row as UserSummaryRow | null, row?.username_normalized ?? (username ? normalizeUsername(username) : null));
+        return { ok: false as const };
+      }
+      await db.execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = UTC_TIMESTAMP(6) WHERE id = ?", [row.id]);
+      const session = await createSession(db, row.id, config);
+      const user = loginUserSummary(row as unknown as UserSummaryRow);
+      request.user = user;
+      request.sessionId = session.sessionId;
+      await writeAudit(db, request, user, { action: "login_success", entityType: "session", entityId: session.sessionId });
+      await recordIpLoginAttempt(db, request.ip, row.username_normalized, true);
+      return { ok: true as const, session, user };
+    });
+    if (!outcome.ok) throw new ApiError(401, "INVALID_CREDENTIALS", INVALID_CREDENTIALS);
+    setSessionCookie(reply, config, outcome.session.token);
+    return { user: outcome.user };
   });
 
   app.get("/api/auth/me", async (request) => {
@@ -261,10 +371,12 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
   });
 
   app.post("/api/auth/logout", async (request, reply) => {
-    const user = await loadSessionUser(request, db, config);
-    if (request.sessionId) await db.execute("DELETE FROM user_sessions WHERE id = ?", [request.sessionId]);
+    await db.withTransaction(async () => {
+      const user = await loadSessionUser(request, db, config);
+      if (request.sessionId) await db.execute("DELETE FROM user_sessions WHERE id = ?", [request.sessionId]);
+      if (user) await writeAudit(db, request, user, { action: "logout", entityType: "session", entityId: request.sessionId });
+    });
     clearSessionCookie(reply, config);
-    if (user) await writeAudit(db, request, user, { action: "logout", entityType: "session", entityId: request.sessionId });
     return { ok: true };
   });
 
@@ -348,6 +460,14 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     if (displayNameResult.error) throw badRequest(displayNameResult.error);
     const role = input.role === undefined ? existing.role : input.role;
     if (role !== "admin" && role !== "executor") throw badRequest("ロールが不正です。");
+    if (existing.role === "admin" && Boolean(existing.enabled) && (role !== "admin" || !enabled)) {
+      const activeAdmins = await db.query<{ id: string }>(
+        "SELECT id FROM users WHERE role = 'admin' AND enabled = 1 FOR UPDATE",
+      );
+      if (activeAdmins.filter((item) => item.id !== id).length < 1) {
+        throw badRequest("最後の有効な管理者を無効化または実行者へ変更することはできません。");
+      }
+    }
     const duplicate = await findUserByUsername(db, usernameResult.value);
     if (duplicate && duplicate.id !== id) throw new ApiError(409, "USERNAME_TAKEN", "そのユーザー名は既に使用されています。");
     const result = await db.execute(
@@ -462,8 +582,14 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     const input = body(request);
     const name = validateProjectName(input.name);
     if (name.error || !name.value) throw badRequest(name.error ?? "プロジェクト名が不正です。");
+    await ensureProjectNameAvailable(db, name.value);
     const id = randomUUID();
-    await db.execute("INSERT INTO projects (id, name, description, status, created_by) VALUES (?, ?, ?, 'active', ?)", [id, name.value, text(input.description), actor.id]);
+    try {
+      await db.execute("INSERT INTO projects (id, name, description, status, created_by) VALUES (?, ?, ?, 'active', ?)", [id, name.value, text(input.description), actor.id]);
+    } catch (error) {
+      if (isDuplicateEntry(error)) throw new ApiError(409, "PROJECT_NAME_TAKEN", "同じ名前のプロジェクトが既に存在します。");
+      throw error;
+    }
     await writeAudit(db, request, actor, { action: "project_created", entityType: "project", entityId: id, projectId: id, after: { name: name.value } });
     return { id };
   });
@@ -478,11 +604,18 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     const name = input.name === undefined ? { value: access.project.name } : validateProjectName(input.name);
     if (name.error || !name.value) throw badRequest(name.error ?? "プロジェクト名が不正です。");
     const description = input.description === undefined ? access.project.description : text(input.description);
-    const result = await db.execute(
-      `UPDATE projects SET name = ?, description = ?, version = version + 1, updated_at = UTC_TIMESTAMP(6)
-       WHERE id = ? AND version = ? AND deleted_at IS NULL`,
-      [name.value, description, id, version],
-    );
+    await ensureProjectNameAvailable(db, name.value, id);
+    let result: { affectedRows: number; insertId?: number | string };
+    try {
+      result = await db.execute(
+        `UPDATE projects SET name = ?, description = ?, version = version + 1, updated_at = UTC_TIMESTAMP(6)
+         WHERE id = ? AND version = ? AND deleted_at IS NULL`,
+        [name.value, description, id, version],
+      );
+    } catch (error) {
+      if (isDuplicateEntry(error)) throw new ApiError(409, "PROJECT_NAME_TAKEN", "同じ名前のプロジェクトが既に存在します。");
+      throw error;
+    }
     if (Number(result.affectedRows) !== 1) throw conflict();
     await writeAudit(db, request, actor, {
       action: "project_updated",
@@ -542,6 +675,33 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
     if (Number(result.affectedRows) !== 1) throw conflict();
     await writeAudit(db, request, actor, { action: "project_restored", entityType: "project", entityId: id, projectId: id, before: { status: access.project.status }, after: { status: "active" } });
     return { ok: true };
+  });
+
+  app.delete("/api/projects/:id", async (request) => {
+    const actor = await requireUser(request, db, config);
+    requireRole(actor, "admin");
+    const id = routeId(request);
+    const access = await projectAccess(db, actor, id);
+    const input = body(request);
+    const version = versionFrom(input.version);
+    const confirmationName = typeof input.confirmationName === "string" ? input.confirmationName.trim() : "";
+    const reason = text(input.reason);
+    if (access.project.status !== "archived") throw badRequest("プロジェクトを完全削除する前にアーカイブしてください。");
+    if (confirmationName !== access.project.name) throw badRequest("確認用プロジェクト名が一致しません。");
+    if (reason && reason.length > 500) throw badRequest("削除理由は500文字以内で入力してください。");
+    if (version !== Number(access.project.version)) throw conflict();
+
+    await writeAudit(db, request, actor, {
+      action: "project_permanently_deleted",
+      entityType: "project",
+      entityId: id,
+      projectId: id,
+      before: { name: access.project.name, status: access.project.status, version: access.project.version },
+      after: { permanentlyDeleted: true, reason },
+    });
+    const deletion = await deleteProjectPermanently(db, id);
+    db.afterCommit?.(() => processFileCleanupQueue(db, config.evidenceStoragePath));
+    return { ok: true, queuedFiles: deletion.queuedFiles };
   });
 
   app.post("/api/projects/:id/assignments", async (request) => {
@@ -680,3 +840,9 @@ export async function buildApp({ db, config }: AppDependencies): Promise<Fastify
   return app;
 }
 
+
+declare module "fastify" {
+  interface FastifyRequest {
+    writeRegistrationId?: string;
+  }
+}

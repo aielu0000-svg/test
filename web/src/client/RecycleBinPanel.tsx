@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 type TrashType = "test-cases" | "folders" | "scenarios" | "data-sets" | "test-runs" | "evidence" | "procedures";
-interface TrashItem { id: string; label: string; deletedAt?: string | null; reason?: string | null }
+interface TrashItem { id: string; version: number; label: string; deletedAt?: string | null; reason?: string | null }
 
 const labels: Record<TrashType, string> = {
   "test-cases": "テストケース",
@@ -14,10 +14,13 @@ const labels: Record<TrashType, string> = {
 };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("X-The-Test-Request", "1");
+  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
     ...init,
+    headers,
   });
   const payload = await response.json().catch(() => ({})) as { error?: { message?: string } };
   if (!response.ok) throw new Error(payload.error?.message ?? "通信に失敗しました。");
@@ -28,6 +31,7 @@ function rows(value: Record<string, unknown>, key: string, labelKey: string): Tr
   const source = Array.isArray(value[key]) ? value[key] as Array<Record<string, unknown>> : [];
   return source.map((item) => ({
     id: String(item.id),
+    version: Number(item.version),
     label: String(item[labelKey] ?? item.original_filename ?? item.id),
     deletedAt: String(item.deletedAt ?? item.deleted_at ?? ""),
     reason: String(item.deleteReason ?? item.delete_reason ?? ""),
@@ -44,7 +48,6 @@ async function allDeletedEvidence(projectId: string): Promise<Record<string, unk
     if (page.evidence.length < limit) return { evidence };
   }
 }
-
 
 export function RecycleBinPanel({ projectId, canEdit, onChanged }: {
   projectId: string;
@@ -85,7 +88,7 @@ export function RecycleBinPanel({ projectId, canEdit, onChanged }: {
   async function restore(type: TrashType, item: TrashItem) {
     setMessage("復元中…");
     try {
-      await api(`/api/${type}/${item.id}/restore`, { method: "POST", body: JSON.stringify({ projectId }) });
+      await api(`/api/${type}/${item.id}/restore`, { method: "POST", body: JSON.stringify({ projectId, version: item.version }) });
       setMessage(`${labels[type]}「${item.label}」を復元しました。`);
       await Promise.all([refresh(), onChanged()]);
     } catch (error) {

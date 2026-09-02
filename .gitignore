@@ -8,6 +8,12 @@ npm-debug.log*
 *.sqlite
 attachments/
 
+# Local environment secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
 # Build artifacts
 *.exe
 *.blockmap
@@ -28,3 +34,8 @@ dist-web/
 
 # テスト実行結果
 web/test-results/
+
+# Web runtime and verification data
+web/data/
+web/.ci/
+web/playwright-report/

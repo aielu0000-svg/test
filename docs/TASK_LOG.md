@@ -1,205 +1,90 @@
 # Task Log
 
-## TASK-20260801-001: 既存DB Migration補修と主要導線検証
+> 2026-09-02にログを再継続ファイル化した。2026-08-06以前の記録は `TASK_LOG_ARCHIVE_20260806.md`、2026-08-07〜2026-09-01の記録は `TASK_LOG_ARCHIVE_20260901.md` に内容を変更せず保存している。本ファイルへ以後の作業を追記する。
 
-- 開始日: 2026-08-01 JST
-- 完了日: 2026-08-03 JST
-- 対応課題: ISSUE-20260801-001, ISSUE-20260801-002, ISSUE-20260801-003
-- 状態: Completed
+## TASK-20260902-001: 証跡成功メッセージ余白・カード影の調整
 
-### 発生したこと
-
-- 適用済みと記録されたMigrationと実スキーマが一致せず、既存DBで保存時に列不足エラーが発生した。
-- 実行作成、連続保存、証跡、完了後更新、ログアウトの実ブラウザ検証が不足していた。
-- 見る場所画像で申告MIME依存と未関連ファイル回収の安全性が不足していた。
-
-### 原因
-
-- 適用済みMigrationファイルへの後追い変更により、Migration履歴とDB構造が乖離した。
-- 保存応答後のstate同期と実MariaDB・Chromiumを使う検証環境が不足した。
-- 画像実体検証と回収状態の管理が不足した。
-
-### 実施内容
-
-- 補修Migration 011と起動時スキーマ構造検証を追加した。
-- run state同期、開始拒否監査、完了後更新方針Aを実装した。
-- Sharpによる画像実体検証、SVG拒否、参照確認付き回収を実装した。
-- E2Eを機能別specへ分割した。
-
-### 検証
-
-- TypeCheck: 成功
-- Unit/API: 成功
-- MariaDB統合: 成功
-- Build: 成功
-- Chromium E2E: 後続の独立CIタスクで実施
-
-### 結果
-
-- 既存DB補修、主要導線、画像実体検証を実装した。
-- Chromium本走はTASK-20260803-002へ引き継いだ。
-
-## TASK-20260801-002: codex-review利用可否と代替レビュー規則
-
-- 開始日: 2026-08-01 JST
-- 完了日: 2026-08-01 JST
-- 対応課題: ISSUE-20260801-004
-- 状態: Completed
-
-### 発生したこと
-
-- `codex review`はリポジトリ内容を外部サービスへ送信するため、安全制約により実行が拒否された。
-
-### 対応
-
-- 本環境では`codex-review`を使用しない。
-- 外部送信を回避し、ローカル差分確認、仕様照合、静的解析、自動テスト、実DB・実ブラウザ確認を代替レビューとする。
-- 外部送信が必要な場合は、送信対象とリスクを説明し、事前の明示承認を必要とする。
-
-### 更新
-
-- `docs/codex-development-operation-rules.md`
-- `docs/AI_REVIEW_HISTORY.md`
-- `docs/ISSUE_LEDGER.md`
-
-## TASK-20260803-001: Review 9初回修正
-
-- 開始日: 2026-08-03 JST
-- 完了日: 2026-08-03 JST
-- 対応課題: ISSUE-20260803-001〜011
-- 状態: Completed with follow-up
-
-### 発生したこと
-
-- BIGINTのJSON化、合格率、409競合、完了後編集、シナリオ状態、PNG再エンコード、スキーマ検証、E2E構造、文書整合性にReview 9指摘があった。
-
-### 実施内容
-
-- BIGINT共通正規化を実装した。
-- 合格率を`pass / (pass + fail + blocked)`へ統一した。
-- run versionマージ、完了後編集方針A、シナリオ自動集計、Sharp PNG再エンコード、構造スキーマ検証を追加した。
-- E2Eを9機能別spec・10テストへ分割した。
-
-### 初回検証
-
-- TypeCheck: 成功
-- Unit/API: 26件成功
-- MariaDB統合: 成功
-- Build: 成功
-- Chromium E2E: 資格情報不足で未完了
-
-### 後続課題
-
-- 独立CI環境での本走
-- ケース保存応答を含む単調versionマージ
-- 409復旧UIの3操作
-- 編集画像失敗時のサムネイル回収
-- 仕様版管理と台帳正規化
-
-## TASK-20260803-002: GitHub Actions独立検証環境
-
-- 開始日: 2026-08-03 JST
-- 完了日: 2026-08-03 JST
-- 対象: Pull Request #1 / `codex/web-review`
-- 状態: Completed
-
-### 発生したこと
-
-1. 初回CIでは`006_phase4_evidence_procedures.sql`の照合順序不一致により外部キー作成が失敗した。
-2. 次回CIでは空bodyのログアウトにJSON Content-Typeを付与したためFastifyが500を返した。
-3. E2Eの戻る操作、警告文言、要素指定にテスト設計上の誤りがあった。
-
-### 原因
-
-- Migrationで親子テーブルの`utf8mb4_unicode_ci`指定が統一されていなかった。
-- APIクライアントがbodyの有無に関係なくJSON Content-Typeを付与した。
-- E2Eがブラウザ履歴とDOMの実構造を正確に限定していなかった。
-
-### 実施内容
-
-- 006の4テーブルへcharset/collationを明示した。
-- 異なるDB既定照合順序でMigrationを実行する統合テストを追加した。
-- bodyがある場合だけJSON Content-Typeを付与するよう修正した。
-- 認証・テスト設計E2Eを修正した。
-- MariaDB統合テスト2件をCIで実行するよう変更した。
-
-### 検証結果
-
-GitHub Actions run `30799180203`:
-
-- TypeCheck: 成功
-- Unit/API: 26件成功
-- MariaDB統合: 2件成功
-- Build: 成功
-- Web起動・readiness: 成功
-- Chromium E2E: 10件成功
-- DBダンプ・監査ログ・Playwright成果物: 保存成功
-
-## TASK-20260803-003: Review 9残件修正と完了確認
-
-- 開始日時: 2026-08-03 19:04 JST
-- 完了日時: 2026-08-03 19:20 JST
-- 対応課題: ISSUE-20260803-003, ISSUE-20260803-004, ISSUE-20260803-005, ISSUE-20260803-007, ISSUE-20260803-009, ISSUE-20260803-011
-- 状態: Completed
+- 開始日時: 2026-09-02 11:27 JST
+- 完了日時: 2026-09-02 11:40 JST
+- 対応課題: ISSUE-20260902-001
+- 担当: ChatGPT
+- 状態: Completed / Verified（利用者確認で追修正が必要となりTASK-20260902-002へ継続）
 
 ### 作業前の状態
 
-- 既存CIは成功していたが、ケース保存応答がrun/case stateを直接上書きしていた。
-- 409競合時は入力控え表示だけで、再読込・コピー・差分確認の操作が不足していた。
-- 編集画像のDB更新失敗時にJPEGサムネイルが残る経路があった。
-- 確定仕様書の変更履歴とReview 9の最終検証記録が不足していた。
+- 利用者確認で、証跡登録後の緑色成功メッセージが直前の証跡カードへ詰まって見えることが判明した。
+- 証跡カードだけに独自の薄い影があり、周辺のborder中心のカード表現から浮いて見えていた。
+- 期待動作は、成功メッセージの上に明確な余白があり、証跡カードは周囲と同様にborderだけで区切られること。
 
-### 確定原因
+### 調査内容
 
-- 単調versionマージが証跡更新経路に限定され、ケース保存経路へ共通適用されていなかった。
-- 競合復旧を自動再読込だけで実装し、利用者が操作できる復旧UIとして設計していなかった。
-- 例外処理で一時ファイルとPNG本体だけを削除し、後から生成したサムネイルを削除対象へ含めていなかった。
-- 仕様変更時の版上げと台帳更新がDefinition of Doneへ反映されていなかった。
+- 作業開始時に製品基準commit `fbfd40a21a7f2e38c3ad27f7245b1c1a5a0c9db4` とbranch headを比較し、差分が課題管理・コードマップだけで製品コードのドリフトがないことを確認した。
+- `docs/codemap/codemap.json`と実ソースから変更対象を確認した。
 
 ### 実施内容
 
-- `runUpdateMerge.ts`を追加し、runとrun caseへ単調versionマージを適用した。
-- 古いrun応答、古いcase応答、完了後更新metadata保持の単体テストを追加した。
-- 409競合UIへ「最新状態を再読み込み」「現在入力をコピー」「差分を確認」を追加した。
-- 競合時の入力控えを、再読込後も保持するよう変更した。
-- Chromium用`run-conflict.spec.ts`を追加した。
-- 画像編集失敗時に一時ファイル、PNG本体、JPEGサムネイルを回収し、回収失敗を構造化ログへ出力するよう変更した。
-- 確定仕様v1.1.0を追加し、単調versionマージ、409復旧UI、画像回収、独立CI条件を明文化した。
-- Issue LedgerとTask Logを正規化した。
+- 製品commit `9a93fd2fef278d5a179f6d9539250a90dde9e723`（`証跡カードの影と成功メッセージ余白を調整`）で`.evidence-card`のshadowを削除し、`.evidence-panel > .success-message`へ上余白を追加した。
+- DB/Migration/API変更なし。
 
-### 変更ファイル
+### 検証
 
-- `web/src/client/runUpdateMerge.ts`
-- `web/src/client/runUpdateMerge.test.ts`
-- `web/src/client/OperationsWorkspaceV2.tsx`
-- `web/src/server/routes/evidenceDerived.ts`
-- `web/e2e/run-conflict.spec.ts`
-- `the-test-web-confirmed-spec-v1.1.0.md`
-- `docs/ISSUE_LEDGER.md`
-- `docs/TASK_LOG.md`
-
-### 独立検証結果
-
-GitHub Actions run `30804989151`:
-
-- TypeCheck: 成功
-- Unit/API: 29件成功
-  - 単調versionマージ単体テスト3件を含む
-- MariaDB統合: 2件成功
-  - 新規・補修MigrationとAPI統合
-  - DB既定照合順序差異の再発防止
-- Build: 成功
-- Web起動・readiness: 成功
-- Chromium E2E: 11件成功
-  - 409競合時の再読込・入力コピー・差分確認を含む
-- DBダンプ: 保存成功
-- 監査ログ・テーブル件数: 保存成功
-- Playwright HTMLレポート: 保存成功
-- Artifact: `web-ci-30804989151-1`（ID `8852421312`）
+GitHub Actions run `33583803359`でTypeCheck、Unit/API 55件成功・2件skip、MariaDB統合2件、Migration/Schema validation、Backup/restore/retention、Build、OpenShift互換コンテナ、任意UID/read-only root filesystem、Chromium E2E 24件が成功した。
 
 ### 結果
 
-- Review 9の対象課題はすべて実装・独立検証済みとして完了した。
-- フォルダのエクスプローラー操作はReview 9対象外のP2として継続する。
-- OS権限によるファイル削除失敗の強制注入は、追加の堅牢化候補として残す。現在の実装は回収失敗を構造化ログへ記録し、黙って成功扱いにしない。
-- GitHub Actionsの一部公式ActionについてNode.js 20ランタイム廃止警告がある。アプリ自体はNode.js 20.20.0で検証済みだが、Actionの次期メジャー版への更新は運用保守項目とする。
+- 初回自動検証は成功したが、利用者確認で外側の`.evidence-panel`に共通`.panel`由来のshadowが残っていること、エラー文へ同じ余白が適用されていないことが判明したため追修正する。
+
+## TASK-20260902-002: sanitize-html advisory解消と証跡表示追修正
+
+- 開始日時: 2026-09-02 13:20 JST
+- 完了日時: 未完了
+- 対応課題: ISSUE-20260902-001, ISSUE-20260902-002
+- 担当: ChatGPT
+- 状態: In Progress
+
+### 作業前の状態
+
+- Web CIの`npm audit`で`sanitize-html` 2.17.5にGHSA-g8qq-57p8-ggw5（moderate）が1件残っていた。
+- 証跡カード自体のshadowは除去済みだが、外側の`section.panel.evidence-panel`が共通`.panel`のshadowを継承していた。
+- 証跡パネル直下の成功メッセージだけに1remの上余白があり、同位置に表示されるエラー文には余白がなかった。
+
+### 調査内容
+
+- 作業開始時にbranchと`docs/codemap/codemap.lock`を比較し、lockが`fbfd40a...`を指しており現製品headとの差分を答えられないため、コード変更前にcodemap 3ファイルを再生成した。
+- コードマップと実ソースで変更対象を確認した。
+  - UI呼び出し元: `Workspace.tsx` → `RunWorkspace.tsx` → EvidencePanel。`main.tsx`がCSSをロードする。
+  - UI影響先: 証跡パネルのshadowと直下success/error messageの余白のみ。証跡API/DB/保存処理には影響しない。
+  - UIテスト: `web/e2e/evidence.spec.ts`, `web/e2e/completed-run-evidence.spec.ts`。
+  - sanitizer呼び出し元: `web/src/server/routes/evidence.ts`の`GET /api/procedures/:id`が`renderSafeMarkdown`を呼び、クライアントの手順書プレビューへ安全化済みHTMLを返す。
+  - sanitizer影響先: `web/src/server/markdown.ts`, dependency manifests, Web Node runtime。
+  - sanitizerテスト: `web/src/server/markdown.test.ts`とWeb CI全工程。
+- 修正版`sanitize-html` 2.17.7がNode >=22.12.0を要求することを確認したため、Web runtimeをNode 22.12.0へ同時更新する方針とした。
+
+### 実施内容
+
+- 進行中。`sanitize-html` 2.17.7へのlock生成、Node 22.12.0へのruntime更新、証跡パネル専用CSS、Unit/E2E回帰追加を同一製品変更としてまとめる。
+- DB変更: なし。
+- Migration: なし。
+- API契約変更: なし。
+
+### 作業中に発生したこと
+
+- 正しいnpm lockfile生成のため一時GitHub Actions workflowを利用した。一時workflow/生成commitは最終branch履歴へ残さず、コードマップ再同期commitを親にしたclean product commitへ履歴を整理する予定。
+
+### 検証
+
+- TypeCheck: 未実施
+- Unit Test: 未実施
+- Integration Test: 未実施
+- Build: 未実施
+- E2E: 未実施
+- 手動確認: 未実施
+- DB確認: DB変更なし
+- セキュリティ確認: 実装後に`npm audit --audit-level=moderate`で確認予定
+
+### 結果
+
+- 解消した内容: 実装・検証中
+- 解消していない内容: CIによる最終検証
+- 残るリスク: Node major更新を含むため全Web CI工程の確認が必要
+- 次のタスク: 製品commit作成後に独立CIを確認し、課題台帳・codemap lockを確定する

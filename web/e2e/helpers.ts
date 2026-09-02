@@ -37,11 +37,27 @@ export async function createProject(page: Page, projectName = unique("E2E プロ
   return projectName;
 }
 
+async function assignFirstUserToProject(page: Page, projectName: string): Promise<void> {
+  await page.getByRole("button", { name: "← プロジェクト" }).click();
+  await page.getByRole("button", { name: "ユーザー管理", exact: true }).click();
+  const userSelect = page.getByLabel("ユーザーを選択");
+  const userId = await userSelect.locator("option").first().getAttribute("value");
+  if (!userId) throw new Error("E2E用ユーザーが見つかりません。");
+  await userSelect.selectOption(userId);
+  await page.getByRole("checkbox", { name: projectName, exact: true }).check();
+  await page.getByRole("button", { name: "選択内容を割り当て", exact: true }).click();
+  await expect(page.getByText(/割当を\d+件追加しました/)).toBeVisible();
+  await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
+  const project = page.locator("article.project-card").filter({ has: page.getByRole("heading", { name: projectName, exact: true }) });
+  await project.getByRole("button", { name: "開く" }).click();
+}
+
 export interface StartedRun {
   projectName: string;
   testName: string;
   runName: string;
   caseNames: string[];
+  assigneeId?: string;
 }
 
 export async function createTestDesign(page: Page, caseCount = 1): Promise<{ testName: string; caseNames: string[] }> {
@@ -49,40 +65,50 @@ export async function createTestDesign(page: Page, caseCount = 1): Promise<{ tes
   const testName = `E2E テスト ${suffix}`;
   const caseNames = Array.from({ length: caseCount }, (_, index) => `E2E 確認項目 ${index + 1} ${suffix}`);
   await page.getByRole("button", { name: "＋ 新規", exact: true }).click();
+  await page.getByRole("tab", { name: "基本情報", exact: true }).click();
   await page.getByLabel("テスト名").fill(testName);
+  await page.getByRole("tab", { name: /確認項目/ }).click();
   await page.getByLabel("確認項目名 1").fill(caseNames[0]!);
-  await page.getByLabel("操作 1", { exact: true }).fill("対象画面を開く");
-  await page.getByLabel("期待結果 1", { exact: true }).fill("対象画面が表示される");
+  await page.getByLabel("詳細操作 1", { exact: true }).fill("対象画面を開く");
+  await page.getByLabel("詳細期待結果 1", { exact: true }).fill("対象画面が表示される");
   for (let index = 1; index < caseCount; index += 1) {
-    await page.getByRole("button", { name: "＋ 新しい確認項目" }).click();
+    await page.getByRole("button", { name: "＋ 確認項目", exact: true }).click();
     await page.getByLabel(`確認項目名 ${index + 1}`).fill(caseNames[index]!);
-    await page.getByLabel(`操作 ${index + 1}`, { exact: true }).fill(`操作 ${index + 1}`);
-    await page.getByLabel(`期待結果 ${index + 1}`, { exact: true }).fill(`期待結果 ${index + 1}`);
+    await page.getByLabel("詳細操作 1", { exact: true }).fill(`操作 ${index + 1}`);
+    await page.getByLabel("詳細期待結果 1", { exact: true }).fill(`期待結果 ${index + 1}`);
   }
-  await page.getByRole("button", { name: "テスト全体を保存" }).click();
+  await page.locator(".design-action-save").click();
   await expect(page.getByText("テスト全体を保存しました。")).toBeVisible();
   return { testName, caseNames };
 }
 
-export async function createStartedRun(page: Page, caseCount = 1): Promise<StartedRun> {
+export async function createStartedRun(page: Page, caseCount = 1, assignFirstAssignee = false): Promise<StartedRun> {
   await login(page);
   const projectName = await createProject(page);
+  if (assignFirstAssignee) await assignFirstUserToProject(page, projectName);
   const { testName, caseNames } = await createTestDesign(page, caseCount);
   const runName = unique("E2E 実行");
-  await page.getByRole("button", { name: "テスト実行へ" }).click();
+  await page.getByRole("button", { name: "このテストで実行を作成" }).click();
   await page.getByLabel("実行名").fill(runName);
+  let assigneeId: string | undefined;
+  if (assignFirstAssignee) {
+    const assignee = page.getByLabel("担当者").first();
+    assigneeId = await assignee.locator("option").evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value).find(Boolean));
+    if (!assigneeId) throw new Error("E2E用プロジェクトに担当者候補がありません。");
+    await assignee.selectOption(assigneeId);
+  }
   await page.getByRole("button", { name: "実行準備を保存" }).click();
   await expect(page.getByRole("heading", { name: runName })).toBeVisible();
   await page.getByRole("button", { name: "実行を開始" }).click();
   await expect(page.locator(".focused-run-case").getByRole("heading", { name: caseNames[0]!, exact: true })).toBeVisible();
-  return { projectName, testName, runName, caseNames };
+  return { projectName, testName, runName, caseNames, assigneeId };
 }
 
 export async function savePass(page: Page, caseName: string, next = false): Promise<void> {
   const execution = page.locator(".focused-run-case");
   await expect(execution.getByRole("heading", { name: caseName, exact: true })).toBeVisible();
   await execution.getByRole("button", { name: "合格", exact: true }).click();
-  await execution.getByRole("button", { name: next ? "保存して次へ →" : "保存", exact: true }).click();
+  await execution.getByRole("button", { name: next ? "保存して次の未実行へ →" : "保存", exact: true }).click();
   await expect(execution.locator(".save-state")).toContainText("保存済み");
 }
 
@@ -97,9 +123,11 @@ export async function uploadPngEvidence(page: Page, filename = "evidence.png"): 
 
 export async function completeRun(page: Page): Promise<void> {
   const execution = page.locator(".focused-run-case");
-  const complete = execution.getByRole("button", { name: "テストを完了", exact: true });
+  await execution.getByRole("button", { name: "完了内容を確認", exact: true }).click();
+  const review = page.getByRole("dialog", { name: "完了前チェック" });
+  await expect(review).toBeVisible();
+  const complete = review.getByRole("button", { name: "テストを完了", exact: true });
   await expect(complete).toBeEnabled();
-  page.once("dialog", (dialog) => dialog.accept());
   await complete.click();
   await expect(page.getByText(/この実行は完了済みです/)).toBeVisible();
 }

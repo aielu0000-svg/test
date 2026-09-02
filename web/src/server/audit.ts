@@ -14,6 +14,11 @@ export interface AuditInput {
   errorCode?: string | null;
 }
 
+export interface AuditOptions {
+  /** Persist the event outside the current request transaction. Use only for rejected operations. */
+  independent?: boolean;
+}
+
 function json(value: unknown): string | null {
   return value === undefined || value === null ? null : JSON.stringify(value);
 }
@@ -23,8 +28,10 @@ export async function writeAudit(
   request: FastifyRequest,
   user: AuthUser | null,
   input: AuditInput,
+  options: AuditOptions = {},
 ): Promise<void> {
-  await db.execute(
+  const execute = options.independent && db.executeIndependent ? db.executeIndependent.bind(db) : db.execute.bind(db);
+  await execute(
     `INSERT INTO audit_logs
       (id, user_id, username, project_id, action, entity_type, entity_id,
        before_json, after_json, request_id, client_ip, user_agent, success, error_code)

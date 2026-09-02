@@ -1,0 +1,22 @@
+{
+  "current_commit": "3cccd9185e32ec13952a3f313dbc4969e0323871",
+  "current_commit_tree": "3b166f84355fd4c73c89de50579da08f3fef12b5",
+  "working_tree_has_uncommitted_changes": false,
+  "generation_time": "2026-09-02T14:32+09:00",
+  "generation_basis": "Regenerated before replacing evidence feedback wording inference with explicit success/error state. Current merge-result Web CI run 33594831643 is fully green.",
+  "dependency_boundary": {"sanitize-html":"2.17.7","node":"22.12.0","audit_level":"moderate"},
+  "evidence_ui_behavior": {
+    "evidence_panel_shadow": "none",
+    "evidence_card_shadow": "none",
+    "direct_success_message_margin_top": "var(--space-4, 1rem)",
+    "direct_error_message_margin_top": "var(--space-4, 1rem)",
+    "feedback_severity_current_defect": "message.includes('しました') can classify failure wording as success"
+  },
+  "previous_lock_commit": "d20cb107bf450fec4992b7c12924700437f79ce1",
+  "latest_verification": {
+    "workflow":"Web CI","run_id":33594831643,
+    "audit_moderate":"passed; 0 vulnerabilities","typecheck":"passed","unit_api":"56 passed, 2 skipped","mariadb_integration":"2 passed","migration_schema":"passed","backup_restore_retention":"passed","build":"passed","container":"passed","chromium_e2e":"24 passed",
+    "artifact":"web-ci-33594831643-1","artifact_id":9833079825,"artifact_sha256":"c94b733b00d00c34bf20768b5f1aab3ca7b98f67175e82df4b9d3ac2a7c9e64d","artifact_size":484818
+  },
+  "excluded_generated_codemap_from_fingerprints": true
+}

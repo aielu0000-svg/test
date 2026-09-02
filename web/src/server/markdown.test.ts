@@ -14,4 +14,12 @@ describe("safe markdown", () => {
     expect(html).not.toContain("<img");
     expect(html).not.toContain("javascript:");
   });
+
+  it("removes SVG SMIL animation payloads used by the sanitize-html advisory", () => {
+    const html = renderSafeMarkdown('<svg><animate attributeName="href" values="https://example.com;javascript:alert(1)"></animate></svg>');
+    expect(html).not.toContain("<svg");
+    expect(html).not.toContain("<animate");
+    expect(html).not.toContain("attributeName");
+    expect(html).not.toContain("javascript:");
+  });
 });

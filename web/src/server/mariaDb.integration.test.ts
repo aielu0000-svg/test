@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
+import { appendFile, copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import mariadb, { type Pool } from "mariadb";
@@ -84,6 +84,21 @@ describe.runIf(enabled)("MariaDB migrations and scenario editor", () => {
       expect(projectResponse.statusCode).toBe(200);
       const projectId = (JSON.parse(projectResponse.body) as { id: string }).id;
 
+      const duplicateProject = await app.inject({ method: "POST", url: "/api/projects", headers: { cookie: String(cookie) }, payload: { name: "integration project", description: "duplicate" } });
+      expect(duplicateProject.statusCode).toBe(409);
+
+      await fresh.db.execute("CREATE TRIGGER integration_fail_audit BEFORE INSERT ON audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced audit failure'");
+      const failedAtomicUpdate = await app.inject({ method: "PATCH", url: `/api/projects/${projectId}`, headers: { cookie: String(cookie) }, payload: { version: 1, name: "must roll back", description: "audit fails" } });
+      expect(failedAtomicUpdate.statusCode).toBe(500);
+      await fresh.db.execute("DROP TRIGGER integration_fail_audit");
+      const projectAfterAuditFailure = (await fresh.db.query<{ name: string; version: number }>("SELECT name, version FROM projects WHERE id = ?", [projectId]))[0];
+      expect(projectAfterAuditFailure).toEqual({ name: "integration project", version: 1 });
+
+      const adminBefore = (await fresh.db.query<{ id: string; version: number }>("SELECT id, version FROM users WHERE username = ? LIMIT 1", ["integration-admin"]))[0];
+      const removeLastAdmin = await app.inject({ method: "PATCH", url: `/api/users/${adminBefore.id}`, headers: { cookie: String(cookie) }, payload: { version: Number(adminBefore.version), username: "integration-admin", displayName: "", role: "executor", enabled: true } });
+      expect(removeLastAdmin.statusCode).toBe(400);
+      expect(removeLastAdmin.body).toContain("最後の有効な管理者");
+
       const saveResponse = await app.inject({
         method: "POST",
         url: "/api/scenario-editor/save",
@@ -134,7 +149,15 @@ describe.runIf(enabled)("MariaDB migrations and scenario editor", () => {
       const firstSave = await app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: { projectId, version: runCase.version, status: "pass", actualResult: "pass", notes: "", assigneeId: adminId, executedAt: null } });
       expect(firstSave.statusCode).toBe(200);
       const firstSaved = JSON.parse(firstSave.body) as { runCase: { version: number } };
-      const stalePayload = { projectId, version: firstSaved.runCase.version, status: "pass", actualResult: "pass", notes: "stale write", assigneeId: adminId, executedAt: null };
+      const resetToNotRun = await app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: { projectId, version: firstSaved.runCase.version, status: "not_run", actualResult: "", notes: "", assigneeId: adminId, executedAt: null } });
+      expect(resetToNotRun.statusCode).toBe(200);
+      const resetBody = JSON.parse(resetToNotRun.body) as { runCase: { version: number } };
+      const resetRow = (await fresh.db.query<{ executed_at: string | Date | null }>("SELECT executed_at FROM run_case_snapshots WHERE id = ?", [runCase.id]))[0];
+      expect(resetRow?.executed_at).toBeNull();
+      const passAgain = await app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: { projectId, version: resetBody.runCase.version, status: "pass", actualResult: "pass again", notes: "", assigneeId: adminId, executedAt: null } });
+      expect(passAgain.statusCode).toBe(200);
+      const passAgainBody = JSON.parse(passAgain.body) as { runCase: { version: number } };
+      const stalePayload = { projectId, version: passAgainBody.runCase.version, status: "pass", actualResult: "pass", notes: "stale write", assigneeId: adminId, executedAt: null };
       const staleResponses = await Promise.all([
         app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: stalePayload }),
         app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: stalePayload }),
@@ -151,12 +174,24 @@ describe.runIf(enabled)("MariaDB migrations and scenario editor", () => {
       expect(completion.statusCode).toBe(200);
       const postCompletionSave = await app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: { projectId, version: savedCase.runCase.version, status: "fail", actualResult: "post completion failure", notes: "scope A only" } });
       expect(postCompletionSave.statusCode).toBe(200);
-      const postCompletionBody = JSON.parse(postCompletionSave.body) as { run: { version: number; postCompletionUpdatedAt: string | null }; runCase: { status: string; actual_result: string } };
+      const postCompletionBody = JSON.parse(postCompletionSave.body) as { run: { version: number; postCompletionUpdatedAt: string | null }; runCase: { status: string; actual_result: string; version: number } };
       expect(postCompletionBody.run.version).toBeGreaterThan(runVersion);
       expect(postCompletionBody.run.postCompletionUpdatedAt).toBeTruthy();
       expect(postCompletionBody.runCase).toMatchObject({ status: "fail", actual_result: "post completion failure" });
+      const rejectedFinalRollback = await app.inject({ method: "PATCH", url: `/api/run-cases/${runCase.id}`, headers: { cookie: String(cookie) }, payload: { projectId, version: postCompletionBody.runCase.version, status: "not_run", actualResult: "", notes: "" } });
+      expect(rejectedFinalRollback.statusCode).toBe(400);
+      expect(rejectedFinalRollback.body).toContain("pass、fail、blocked、skip");
       const afterCompletion = (await fresh.db.query<{ assignee_id: string | null; executed_at: string | Date | null }>("SELECT assignee_id, executed_at FROM run_case_snapshots WHERE id = ?", [runCase.id]))[0];
       expect(afterCompletion).toEqual(beforeCompletion);
+
+      const archiveProjectResponse = await app.inject({ method: "POST", url: `/api/projects/${projectId}/archive`, headers: { cookie: String(cookie) }, payload: { version: 1 } });
+      expect(archiveProjectResponse.statusCode).toBe(200);
+      const deleteProjectResponse = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}`, headers: { cookie: String(cookie) }, payload: { version: 2, confirmationName: "integration project", reason: "" } });
+      expect(deleteProjectResponse.statusCode).toBe(200);
+      const deletedProjectRows = await fresh.db.query<{ count: number }>("SELECT COUNT(*) AS count FROM projects WHERE id = ?", [projectId]);
+      expect(Number(deletedProjectRows[0]?.count ?? 0)).toBe(0);
+      const deletionAudit = await fresh.db.query<{ count: number }>("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = ? AND action = 'project_permanently_deleted'", [projectId]);
+      expect(Number(deletionAudit[0]?.count ?? 0)).toBe(1);
     } finally {
       await app.close();
     }
@@ -169,13 +204,18 @@ describe.runIf(enabled)("MariaDB migrations and scenario editor", () => {
       await copyMigrations(partialDirectory, ["001", "002", "003", "004", "005", "006", "007", "009", "010"]);
       await runMigrations(repair.db, partialDirectory);
       await repair.db.execute("INSERT INTO schema_migrations (id) VALUES ('008_ui_workflow.sql')");
-      await copyMigrations(partialDirectory, ["011", "012"]);
+      await copyMigrations(partialDirectory, ["011", "012", "013"]);
       await runMigrations(repair.db, partialDirectory);
       await validateSchema(repair.db, repairedName);
       const firstVersion = await repair.db.query<{ applied_at: string }>("SELECT applied_at FROM schema_migrations WHERE id = '011_repair_ui_workflow_columns.sql'");
       await runMigrations(repair.db, partialDirectory);
       const secondVersion = await repair.db.query<{ applied_at: string }>("SELECT applied_at FROM schema_migrations WHERE id = '011_repair_ui_workflow_columns.sql'");
       expect(secondVersion).toEqual(firstVersion);
+      const copiedFiles = await readdir(partialDirectory);
+      const migration12 = copiedFiles.find((entry) => entry.startsWith("012_"));
+      expect(migration12).toBeTruthy();
+      await appendFile(path.join(partialDirectory, migration12!), "\n-- unauthorized edit\n");
+      await expect(runMigrations(repair.db, partialDirectory)).rejects.toThrow("has changed");
     } finally {
       await rm(partialDirectory, { recursive: true, force: true });
       await destroyDatabaseForTest(repairedName);

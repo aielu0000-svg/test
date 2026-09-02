@@ -1,0 +1,8 @@
+.panel.evidence-panel {
+  box-shadow: none;
+}
+
+.panel.evidence-panel > .success-message,
+.panel.evidence-panel > .error-message {
+  margin-top: var(--space-4, 1rem);
+}

@@ -2,7 +2,7 @@ import type { FastifyRequest } from "fastify";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../db.js";
 import { requireUser } from "../auth.js";
-import { badRequest } from "../errors.js";
+import { ApiError, badRequest } from "../errors.js";
 import { requireProjectEdit, requireProjectRead } from "../access.js";
 
 export function objectBody(request: FastifyRequest): Record<string, unknown> {
@@ -69,7 +69,10 @@ export async function authenticatedProject(
   return user;
 }
 
-export function parseJson<T>(value: string | null | undefined, fallback: T): T {
+export function parseJson<T>(value: string | null | undefined, fallback: T, field = "stored JSON"): T {
   if (!value) return fallback;
-  try { return JSON.parse(value) as T; } catch { return fallback; }
+  try { return JSON.parse(value) as T; }
+  catch (error) {
+    throw new ApiError(500, "CORRUPT_STORED_JSON", `${field}の保存データが破損しています。`, { cause: String(error) });
+  }
 }

@@ -1,0 +1,30 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: the-test-web
+  labels:
+    app.kubernetes.io/name: the-test-web
+    app.kubernetes.io/part-of: the-test
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: the-test-web
+  labels:
+    app.kubernetes.io/name: the-test-web
+    app.kubernetes.io/part-of: the-test
+spec:
+  runPolicy: SerialLatestOnly
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: web/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: the-test-web:latest
+  successfulBuildsHistoryLimit: 3
+  failedBuildsHistoryLimit: 3

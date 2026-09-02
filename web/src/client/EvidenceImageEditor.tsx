@@ -216,6 +216,7 @@ export function EvidenceImageEditor({ projectId, evidenceId, filename, onClose, 
       method: "POST",
       body: form,
       credentials: "same-origin",
+      headers: { "X-The-Test-Request": "1" },
     });
     const payload = await response.json().catch(() => ({})) as { error?: { message?: string }; run?: { id: string; version: number; postCompletionUpdatedAt?: string | null; postCompletionUpdatedBy?: string | null } | null };
     if (!response.ok) return setMessage(payload.error?.message ?? "保存に失敗しました。");
